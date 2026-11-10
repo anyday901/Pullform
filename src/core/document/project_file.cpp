@@ -254,12 +254,14 @@ fs::path resolveSaveTarget(const fs::path& path) {
     return p;
 }
 
+/// Random part of the temporary file name. The file is always created
+/// exclusively (O_EXCL / CREATE_NEW), so the name only has to make clashes rare.
 std::string tempSuffix() {
-    static thread_local std::mt19937 rng{std::random_device{}()};
+    std::random_device rd;
     static constexpr char kDigits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
     std::string s = ".tmp-";
     std::uniform_int_distribution<int> pick(0, 35);
-    for (int i = 0; i < 8; ++i) s += kDigits[pick(rng)];
+    for (int i = 0; i < 8; ++i) s += kDigits[pick(rd)];
     return s;
 }
 
