@@ -354,7 +354,8 @@ void App::handleShortcuts() {
     for (int i = 0; i < io.InputQueueCharacters.Size; ++i) {
         const unsigned int c = io.InputQueueCharacters[i];
         const bool starts = (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '+';
-        if (typing || starts) {
+        // Recheck per character: a digit earlier in this same batch starts the value.
+        if (ui_.hasMeasurementText() || starts) {
             ui_.typeMeasurement(c);
             onActivity();
         }
