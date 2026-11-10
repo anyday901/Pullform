@@ -2,17 +2,17 @@
 
 #include "app/tools/tool_controller.hpp"
 #include "app/viewport/camera.hpp"
+#include "app/viewport/mesh_cache.hpp"
 #include "app/viewport/renderer.hpp"
 #include "core/commands/editor.hpp"
 
-#include <map>
 #include <optional>
 
 namespace pf {
 
 /// The 3D modeling view: camera, derived GPU meshes, picking and drawing of
 /// the grid, axes, objects, highlights and previews. Meshes are rebuilt only
-/// for objects whose immutable document entry changed.
+/// for objects whose immutable document entry changed (see MeshCache).
 class Viewport {
 public:
     explicit Viewport(Renderer& renderer);
@@ -42,20 +42,15 @@ public:
     [[nodiscard]] double gridStep() const { return gridStep_; }
 
 private:
-    struct CachedMesh {
-        ObjectPtr source; ///< the document entry the mesh was built from
-        MeshData mesh;
-        MeshHandle handle = kNoMesh;
-    };
+    using CachedMesh = MeshCache::Entry;
 
-    void sync(const Document& document);
     void drawGrid(std::vector<LineSegment>& lines);
     static void appendEdges(std::vector<LineSegment>& lines, const MeshData& mesh, const glm::vec4& color);
     void drawFaceOverlay(const CachedMesh& cached, const FaceId& face, const glm::vec4& color);
 
     Renderer& renderer_;
     Camera camera_;
-    std::map<ObjectId, CachedMesh> meshes_;
+    MeshCache meshes_;
     MeshHandle previewHandle_ = kNoMesh;
     Vec2 origin_{0.0};
     Vec2 size_{1.0};

@@ -51,9 +51,9 @@ Suggested order is top to bottom.
 
 ## PR 5: Performance groundwork
 
-- [ ] **Hover picking is quadratic in object count.** `src/app/viewport/viewport.cpp`
+- [x] **Hover picking is quadratic in object count.** `src/app/viewport/viewport.cpp`
       (`sync`). Skip the sync when the document has not changed, and look IDs up in a set.
-- [ ] Add a simple benchmark (for example 5,000 boxes) and record the numbers in
+- [x] Add a simple benchmark (for example 5,000 boxes) and record the numbers in
       `docs/VERIFICATION.md`.
 
 ## PR 6: Release hygiene
