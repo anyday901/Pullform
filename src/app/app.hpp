@@ -1,6 +1,7 @@
 #pragma once
 
 #include "app/platform/file_dialog.hpp"
+#include "app/tools/backspace_guard.hpp"
 #include "app/tools/tool_controller.hpp"
 #include "app/ui/ui.hpp"
 #include "app/viewport/renderer.hpp"
@@ -74,6 +75,7 @@ private:
     Editor editor_;
     ToolController tools_{editor_};
     Ui ui_;
+    BackspaceGuard backspaceGuard_;
 
     std::optional<std::filesystem::path> path_;
     Pending pending_ = Pending::None;

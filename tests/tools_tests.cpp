@@ -2,6 +2,7 @@
 // with synthetic pointer events (the same PointerInput the viewport produces).
 #include "helpers.hpp"
 
+#include "app/tools/backspace_guard.hpp"
 #include "app/viewport/camera.hpp"
 #include "core/commands/operations.hpp"
 #include "core/geometry/solid.hpp"
@@ -218,4 +219,60 @@ TEST_CASE("workflow through camera rays") {
     REQUIRE(editor.document().objects[0]->extrusion);
     CHECK(editor.document().objects[0]->extrusion->height > 0.0);
     CHECK(checkSolid(buildMesh(*editor.document().objects[0])).ok());
+}
+
+TEST_CASE("a first corner near the horizon is refused instead of starting a rectangle") {
+    Editor editor;
+    ToolController tools(editor);
+    tools.snap().enabled = false;
+    tools.setTool(Tool::Rectangle);
+
+    // A ray just below the horizon meets the ground millions of meters away.
+    PointerInput horizon;
+    horizon.ray = Ray{{0.0, 0.0, 50.0}, glm::normalize(Vec3{1.0, 0.0, -1e-5})};
+    horizon.screen = {400, 100};
+    tools.pointerDown(horizon);
+    tools.pointerUp(horizon);
+    CHECK_FALSE(tools.active());
+    REQUIRE(editor.message());
+    CHECK(editor.message()->kind == Message::Kind::Error);
+    CHECK(editor.document().objects.empty());
+
+    // A normal click afterwards starts and finishes a rectangle as usual.
+    tools.pointerDown(downAt(editor, 0.0, 0.0, {300, 300}));
+    tools.pointerUp(downAt(editor, 0.0, 0.0, {300, 300}));
+    CHECK(tools.active());
+    tools.pointerDown(downAt(editor, 1.0, 1.0, {350, 250}));
+    tools.pointerUp(downAt(editor, 1.0, 1.0, {350, 250}));
+    CHECK_FALSE(tools.active());
+    CHECK(editor.document().objects.size() == 1);
+}
+
+TEST_CASE("a typed size from an off-grid first corner is stored exactly") {
+    Editor editor;
+    ToolController tools(editor);
+    tools.snap().enabled = false;
+    tools.setTool(Tool::Rectangle);
+    tools.pointerDown(downAt(editor, 0.3, 0.7, {300, 300}));
+    tools.pointerUp(downAt(editor, 0.3, 0.7, {300, 300}));
+    tools.pointerMove(downAt(editor, 1.0, 1.0, {350, 250}));
+    REQUIRE_FALSE(tools.submitRectangleSize("2000mm, 100mm").has_value());
+    REQUIRE(editor.document().objects.size() == 1);
+    const auto& b = editor.document().objects[0]->profile.boundary;
+    CHECK(b[1].x == 2.0); // not 1.9999999999999998
+    CHECK(b[3].y == 0.1);
+}
+
+TEST_CASE("Backspace stays erase-only right after a typed value is cleared") {
+    BackspaceGuard guard;
+    CHECK(guard.mayDelete(0.0)); // nothing typed yet: Backspace deletes as before
+
+    // Type "12" and erase it with two presses; the third press comes soon after.
+    guard.noteTyping(10.0);
+    guard.noteTyping(10.2);
+    CHECK_FALSE(guard.mayDelete(10.3));
+    CHECK_FALSE(guard.mayDelete(10.2 + BackspaceGuard::kWindowSeconds - 0.01));
+
+    // After a pause, Backspace deletes the selection again.
+    CHECK(guard.mayDelete(10.2 + BackspaceGuard::kWindowSeconds));
 }

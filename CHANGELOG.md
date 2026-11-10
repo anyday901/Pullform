@@ -9,6 +9,14 @@ include breaking changes, but project files will keep a migration path.
 
 ### Fixed
 
+- An extra Backspace after clearing a typed value no longer deletes the selected object.
+  Backspace is erase-only for one second after typing; Delete always deletes.
+- Pressing Enter in Total height without editing it no longer replaces the height with the
+  rounded display value (and no longer adds an undo entry).
+- Typed rectangle sizes are stored exactly: `2000` from an off-grid first corner is 2 m,
+  not 1.9999999999999998 m, and the 0.1 mm minimum is accepted.
+- A first rectangle corner beyond the 10 km model range (clicked near the horizon) is
+  refused with a message instead of starting a rectangle that could not be finished.
 - Saves are flushed to the disk (`fsync`, `F_FULLFSYNC` on macOS, `FlushFileBuffers` on
   Windows) before the rename, so a power cut right after saving cannot leave an empty or
   truncated project. Saving keeps the file's permissions (and its ACL on Windows) and no
