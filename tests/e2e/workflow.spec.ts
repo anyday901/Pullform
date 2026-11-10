@@ -227,18 +227,18 @@ test('exact entry, delete with undo, save, reopen and continue editing', async (
 
   // Save downloads a versioned JSON project.
   const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Save project' }).click()]);
-  expect(download.suggestedFilename()).toBe('untitled.3dmodeler.json');
+  expect(download.suggestedFilename()).toBe('untitled.pullform.json');
   const path = await download.path();
   const saved = JSON.parse(await readFile(path, 'utf8'));
-  expect(saved.format).toBe('3d-modeler-project');
+  expect(saved.format).toBe('pullform-project');
   expect(saved.version).toBe(1);
   expect(saved.document).toEqual(d);
 
   // New (no prompt because saved), then reopen.
   await page.getByRole('button', { name: 'New project' }).click();
   expect((await doc(page)).objects).toHaveLength(0);
-  await page.getByTestId('open-file-input').setInputFiles({ name: 'table.3dmodeler.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(saved)) });
-  await expect(page.getByTestId('status-message')).toContainText('Opened table.3dmodeler.json');
+  await page.getByTestId('open-file-input').setInputFiles({ name: 'table.pullform.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(saved)) });
+  await expect(page.getByTestId('status-message')).toContainText('Opened table.pullform.json');
   expect(await doc(page)).toEqual(d);
   expect(await history(page)).toEqual({ undo: 0, redo: 0 });
 

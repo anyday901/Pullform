@@ -44,16 +44,16 @@ export function App() {
   }, [actions]);
 
   useEffect(() => {
-    const name = state.fileName.replace(/\.3dmodeler\.json$/i, '');
-    document.title = `${editor.isDirty ? '• ' : ''}${name} — 3D Modeler`;
+    const name = state.fileName.replace(/\.pullform\.json$/i, '');
+    document.title = `${editor.isDirty ? '• ' : ''}${name} — Pullform`;
   }, [state.doc, state.savedDoc, state.fileName, editor]);
 
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand" aria-label="3D Modeler">
+        <div className="brand" aria-label="Pullform">
           <img src="./favicon.svg" alt="" width={22} height={22} />
-          <span>3D Modeler</span>
+          <span>Pullform</span>
         </div>
         <nav className="file-actions" aria-label="File">
           <button type="button" onClick={() => actions.newProject()} title="New project" aria-label="New project">

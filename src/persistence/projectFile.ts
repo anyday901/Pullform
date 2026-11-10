@@ -7,9 +7,9 @@ import { validateDocument } from '../model/validate';
  * Native project file: application-owned, versioned JSON that stores the
  * editable model (not meshes). See docs/ARCHITECTURE.md for the schema.
  */
-export const PROJECT_FORMAT = '3d-modeler-project';
+export const PROJECT_FORMAT = 'pullform-project';
 export const PROJECT_VERSION = 1;
-export const PROJECT_EXTENSION = '.3dmodeler.json';
+export const PROJECT_EXTENSION = '.pullform.json';
 export const MAX_PROJECT_BYTES = 50 * 1024 * 1024;
 
 export interface CameraView {
@@ -30,7 +30,7 @@ export function serializeProject(doc: ModelDocument, view?: CameraView): string 
   const file: ProjectFile = {
     format: PROJECT_FORMAT,
     version: PROJECT_VERSION,
-    generator: `3D Modeler ${__APP_VERSION__}`,
+    generator: `Pullform ${__APP_VERSION__}`,
     document: doc,
     ...(view ? { view } : {}),
   };
@@ -60,21 +60,21 @@ export function parseProject(text: string): ParsedProject {
   try {
     data = JSON.parse(text);
   } catch {
-    return { ok: false, error: 'The file is not valid JSON, so it cannot be a 3D Modeler project.' };
+    return { ok: false, error: 'The file is not valid JSON, so it cannot be a Pullform project.' };
   }
   if (typeof data !== 'object' || data === null || Array.isArray(data)) {
-    return { ok: false, error: 'The file is not a 3D Modeler project.' };
+    return { ok: false, error: 'The file is not a Pullform project.' };
   }
   const file = data as Record<string, unknown>;
   if (file.format !== PROJECT_FORMAT) {
-    return { ok: false, error: `The file is not a 3D Modeler project (expected format "${PROJECT_FORMAT}").` };
+    return { ok: false, error: `The file is not a Pullform project (expected format "${PROJECT_FORMAT}").` };
   }
   if (!Number.isInteger(file.version)) return { ok: false, error: 'The project file has no valid version number.' };
   if (file.version !== PROJECT_VERSION) {
     return {
       ok: false,
       error: (file.version as number) > PROJECT_VERSION
-        ? `This project uses file version ${file.version}, which is newer than this app supports (version ${PROJECT_VERSION}). Update 3D Modeler to open it.`
+        ? `This project uses file version ${file.version}, which is newer than this app supports (version ${PROJECT_VERSION}). Update Pullform to open it.`
         : `Unsupported project file version ${file.version}.`,
     };
   }
@@ -85,6 +85,6 @@ export function parseProject(text: string): ParsedProject {
 
 /** Ensures a download name ends with the project extension. */
 export function projectFileName(name: string): string {
-  const base = name.replace(/\.3dmodeler\.json$/i, '').replace(/\.json$/i, '').replace(/[\\/:*?"<>|]+/g, '_').trim() || 'untitled';
+  const base = name.replace(/\.pullform\.json$/i, '').replace(/\.json$/i, '').replace(/[\\/:*?"<>|]+/g, '_').trim() || 'untitled';
   return base + PROJECT_EXTENSION;
 }

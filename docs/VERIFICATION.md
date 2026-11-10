@@ -50,7 +50,7 @@ with mouse and keyboard:
   Fit centers the model.
 - Exact entry via the Width/Depth fields; an unsupported `6'2"` shows a message; select
   and Delete an overlapping object, undo restores it with the same ID; Save produces a
-  `3d-modeler-project` v1 download equal to the in-memory document; New; Open via the file
+  `pullform-project` v1 download equal to the in-memory document; New; Open via the file
   input restores the identical document and empty history; editing continues; New with
   unsaved changes prompts (dismiss keeps the model); invalid JSON and a future version
   show errors and leave the model and history intact.

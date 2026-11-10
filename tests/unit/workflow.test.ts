@@ -284,7 +284,7 @@ describe('project files', () => {
     expect(parsed.view).toEqual({ position: [5, -5, 5], target: [0, 0, 0] });
 
     const reopened = setup();
-    reopened.editor.loadDocument(parsed.doc, 'table.3dmodeler.json');
+    reopened.editor.loadDocument(parsed.doc, 'table.pullform.json');
     expect(reopened.editor.isDirty).toBe(false);
     expect(reopened.editor.undoDepth).toBe(0);
     const [first, second] = reopened.editor.doc.objects;

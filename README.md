@@ -1,12 +1,12 @@
-# 3D Modeler
+# Pullform
 
 A free, open-source 3D modeler for dimensioned geometry: buildings, rooms, furniture,
 woodworking and other objects. It follows an approachable "draw a shape, push/pull it into
 a solid" workflow. It runs locally in a desktop browser on Windows, Linux and macOS, with no
 account, backend, or network connection required.
 
-"3D Modeler" is a temporary descriptive name. The project is not affiliated with SketchUp
-and does not read or write `.skp` files.
+Pullform is named for its core move: draw a profile, then pull it into form. The
+project is not affiliated with SketchUp and does not read or write `.skp` files.
 
 ## What works (milestone 1)
 
@@ -110,7 +110,7 @@ with a message.
 
 ### Projects
 
-- **Save** downloads `<name>.3dmodeler.json` (works in every browser, including Firefox).
+- **Save** downloads `<name>.pullform.json` (works in every browser, including Firefox).
 - **Open** reads a project file. The whole file is validated first; a malformed file or an
   unsupported version shows an error and leaves the current model untouched.
 - **New** and **Open** ask before discarding unsaved changes, and the browser warns when

@@ -57,7 +57,7 @@ export interface EditorState {
   fitRequest: number;
 }
 
-export const DEFAULT_FILE_NAME = 'untitled.3dmodeler.json';
+export const DEFAULT_FILE_NAME = 'untitled.pullform.json';
 
 type Listener = () => void;
 

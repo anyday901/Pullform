@@ -1,6 +1,6 @@
 # Third-party notices
 
-3D Modeler's own code is MIT licensed (see LICENSE). The production build bundles the
+Pullform's own code is MIT licensed (see LICENSE). The production build bundles the
 following open-source packages. Their license texts are reproduced below.
 
 | Package | Version | License | Source |

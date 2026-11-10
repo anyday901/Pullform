@@ -1,6 +1,6 @@
 # Architecture
 
-3D Modeler is a TypeScript + React + Vite + Three.js browser application. Modeling logic
+Pullform is a TypeScript + React + Vite + Three.js browser application. Modeling logic
 does not depend on React or Three.js; React renders the interface and Three.js renders and
 picks the viewport.
 
@@ -136,9 +136,9 @@ right pans, and the wheel zooms (`OrbitControls`).
 
 ```json
 {
-  "format": "3d-modeler-project",
+  "format": "pullform-project",
   "version": 1,
-  "generator": "3D Modeler 0.1.0",
+  "generator": "Pullform 0.1.0",
   "document": { "lengthUnit": "m", "displayUnit": "mm", "nextId": 2, "objects": [ ... ] },
   "view": { "position": [x, y, z], "target": [x, y, z] }
 }
