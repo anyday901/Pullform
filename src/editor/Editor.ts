@@ -100,7 +100,10 @@ export class Editor {
   }
 
   get isDirty(): boolean {
-    return this.state.doc !== this.state.savedDoc;
+    // Compared by content identity rather than document identity, because the display
+    // unit can change without a model edit.
+    const { doc, savedDoc } = this.state;
+    return doc.objects !== savedDoc.objects || doc.displayUnit !== savedDoc.displayUnit;
   }
 
   get undoDepth(): number {
@@ -137,6 +140,12 @@ export class Editor {
     return true;
   }
 
+  /** A history snapshot with the current display unit, which is not part of undo history. */
+  private restore(snapshot: ModelDocument): ModelDocument {
+    const unit = this.state.doc.displayUnit;
+    return snapshot.displayUnit === unit ? snapshot : { ...snapshot, displayUnit: unit };
+  }
+
   undo(): boolean {
     this.cancelPreview();
     const entry = this.history.undo({ label: '', doc: this.state.doc, selection: this.state.selection });
@@ -145,7 +154,8 @@ export class Editor {
       return false;
     }
     const label = this.history.redoLabel;
-    this.set({ doc: entry.doc, selection: sanitizeSelection(entry.doc, entry.selection), hover: null, message: { kind: 'info', text: `Undo: ${label}` } });
+    const doc = this.restore(entry.doc);
+    this.set({ doc, selection: sanitizeSelection(doc, entry.selection), hover: null, message: { kind: 'info', text: `Undo: ${label}` } });
     return true;
   }
 
@@ -157,7 +167,8 @@ export class Editor {
       return false;
     }
     const label = this.history.undoLabel;
-    this.set({ doc: entry.doc, selection: sanitizeSelection(entry.doc, entry.selection), hover: null, message: { kind: 'info', text: `Redo: ${label}` } });
+    const doc = this.restore(entry.doc);
+    this.set({ doc, selection: sanitizeSelection(doc, entry.selection), hover: null, message: { kind: 'info', text: `Redo: ${label}` } });
     return true;
   }
 
@@ -190,7 +201,8 @@ export class Editor {
   }
 
   setDisplayUnit(unit: LengthUnit): void {
-    // Display unit is a view preference stored with the project, not an undoable edit.
+    // Display unit is a view preference stored with the project, not an undoable edit:
+    // undo/redo keep the current unit (see `restore`).
     const doc = { ...this.state.doc, displayUnit: unit };
     const clean = !this.isDirty;
     this.set({ doc, savedDoc: clean ? doc : this.state.savedDoc });

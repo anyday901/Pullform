@@ -4,7 +4,7 @@ import type { EditorState } from '../editor/Editor';
 import { rectangleSize } from '../geometry/rectangle';
 import { findObject } from '../model/types';
 import type { ToolController } from '../tools/ToolController';
-import { LengthField } from './LengthField';
+import { KEEP_DRAFT, LengthField } from './LengthField';
 
 export interface MeasurementsHandle {
   /** Focuses the first measurement field and starts it with `initial`. Returns false if no field applies. */
@@ -47,6 +47,7 @@ export const MeasurementsBar = forwardRef<MeasurementsHandle, Props>(function Me
         <LengthField
           key="rect-w"
           transient
+          resetKey={state.doc}
           label="Width"
           testId="measure-width"
           value={w}
@@ -55,9 +56,11 @@ export const MeasurementsBar = forwardRef<MeasurementsHandle, Props>(function Me
           onCommit={(text) => {
             if (/[;,]/.test(text)) return tools.submitRectangleSize(text);
             const depth = second.current?.value ?? '';
-            if (depth.trim() === '') {
+            if (depth.trim() === '' || second.current?.dataset.edited !== 'true') {
+              // Enter in Width moves on to Depth until a depth has been typed too. Keep the
+              // typed width meanwhile.
               second.current?.focus();
-              return null;
+              return KEEP_DRAFT;
             }
             return tools.submitRectangleSize(text, depth);
           }}
@@ -65,6 +68,7 @@ export const MeasurementsBar = forwardRef<MeasurementsHandle, Props>(function Me
         <LengthField
           key="rect-d"
           transient
+          resetKey={state.doc}
           label="Depth"
           testId="measure-depth"
           value={d}

@@ -270,3 +270,61 @@ test('exact entry, delete with undo, save, reopen and continue editing', async (
   expect(await doc(page)).toEqual(current);
   expect((await history(page)).undo).toBeGreaterThan(0);
 });
+
+test('measurement and property fields keep, apply and discard typed values correctly', async ({ page }) => {
+  // Width, Enter, depth, Enter: the typed width survives the move to the depth field.
+  await page.keyboard.press('r');
+  const width = page.getByTestId('measure-width');
+  const depth = page.getByTestId('measure-depth');
+  await width.fill('2000');
+  await width.press('Enter');
+  await expect(depth).toBeFocused();
+  await expect(width).toHaveValue('2000');
+  await page.keyboard.type('1000');
+  await page.keyboard.press('Enter');
+  let d = await doc(page);
+  expect(d.objects).toHaveLength(1);
+  expect(d.objects[0]!.profile.boundary[2]).toEqual([2, 1]);
+  // After the rectangle is created, neither field keeps stale text.
+  await expect(width).toHaveValue('');
+  await expect(depth).toHaveValue('');
+
+  // With a first corner placed, the typed width wins over the live pointer width.
+  await page.locator('canvas').focus();
+  await clickWorld(page, [3, 0, 0]);
+  const p = await at(page, [3.5, 0.5, 0]);
+  await page.mouse.move(p.x, p.y, { steps: 4 });
+  await width.fill('1200');
+  await width.press('Enter');
+  await page.keyboard.type('800');
+  await page.keyboard.press('Enter');
+  d = await doc(page);
+  expect(d.objects).toHaveLength(2);
+  expect(d.objects[1]!.profile.boundary[2]![0]).toBeCloseTo(1.2, 12);
+  expect(d.objects[1]!.profile.boundary[2]![1]).toBeCloseTo(0.8, 12);
+  expect(await history(page)).toEqual({ undo: 2, redo: 0 });
+
+  // Escape in Total height discards the typed value; it must not apply it on blur.
+  await page.keyboard.press('Space');
+  await clickWorld(page, [1, 0.5, 0]);
+  const height = page.getByTestId('prop-height');
+  await height.fill('750');
+  await height.press('Enter');
+  expect((await doc(page)).objects[0]!.extrusion!.height).toBeCloseTo(0.75, 12);
+  await height.fill('5000');
+  await height.press('Escape');
+  await expect(height).toHaveValue('750');
+  expect((await doc(page)).objects[0]!.extrusion!.height).toBeCloseTo(0.75, 12);
+  expect(await history(page)).toEqual({ undo: 3, redo: 0 });
+  // Leaving the field by clicking elsewhere still applies a typed value.
+  await height.fill('900');
+  await page.getByTestId('status-hint').click();
+  expect((await doc(page)).objects[0]!.extrusion!.height).toBeCloseTo(0.9, 12);
+
+  // Undo keeps the display unit the user chose.
+  await page.getByLabel('Display unit').selectOption('cm');
+  await page.locator('canvas').focus();
+  await page.keyboard.press(`${mod}+z`);
+  await expect(page.getByLabel('Display unit')).toHaveValue('cm');
+  await expect(page.getByTestId('prop-height')).toHaveValue('75');
+});

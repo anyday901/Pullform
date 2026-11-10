@@ -255,6 +255,37 @@ describe('selection, deletion and history', () => {
     expect(ctx.editor.redo()).toBe(false);
   });
 
+  it('keeps the chosen display unit across undo and redo', () => {
+    const ctx = setup();
+    const id = drawByMouse(ctx);
+    ctx.editor.setDisplayUnit('in');
+    ctx.editor.undo();
+    expect(ctx.editor.doc.displayUnit).toBe('in');
+    expect(ctx.editor.doc.objects).toHaveLength(0);
+    ctx.editor.redo();
+    expect(ctx.editor.doc.displayUnit).toBe('in');
+    expect(ctx.editor.doc.objects[0]!.id).toBe(id);
+    // Unitless input now means inches.
+    expect(ctx.tools.setTotalHeight(id, '10')).toBeNull();
+    expect(ctx.editor.doc.objects[0]!.extrusion!.height).toBeCloseTo(0.254, 12);
+  });
+
+  it('tracks unsaved changes by content, including the display unit', () => {
+    const ctx = setup();
+    expect(ctx.editor.isDirty).toBe(false);
+    ctx.editor.setDisplayUnit('cm'); // nothing to lose yet: stays clean
+    expect(ctx.editor.isDirty).toBe(false);
+    drawByMouse(ctx);
+    expect(ctx.editor.isDirty).toBe(true);
+    ctx.editor.setDisplayUnit('m');
+    ctx.editor.undo();
+    // The model is back to the saved state, but the unit change is still unsaved.
+    expect(ctx.editor.doc.objects).toHaveLength(0);
+    expect(ctx.editor.isDirty).toBe(true);
+    ctx.editor.setDisplayUnit('cm');
+    expect(ctx.editor.isDirty).toBe(false);
+  });
+
   it('bounds the undo history', async () => {
     const { Editor } = await import('../../src/editor/Editor');
     const { ToolController } = await import('../../src/tools/ToolController');

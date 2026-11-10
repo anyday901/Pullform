@@ -8,9 +8,9 @@ headless Chromium (Playwright 1.63, build 1243) with software WebGL (SwiftShader
 | Check | Command | Result |
 | --- | --- | --- |
 | TypeScript (app + tests) | `npm run typecheck` | pass |
-| Unit tests (Vitest, 31 tests) | `npm test` | pass |
+| Unit tests (Vitest, 33 tests) | `npm test` | pass |
 | Production build | `npm run build` | pass |
-| Browser tests (Playwright, Chromium, 3 tests) | `npm run test:e2e` | pass |
+| Browser tests (Playwright, Chromium, 4 tests) | `npm run test:e2e` | pass |
 
 Unit tests (`tests/unit/`) cover, against the required scenarios:
 
@@ -27,6 +27,7 @@ Unit tests (`tests/unit/`) cover, against the required scenarios:
    history depth unchanged; many preview moves add no history entries.
 6. Two overlapping objects stay independent; deleting one and undoing restores IDs and
    selection; deleted IDs are never reused; a new edit clears redo; history limit is enforced.
+   The display unit survives undo/redo, and unsaved-change tracking accounts for it.
 7. Save → parse → reload yields an identical document (geometry, units, IDs, nextId,
    camera); editing continues after reopening with the next ID `obj-3`; undoing back to the
    opened state clears the dirty flag.
@@ -54,6 +55,9 @@ with mouse and keyboard:
   input restores the identical document and empty history; editing continues; New with
   unsaved changes prompts (dismiss keeps the model); invalid JSON and a future version
   show errors and leave the model and history intact.
+- Typing a width, Enter, a depth, Enter creates the typed rectangle (with and without a
+  first corner placed) and leaves no stale text; Escape in Total height discards the typed
+  value while clicking away applies it; undo keeps the chosen display unit.
 - Every test asserts no page errors, no console errors, a single canvas, and **no request
   to any non-local host** (the production build works offline).
 
