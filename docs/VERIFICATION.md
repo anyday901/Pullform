@@ -1,89 +1,57 @@
 # Verification
 
-Status as of milestone 1 (version 0.1.0). Environment used: Linux container, Node 22.23,
-headless Chromium (Playwright 1.63, build 1243) with software WebGL (SwiftShader).
+What was checked for the 0.2.0 native rewrite, how, and what was **not** checked. Nothing
+below is claimed beyond what is listed.
 
-## Automated
+## Automated (repeatable; run by CI on every push and pull request)
 
-| Check | Command | Result |
+| Check | Command | Local result |
 | --- | --- | --- |
-| TypeScript (app + tests) | `npm run typecheck` | pass |
-| Unit tests (Vitest, 33 tests) | `npm test` | pass |
-| Production build | `npm run build` | pass |
-| Browser tests (Playwright, Chromium, 4 tests) | `npm run test:e2e` | pass |
+| Headless unit tests (39 test cases) | `cmake --preset headless && cmake --build build/headless && ctest --test-dir build/headless` | Pass, GCC 13, Linux x64 |
+| Full app build with warnings as errors | `cmake --preset linux && cmake --build --preset linux-debug` | Clean, GCC 13 |
+| AddressSanitizer + UndefinedBehaviorSanitizer | `cmake --preset linux-sanitize && cmake --build --preset linux-sanitize && ctest --preset linux-sanitize` | 39/39 pass, no reports |
+| Windows cross-build (MinGW-w64 GCC, Release, `-Werror`) | `cmake -B build/mingw -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/mingw-w64-x86_64.cmake -DPULLFORM_WARNINGS_AS_ERRORS=ON && cmake --build build/mingw` | Clean; `Pullform.exe` imports only Windows system DLLs |
+| Windows installer | `cpack -G NSIS` in `build/mingw` | `Pullform-0.2.0-win64.exe` produced (NSIS 3) |
 
-Unit tests (`tests/unit/`) cover, against the required scenarios:
+The tests cover the brief's scenarios: rectangle creation and normalization, extrusion
+into a closed manifold solid (`checkSolid`), cap height edits keeping the same object ID,
+delete, undo/redo including bounds and dirty state, failed operations leaving the
+document untouched, unit parsing, save/load round trips, rejected malformed and
+future-version files, compatibility with a file from the web prototype, camera rays, and
+a full pointer-driven tool workflow with synthetic input.
 
-1. 2000 × 1000 mm rectangle extruded to 750 mm has model-space bounds 2 × 1 × 0.75 m.
-2. The prism has six logical faces, 12 boundary edges (no diagonals), is closed and
-   consistently outward-wound (`checkSolid`, signed volume 1.5 m³); a flipped triangle is
-   detected. Real Three.js raycasts on either side of the cap diagonal hit different
-   triangles that both resolve to `cap`; a ray from inside the solid hits nothing
-   (faces are single-sided and point outward).
-3. Height 750 → 900 mm updates the same object ID; the cap remains selectable and
-   push/pullable.
-4. Undo 900 → 750 → planar rectangle; redo restores both. Selection follows (cap ↔ face).
-5. Escape during rectangle and push/pull previews leaves the document object identical and
-   history depth unchanged; many preview moves add no history entries.
-6. Two overlapping objects stay independent; deleting one and undoing restores IDs and
-   selection; deleted IDs are never reused; a new edit clears redo; history limit is enforced.
-   The display unit survives undo/redo, and unsaved-change tracking accounts for it.
-7. Save → parse → reload yields an identical document (geometry, units, IDs, nextId,
-   camera); editing continues after reopening with the next ID `obj-3`; undoing back to the
-   opened state clears the dirty flag.
-8. `2000`, `2000mm`, `200cm`, `2m` parse identically; inches/feet; unitless uses display unit.
-9. Rejections: malformed lengths, `Infinity`/`NaN`/`1e999`, comma decimals, compound
-   feet-inches, degenerate/zero/negative rectangles and heights, and 13 kinds of invalid
-   project files (bad JSON, wrong format, future/missing version, bad unit, duplicate IDs,
-   low nextId, degenerate/clockwise boundary, null coordinates, negative height, bad ID).
+CI (`.github/workflows/ci.yml`) additionally builds and tests with MSVC on Windows
+(Debug and Release, then packages and uploads the installer), Clang on Linux, and Apple
+Clang on macOS. **Those CI jobs have not run yet**, because the GitHub repository did not
+exist when this was written.
 
-Browser tests (`tests/e2e/workflow.spec.ts`) drive the built app through the real UI
-with mouse and keyboard:
+## Manual (performed once; not automated)
 
-- Draw a rectangle by clicking two corners; push/pull by clicking the face and typing
-  `750`; select the cap by clicking it; type `900mm` into Total height (letters typed in the
-  field do not trigger tool shortcuts); click empty space to clear selection; re-pick the cap
-  at its new height; Ctrl+Z/Ctrl+Shift+Z; a mouse-driven cap push/pull adds exactly one undo
-  entry.
-- Escape cancels rectangle and push/pull previews with no document or history change.
-  With the Rectangle tool active, middle-drag orbits, right-drag pans and the wheel zooms
-  without creating previews or edits; the Orbit tool's left drag moves only the camera;
-  Fit centers the model.
-- Exact entry via the Width/Depth fields; an unsupported `6'2"` shows a message; select
-  and Delete an overlapping object, undo restores it with the same ID; Save produces a
-  `pullform-project` v1 download equal to the in-memory document; New; Open via the file
-  input restores the identical document and empty history; editing continues; New with
-  unsaved changes prompts (dismiss keeps the model); invalid JSON and a future version
-  show errors and leave the model and history intact.
-- Typing a width, Enter, a depth, Enter creates the typed rectangle (with and without a
-  first corner placed) and leaves no stale text; Escape in Total height discards the typed
-  value while clicking away applies it; undo keeps the chosen display unit.
-- Every test asserts no page errors, no console errors, a single canvas, and **no request
-  to any non-local host** (the production build works offline).
+Run on Linux under Xvfb with Mesa llvmpipe (software OpenGL 3.3/4.5), driving the app
+with `xdotool` and inspecting screenshots:
 
-## Manual (performed by inspecting screenshots from scripted Chromium sessions)
+- Empty scene with adaptive grid and axes; orbit, pan, zoom toward the cursor, Fit.
+- Rectangle by click-click and by typing `2000,1000`; push/pull by drag and by typing `750`.
+- Select the cap, type a total height of `900`; Ctrl+Z restores 750.
+- Second object, Delete, undo.
+- Save through the GTK native dialog, reopen through the Open dialog; camera view restored.
+- A file with `"version": 7` is rejected with an error dialog; the open model is unchanged.
+- Unsaved-changes prompt on New and on Ctrl+Q; "Don't save" quits.
+- UI at 1.75x scale (`PULLFORM_UI_SCALE=1.75`).
+- The same session with the ASan/UBSan app build: no ASan or UBSan reports. LeakSanitizer
+  reports only allocations inside GTK's accessibility bridge and D-Bus, suppressed by
+  `tools/lsan.supp`.
 
-- Layout, grid, axes, edges, selection and hover colors, push/pull preview, and the
-  measurement/status areas render as intended at 1400 × 850.
-- Dev server (`npm run dev`, React StrictMode double-mount) shows exactly one canvas and no
-  console errors, confirming viewport cleanup on unmount.
-
-## Performance baseline (measured)
-
-400 extruded boxes, Select tool, 1400 × 850 viewport, headless Chromium with software
-WebGL: pointer-move handling (raycast + face hover resolution) averaged **0.08 ms per
-event** over 200 events; a full frame render averaged **2.1 ms**. GPU hardware will differ;
-treat this as an order-of-magnitude baseline only.
+Some synthetic key events were occasionally lost after GTK dialogs in Xvfb without a
+window manager; repeating the step worked. This looked like an Xvfb/xdotool artifact
+rather than an app defect, but it was not proven.
 
 ## Not verified
 
-- **Firefox and Safari/WebKit were not exercised.** Installing Playwright's Firefox was
-  blocked by this environment's network policy (`cdn.playwright.dev` and
-  `playwright.download.prss.microsoft.com` are not allowlisted). To verify Firefox:
-  `npx playwright install firefox && E2E_FIREFOX=1 npm run test:e2e`.
-- Real-hardware GPUs, trackpads, high-DPI displays and macOS ⌘ shortcuts were not tested
-  by hand. Windows and macOS were not run.
-- The native file-picker dialog and the browser's save-download location were exercised
-  only through Playwright's file input and download APIs, not by hand.
-- The "unsaved changes" warning on closing the tab (`beforeunload`) is implemented but not
-  covered by an automated test.
+- Native Windows: the MSVC build, the installer actually installing and the app running on
+  Windows 10/11, high-DPI behavior there, and the Windows file dialogs.
+- macOS: building and running (no Mac was available); Retina scaling.
+- Clang builds locally (only GCC was used locally; CI covers Clang).
+- A real GPU and driver, and a physical display and mouse (only software rendering).
+- The window close button path (it uses the same code path as Ctrl+Q, which was tested).
+- Performance with large models (no benchmark yet).

@@ -7,6 +7,35 @@ include breaking changes, but project files will keep a migration path.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-10
+
+A native rewrite. The browser prototype is replaced by a C++20 desktop application with
+the same milestone 1 workflow and the same project file format.
+
+### Changed
+
+- Rewritten in C++20 with GLFW, OpenGL 3.3 core, Dear ImGui, GLM (double precision),
+  nlohmann/json and nativefiledialog-extended, built with CMake presets. No web
+  technology, runtime downloads or network access.
+- The model, geometry and history live in a headless core library (`pullform_core`) with
+  doctest unit tests that run without a display.
+- Save and Open use native file dialogs; saves are atomic (temporary file, then rename).
+- Unsaved-changes prompts now also cover quitting and closing the window.
+- Files saved by 0.1.0 (format version 1) open unchanged.
+
+### Added
+
+- Windows installer (NSIS) with Start menu and desktop shortcuts and an uninstaller;
+  the executable has no runtime dependencies besides the graphics driver.
+- Linux and macOS source builds; CI on Windows (MSVC), Linux (GCC, Clang, ASan+UBSan)
+  and macOS, uploading the Windows installer on every pull request.
+- High-DPI scaling from the monitor content scale, with a `PULLFORM_UI_SCALE` override.
+- Original application icon.
+
+### Removed
+
+- The TypeScript/React/three.js web application and its browser tests.
+
 ## [0.1.0] - 2026-11-10
 
 The first modeling milestone: draw, push/pull, edit, undo, save and reopen.

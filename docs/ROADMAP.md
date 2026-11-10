@@ -11,9 +11,12 @@ acceptance check.
 - [x] Select the cap and change total height; the same object is updated.
 - [x] Select and delete whole objects.
 - [x] Undo/redo through one commit path; previews never enter history; Escape cancels.
-- [x] Versioned JSON save (download) and open, with full validation and unsaved-changes prompts.
+- [x] Versioned JSON save and open via native dialogs, atomic writes, full validation and
+      unsaved-changes prompts (New, Open, quit, window close).
 - [x] Units: meters internally, millimeters by default, mm/cm/m/in/ft input.
-- [x] Unit tests for geometry, units, history, tools and files; Chromium browser tests.
+- [x] Native C++20 application (GLFW, OpenGL 3.3 core, Dear ImGui) with a headless core.
+- [x] Windows NSIS installer; Linux and macOS source builds; CI on all three plus ASan/UBSan.
+- [x] Headless doctest suite for geometry, units, history, tools, camera and files.
 
 ## Next: Milestone 2, move and precision basics (recommended next)
 
@@ -44,7 +47,7 @@ acceptance check.
 ## General face editing (needs a topology decision first)
 
 - Evaluate a topology model (half-edge B-rep) versus a geometry kernel (e.g. OpenCascade
-  via WebAssembly or Manifold) before promising these. *Accept:* a written decision with
+  or Manifold, both usable from C++) before promising these. *Accept:* a written decision with
   size, license and performance findings.
 - Push/pull of side faces and arbitrary planar faces; negative push/pull (cutting).
 - Splitting faces with lines, intersections, connected geometry, offsets, openings/holes.
@@ -70,13 +73,16 @@ acceptance check.
 
 ## Reliability
 
-- Autosave to IndexedDB and crash recovery.
+- Autosave to a recovery file beside the user's config directory, and crash recovery.
 - Larger-model performance: instancing/merged buffers, BVH picking. Baseline measured for
   milestone 1: see docs/VERIFICATION.md.
 - File format migrations with tests for every previous version.
-- Firefox and WebKit in the automated browser test matrix.
+- Automated viewport tests: render known scenes offscreen (Mesa) and compare images, so
+  rendering regressions are caught in CI and not only by manual runs.
 
 ## Distribution
 
-- Optional desktop packaging (for example Tauri) after the modeling core is stable, keeping
-  fully local use without online services.
+- Code-signed Windows installer and a winget manifest; a signed and notarized macOS app
+  bundle (`.dmg`); a Linux AppImage or Flatpak. *Depends on:* signing certificates.
+  *Accept:* the installer runs without SmartScreen/Gatekeeper warnings.
+- Optional Vulkan or Metal renderer behind the existing `Renderer` interface.

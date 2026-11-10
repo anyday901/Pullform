@@ -2,65 +2,107 @@
 
 A free, open-source 3D modeler for dimensioned geometry: buildings, rooms, furniture,
 woodworking and other objects. It follows an approachable "draw a shape, push/pull it into
-a solid" workflow. It runs locally in a desktop browser on Windows, Linux and macOS, with no
-account, backend, or network connection required.
+a solid" workflow. Pullform is a native desktop application written in C++20 with OpenGL
+and Dear ImGui. It runs fully offline, with no account, subscription, cloud service or
+network access.
 
-Pullform is named for its core move: draw a profile, then pull it into form. The
-project is not affiliated with SketchUp and does not read or write `.skp` files.
+Pullform is named for its core move: draw a profile, then pull it into form. The project
+is not affiliated with SketchUp and does not read or write `.skp` files.
 
 ## What works (milestone 1)
 
-1. An empty scene with a ground grid (100 mm minor, 1 m major) and red/green/blue X/Y/Z axes.
-2. Orbit, pan, zoom (toward the cursor) and **Fit** the camera to the model.
-3. Draw a rectangle on the ground plane with the mouse (click-click or drag) in any
+1. An empty scene with an adaptive ground grid and red/green/blue X/Y/Z axes.
+2. Orbit, pan, zoom toward the cursor, and **Fit** the camera to the model.
+3. Draw a rectangle on the ground plane with the mouse (click-click or press-drag) in any
    direction, or type an exact width and depth. Optional grid snap with a visible state.
 4. Push/pull a rectangle into a closed rectangular prism by pointer or exact distance.
-5. Select an extrusion's top cap and change its height (drag, a relative distance, or an
-   absolute **Total height** in the properties panel). The same object is updated.
+5. Select an extrusion's top cap and change its height: drag it, type an incremental
+   distance, or set the absolute **Total height**. The same object is updated.
 6. Select and delete a whole object.
 7. Undo and redo every committed modeling operation.
-8. Save an editable, versioned JSON project (as a download), reopen it, and keep editing.
+8. Save an editable, versioned project file (`.pullform.json`), reopen it, and keep editing.
 
 ### Current limits
 
-- Shapes are rectangles on the ground plane (z = 0) and their extrusions only.
-- Push/pull works on a planar rectangle and on an extrusion's top cap. Side faces and
-  base faces cannot be pushed yet. Heights must be positive; pushing below the base,
-  holes, cutting through solids and merging touching geometry are not supported.
+- Shapes are rectangles on the ground plane (z = 0) and their straight extrusions only.
+- Push/pull works on a planar rectangle and on an extrusion's top cap. Side and base faces
+  cannot be pushed yet. Heights must be positive: pushing below the base, holes, cutting
+  through solids and merging touching geometry are not supported.
 - Objects stay independent when they touch or overlap.
-- No move/rotate/scale tools yet; objects keep the position where they were drawn.
+- No move, rotate, scale or copy tools yet; objects stay where they were drawn.
+- Rectangle width and depth cannot be edited after drawing (only the height).
 
-These limits are also listed in the app's properties panel. See
+The same limits are listed in the app's Properties panel. See
 [docs/ROADMAP.md](docs/ROADMAP.md) for what comes next.
 
 ## Prerequisites
 
-- Node.js 22.12 or newer (developed with Node 22.23) and npm.
-- A desktop browser with WebGL: current Chrome/Chromium, Edge, Firefox or Safari.
+All platforms: **CMake 3.25+**, **Git** (dependencies are fetched by CMake on the first
+configure, so the first configure needs network access; later builds work offline), and a
+GPU driver with **OpenGL 3.3** support (any GPU from roughly 2010 onward, including Intel
+integrated graphics).
 
-## Install, run, test, build
+| Platform | Compiler | Other |
+| --- | --- | --- |
+| Windows 10/11 x64 | Visual Studio 2022 (17.x) with "Desktop development with C++" | [NSIS 3](https://nsis.sourceforge.io/) to build the installer |
+| Linux | GCC 11+ or Clang 15+, Ninja | `sudo apt install ninja-build libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libgl-dev libgtk-3-dev` (Debian/Ubuntu) |
+| macOS 13+ | Xcode 15+ command line tools (Apple Clang) | `brew install ninja` |
+
+## Build, test, run and package
+
+Each platform has one command that configures, builds, tests (and on Windows packages):
 
 ```sh
-git clone https://github.com/anyday901/pullform.git
-cd pullform
-npm ci                 # install the exact locked dependencies
-npm run dev            # start the dev server at http://localhost:5173
-npm test               # unit tests (Vitest)
-npm run typecheck      # TypeScript checks for app and tests
-npm run build          # typecheck + production build into dist/
-npm run preview        # serve the production build at http://localhost:4173
-npm run test:e2e       # browser tests (Playwright; builds and serves the app itself)
-npm run check          # typecheck + unit tests + build
+cmake --workflow --preset windows-release   # Windows (run from a normal or Developer PowerShell)
+cmake --workflow --preset linux-release     # Linux
+cmake --workflow --preset macos-release     # macOS
 ```
 
-The browser tests use Playwright's Chromium. If it is not installed on your machine, run
-`npx playwright install chromium` once. To also run them in Firefox:
-`npx playwright install firefox` and then `E2E_FIREFOX=1 npm run test:e2e`.
+The individual steps on **Windows**:
 
-The production build in `dist/` is fully self-contained (relative paths, no CDN, fonts or
-remote assets), so any static file server works, e.g. `npx vite preview` or
-`python3 -m http.server -d dist`. Opening `dist/index.html` directly from disk is not
-supported because browsers block ES module loading from `file://` URLs.
+```powershell
+git clone https://github.com/anyday901/pullform.git
+cd pullform
+cmake --preset windows                          # configure (Visual Studio 2022, x64)
+cmake --build --preset windows-debug            # or windows-release
+ctest --preset windows-debug                    # headless unit tests
+.\build\windows\src\app\Release\Pullform.exe    # run (after a Release build)
+cpack --preset windows-installer                # -> build\windows\Pullform-0.2.0-win64.exe
+```
+
+The installer installs `Pullform.exe` with Start menu and desktop shortcuts and an
+uninstaller. The executable links the C++ runtime statically and embeds its font and icon,
+so it needs nothing else installed besides a graphics driver.
+
+On **Linux** and **macOS**, replace `windows` with `linux` or `macos`:
+
+```sh
+cmake --preset linux
+cmake --build --preset linux-release
+ctest --preset linux-release
+./build/linux/src/app/Release/Pullform [optional/project.pullform.json]
+```
+
+Other presets:
+
+| Preset | Purpose |
+| --- | --- |
+| `headless` | Core library and tests only (no window/GPU dependencies), e.g. for servers |
+| `linux-sanitize` | Debug build with AddressSanitizer + UndefinedBehaviorSanitizer (GCC/Clang) |
+
+Run the sanitizer tests with `cmake --preset linux-sanitize && cmake --build --preset
+linux-sanitize && ctest --preset linux-sanitize`. When running the sanitized *app* on
+Linux, pass `LSAN_OPTIONS=suppressions=tools/lsan.supp` to silence small leaks inside
+GTK's accessibility bridge (system libraries, not Pullform code).
+
+### Dependencies
+
+Dependencies are fetched with **CMake FetchContent**, each pinned to an exact release tag
+(the resolved commit is recorded in [cmake/PullformDependencies.cmake](cmake/PullformDependencies.cmake)):
+GLFW 3.4, Dear ImGui 1.91.9b, GLM 1.0.1, nlohmann/json 3.11.3, nativefiledialog-extended
+1.2.1 and doctest 2.4.11 (tests). The glad OpenGL 3.3 core loader is generated and
+committed in `third_party/glad`. To build without network access from an existing build
+tree, configure with `-DFETCHCONTENT_FULLY_DISCONNECTED=ON`.
 
 ## Controls
 
@@ -69,67 +111,58 @@ supported because browsers block ES module loading from `file://` URLs.
 | Use the active tool | Left button |
 | Orbit | Middle drag, or the Orbit tool (O) with left drag |
 | Pan | Right drag, or Shift + middle drag |
-| Zoom | Mouse wheel (zooms toward the cursor) |
+| Zoom | Mouse wheel (toward the cursor) |
 | Select tool | Space |
 | Rectangle tool | R |
 | Push/Pull tool | P |
 | Orbit tool | O |
 | Fit view to model | F |
 | Toggle grid snap | G |
+| Type an exact value | Start typing digits, then Enter (goes to the Measurements box) |
 | Cancel the current operation, or clear the selection | Esc |
 | Delete the selected object | Delete or Backspace |
-| Undo | Ctrl+Z (⌘Z on macOS) |
-| Redo | Ctrl+Y or Ctrl+Shift+Z (⌘⇧Z on macOS) |
-| Open / Save project | Ctrl+O / Ctrl+S (⌘O / ⌘S) |
+| Undo | Ctrl+Z (Cmd+Z on macOS) |
+| Redo | Ctrl+Y or Ctrl+Shift+Z (Cmd+Shift+Z on macOS) |
+| New / Open / Save / Save As | Ctrl+N / Ctrl+O / Ctrl+S / Ctrl+Shift+S |
 
-Shortcuts are ignored while you type in a text field. While drawing or push/pulling, typing
-a digit jumps into the Measurements box; press Enter to apply.
+Single-key shortcuts never fire while a text field has keyboard focus or while a value is
+being typed. The menus and Help > Controls show the same bindings.
 
-### Drawing a rectangle
+### Measurements and units
 
-Press **R**, click the first corner on the ground, then click the opposite corner (or press,
-drag and release). To enter an exact size, type the width and depth into the Measurements
-box (`2000` and `1000`, or `2000, 1000` in the width field) and press Enter. If a first
-corner is placed, the typed rectangle is drawn from it toward the pointer; otherwise it
-starts at the origin.
+Lengths are shown in **millimeters** by default (change the display unit in the
+Properties panel). Typed values accept `mm`, `cm`, `m`, `in` (or `"`) and `ft` (or `'`)
+suffixes, case-insensitive, with `.` as the decimal separator. **A value without a unit
+uses the current display unit** (millimeters by default), so `2000`, `2000mm`, `200cm` and
+`2m` are the same length. Compound values like `6'2"` and comma decimals are rejected
+with an explanation.
 
-### Push/pull
+- Rectangle tool: `width, depth` (for example `2000, 1000`). With a first corner placed,
+  the rectangle is drawn from it toward the pointer; otherwise from the origin.
+- Push/Pull tool: a distance *relative to the face's current position* (incremental).
+- Select tool / Properties panel **Total height**: the absolute height from the base.
 
-Press **P**, click a rectangle (or an extrusion's top cap), move the pointer up and click
-again, or type a distance and press Enter. The **Distance (Δ)** box is relative to the
-face's current position; **Total height** in the properties panel is absolute, measured
-from the base.
+## Project files
 
-### Lengths and units
-
-The model is stored in meters. Lengths are displayed in millimeters by default (the unit
-selector in the top bar changes the display unit, which is saved with the project).
-Inputs accept `mm`, `cm`, `m`, `in` (or `"`) and `ft` (or `'`) suffixes, e.g. `2000`,
-`2000mm`, `200 cm`, `2m`, `78.74in`, `6.5ft`. **A value without a unit is interpreted in
-the current display unit** (millimeters by default). Use `.` as the decimal separator.
-Compound feet-and-inches (`6'2"`) and expressions are not supported yet and are rejected
-with a message.
-
-### Projects
-
-- **Save** downloads `<name>.pullform.json` (works in every browser, including Firefox).
-- **Open** reads a project file. The whole file is validated first; a malformed file or an
-  unsupported version shows an error and leaves the current model untouched.
-- **New** and **Open** ask before discarding unsaved changes, and the browser warns when
-  you close a tab with unsaved changes.
-- Opening or starting a project clears the undo history: undo never crosses a project
-  boundary.
+`File > Save` writes a `.pullform.json` file: versioned JSON that stores the editable
+model (units, stable object IDs, rectangle profiles, extrusion heights, placements) and
+the camera view. It is not a mesh export. Files are written atomically (to a temporary
+file, then renamed), so a failed save never corrupts an existing project. Opening
+validates the whole file first; a malformed file or an unsupported version shows an error
+and leaves the open project untouched. Opening or starting a new project clears the undo
+history. Pullform asks before discarding unsaved changes (New, Open, quit or closing the
+window). Files saved by the earlier web prototype (format version 1) open unchanged.
 
 ## Documentation
 
-- [Architecture](docs/ARCHITECTURE.md): document model, render mapping, units, history,
-  persistence and geometry boundaries.
-- [Roadmap](docs/ROADMAP.md): completed and planned work.
-- [Verification](docs/VERIFICATION.md): what has been tested, how, and what has not.
-- [Changelog](CHANGELOG.md): what changed in each release.
-- [Contributing](CONTRIBUTING.md): setup and pull request checklist.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): modules, document model, rendering,
+  history, persistence, units and geometry boundaries.
+- [docs/ROADMAP.md](docs/ROADMAP.md): completed and planned milestones.
+- [docs/VERIFICATION.md](docs/VERIFICATION.md): what was verified, how, and what was not.
+- [CONTRIBUTING.md](CONTRIBUTING.md) and [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
-MIT for this project's code; see [LICENSE](LICENSE). Bundled dependencies keep their own
-licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Pullform is MIT licensed ([LICENSE](LICENSE)). Bundled third-party components keep their
+own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). The icon, interface and
+all first-party code are original to this project.

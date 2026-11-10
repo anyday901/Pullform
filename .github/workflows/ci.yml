@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows (MSVC) + installer
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure NSIS is available
+        shell: pwsh
+        run: |
+          if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {
+            if (-not (Test-Path "C:\Program Files (x86)\NSIS\makensis.exe")) { choco install nsis -y --no-progress }
+            "C:\Program Files (x86)\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Append
+          }
+      - name: Configure
+        run: cmake --preset windows
+      - name: Build Debug
+        run: cmake --build --preset windows-debug --parallel
+      - name: Test Debug
+        run: ctest --preset windows-debug
+      - name: Build Release
+        run: cmake --build --preset windows-release --parallel
+      - name: Test Release
+        run: ctest --preset windows-release
+      - name: Package installer
+        run: cpack --preset windows-installer
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pullform-windows-installer
+          path: build/windows/Pullform-*-win64.exe
+          if-no-files-found: error
+
+  linux:
+    name: Linux (${{ matrix.compiler }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: gcc
+            cc: gcc
+            cxx: g++
+          - compiler: clang
+            cc: clang
+            cxx: clang++
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libgl-dev libgtk-3-dev
+      - name: Configure
+        run: cmake --preset linux
+      - name: Build Debug
+        run: cmake --build --preset linux-debug
+      - name: Test Debug
+        run: ctest --preset linux-debug
+      - name: Build Release
+        run: cmake --build --preset linux-release
+      - name: Test Release
+        run: ctest --preset linux-release
+
+  sanitizers:
+    name: Linux ASan + UBSan
+    runs-on: ubuntu-24.04
+    env:
+      CC: clang
+      CXX: clang++
+      ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
+      UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libgl-dev libgtk-3-dev
+      - name: Configure
+        run: cmake --preset linux-sanitize
+      - name: Build
+        run: cmake --build --preset linux-sanitize
+      - name: Test
+        run: ctest --preset linux-sanitize
+
+  macos:
+    name: macOS (Apple Clang)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ninja
+        run: brew install ninja || true
+      - name: Configure
+        run: cmake --preset macos
+      - name: Build Debug
+        run: cmake --build --preset macos-debug
+      - name: Test Debug
+        run: ctest --preset macos-debug
+      - name: Build Release
+        run: cmake --build --preset macos-release
+      - name: Test Release
+        run: ctest --preset macos-release
