@@ -95,7 +95,7 @@ TEST_CASE("scenario 5: cancelling previews leaves document and history unchanged
     CHECK(std::holds_alternative<std::monostate>(editor.preview()));
     CHECK_FALSE(tools.active());
     CHECK(sameContent(editor.document(), snapshot));
-    CHECK(editor.document().objects[0] == snapshot.objects[0]); // same immutable object, untouched
+    CHECK(editor.document().objects[0].get() == snapshot.objects[0].get()); // same immutable object, untouched
     CHECK(editor.undoDepth() == depth);
     CHECK_FALSE(editor.document().find(id)->extrusion.has_value());
 }

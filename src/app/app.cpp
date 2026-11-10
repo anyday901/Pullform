@@ -15,10 +15,26 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <string>
 
 namespace pf {
 
 namespace {
+
+/// Reads an environment variable; empty when unset. MSVC deprecates std::getenv.
+std::string environmentVariable(const char* name) {
+#ifdef _MSC_VER
+    char* value = nullptr;
+    std::size_t length = 0;
+    std::string result;
+    if (_dupenv_s(&value, &length, name) == 0 && value) result = value;
+    std::free(value);
+    return result;
+#else
+    const char* value = std::getenv(name);
+    return value ? std::string(value) : std::string();
+#endif
+}
 
 App* appFrom(GLFWwindow* window) { return static_cast<App*>(glfwGetWindowUserPointer(window)); }
 
@@ -143,8 +159,8 @@ void App::initImGui() {
 
 void App::applyScale(float scale) {
     // PULLFORM_UI_SCALE overrides the monitor's content scale (e.g. 1.5).
-    if (const char* env = std::getenv("PULLFORM_UI_SCALE")) {
-        const float forced = std::strtof(env, nullptr);
+    if (const std::string env = environmentVariable("PULLFORM_UI_SCALE"); !env.empty()) {
+        const float forced = std::strtof(env.c_str(), nullptr);
         if (forced > 0.0f) scale = forced;
     }
     scale = std::clamp(scale, 0.5f, 4.0f);
