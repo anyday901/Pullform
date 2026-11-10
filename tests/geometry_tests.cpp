@@ -1,6 +1,8 @@
 #include "helpers.hpp"
 
 #include "core/commands/operations.hpp"
+#include "core/document/tolerance.hpp"
+#include "core/geometry/rectangle.hpp"
 #include "core/geometry/solid.hpp"
 
 #include <algorithm>
@@ -161,4 +163,39 @@ TEST_CASE("touching and overlapping objects stay independent") {
     CHECK(editor.document().objects.size() == 2);
     CHECK(editor.document().find(a)->extrusion->height == doctest::Approx(0.5));
     CHECK(editor.document().find(b)->extrusion->height == doctest::Approx(0.8));
+}
+
+TEST_CASE("typed rectangle sizes are stored exactly, even from an off-grid first corner") {
+    // 0.3 + 2.0 - 0.3 is 1.9999999999999998 in doubles; the typed size must not go through it.
+    const auto r = rectangleFromSignedSize({0.3, 0.7, 0.0}, 2.0, 0.1);
+    REQUIRE(r.ok());
+    CHECK(r->width == 2.0);
+    CHECK(r->depth == 0.1);
+    CHECK(r->corner.x == 0.3);
+
+    // Drawn toward -X/-Y: the corner moves, the size stays exact.
+    const auto flipped = rectangleFromSignedSize({0.3, 0.7, 0.0}, -2.0, -0.1);
+    REQUIRE(flipped.ok());
+    CHECK(flipped->width == 2.0);
+    CHECK(flipped->depth == 0.1);
+    CHECK(flipped->corner.x == doctest::Approx(-1.7));
+    CHECK(flipped->corner.y == doctest::Approx(0.6));
+
+    // The 0.1 mm minimum is accepted when typed exactly, wherever the first corner is.
+    const auto tiny = rectangleFromSignedSize({1234.5678, -0.3, 0.0}, tol::kMinDimension, tol::kMinDimension);
+    REQUIRE(tiny.ok());
+    CHECK(tiny->width == tol::kMinDimension);
+    Document doc;
+    CHECK(createRectangle(doc, *tiny).ok());
+
+    // The far corner must still be inside the model range.
+    CHECK_FALSE(rectangleFromSignedSize({9999.0, 0.0, 0.0}, 2.0, 1.0).ok());
+    CHECK_FALSE(rectangleFromSignedSize({20000.0, 0.0, 0.0}, 1.0, 1.0).ok());
+}
+
+TEST_CASE("rectangle corners outside the 10 km range are refused") {
+    CHECK_FALSE(checkRectangleCorner({0.0, 0.0, 0.0}).has_value());
+    CHECK_FALSE(checkRectangleCorner({-10000.0, 10000.0, 0.0}).has_value());
+    CHECK(checkRectangleCorner({10000.5, 0.0, 0.0}).has_value());
+    CHECK(checkRectangleCorner({0.0, std::nan(""), 0.0}).has_value());
 }

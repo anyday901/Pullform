@@ -103,6 +103,12 @@ void ToolController::rectDown(const PointerInput& input) {
     const auto p = groundPoint(input);
     if (!p) return;
     if (!rect_) {
+        // A first corner near the horizon lands far outside the model range;
+        // refuse it now rather than start a rectangle that can never finish.
+        if (auto e = checkRectangleCorner(*p)) {
+            editor_.notify(Message{Message::Kind::Error, *e + " Pick a first corner closer to the model."});
+            return;
+        }
         rect_ = RectGesture{*p, input.screen, true};
         editor_.setPreview(RectanglePreview{*p, *p, std::nullopt});
         editor_.notify(std::nullopt);
