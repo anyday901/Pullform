@@ -1,9 +1,11 @@
-# pullform_app_logic: tools (interaction state machines) and camera math.
+# pullform_app_logic: tools (interaction state machines), camera math and the
+# viewport mesh cache (through the abstract Renderer interface).
 # No OpenGL, GLFW or ImGui, so the tool workflow is tested headlessly with
 # synthetic pointer events.
 add_library(pullform_app_logic STATIC
   tools/tool_controller.cpp
-  viewport/camera.cpp)
+  viewport/camera.cpp
+  viewport/mesh_cache.cpp)
 target_link_libraries(pullform_app_logic PUBLIC pullform_core)
 pullform_set_warnings(pullform_app_logic)
 

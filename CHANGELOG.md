@@ -18,6 +18,13 @@ include breaking changes, but project files will keep a migration path.
   first. Typing `house` no longer saves `house.json`; it saves `house.pullform.json`.
 - Opening a project from the Windows command line (or by double-clicking it, once the file
   association exists) works with non-English file names.
+- Hovering no longer slows down quadratically with the number of objects. The viewport
+  skips its mesh sync when the document has not changed and looks up object IDs in a set
+  (hover over 5,000 boxes: about 15 ms to 0.8 ms of CPU per mouse move).
+
+### Added
+
+- `pullform_bench`, a hover benchmark for large models; results in `docs/VERIFICATION.md`.
 
 ## [0.2.0] - 2026-11-10
 

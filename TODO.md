@@ -41,19 +41,19 @@ Suggested order is top to bottom.
 
 ## PR 4: Interface polish
 
-- [ ] **UI sizes compound when the window moves between monitors with different scaling.**
+- [x] **UI sizes compound when the window moves between monitors with different scaling.**
       `src/app/app.cpp` (`applyScale`). Reset to a fresh `ImGuiStyle` before applying the
       theme and `ScaleAllSizes`.
-- [ ] **Tooltips never appear while the mouse is still, and the text caret stops blinking.**
+- [x] **Tooltips never appear while the mouse is still, and the text caret stops blinking.**
       `src/app/app.cpp` (frame loop). Use `glfwWaitEventsTimeout` while an item is hovered
       or a text field is active.
 - [ ] Test both on a real Windows display (not covered by CI).
 
 ## PR 5: Performance groundwork
 
-- [ ] **Hover picking is quadratic in object count.** `src/app/viewport/viewport.cpp`
+- [x] **Hover picking is quadratic in object count.** `src/app/viewport/viewport.cpp`
       (`sync`). Skip the sync when the document has not changed, and look IDs up in a set.
-- [ ] Add a simple benchmark (for example 5,000 boxes) and record the numbers in
+- [x] Add a simple benchmark (for example 5,000 boxes) and record the numbers in
       `docs/VERIFICATION.md`.
 
 ## PR 6: Release hygiene

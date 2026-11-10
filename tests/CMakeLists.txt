@@ -8,7 +8,9 @@ add_executable(pullform_tests
   history_tests.cpp
   tools_tests.cpp
   project_file_tests.cpp
-  camera_tests.cpp)
+  camera_tests.cpp
+  mesh_cache_tests.cpp
+  fake_renderer.hpp)
 target_link_libraries(pullform_tests PRIVATE pullform_app_logic doctest::doctest)
 pullform_set_warnings(pullform_tests)
 
@@ -19,3 +21,9 @@ if(CMAKE_CROSSCOMPILING AND NOT CMAKE_CROSSCOMPILING_EMULATOR)
 else()
   doctest_discover_tests(pullform_tests)
 endif()
+
+# Hover benchmark for large models. Built with the tests so it keeps compiling,
+# but not run by CTest; see the comment at the top of the source file.
+add_executable(pullform_bench bench/hover_bench.cpp fake_renderer.hpp)
+target_link_libraries(pullform_bench PRIVATE pullform_app_logic)
+pullform_set_warnings(pullform_bench)
