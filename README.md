@@ -41,6 +41,8 @@ These limits are also listed in the app's properties panel. See
 ## Install, run, test, build
 
 ```sh
+git clone https://github.com/anyday901/pullform.git
+cd pullform
 npm ci                 # install the exact locked dependencies
 npm run dev            # start the dev server at http://localhost:5173
 npm test               # unit tests (Vitest)
@@ -124,6 +126,8 @@ with a message.
   persistence and geometry boundaries.
 - [Roadmap](docs/ROADMAP.md): completed and planned work.
 - [Verification](docs/VERIFICATION.md): what has been tested, how, and what has not.
+- [Changelog](CHANGELOG.md): what changed in each release.
+- [Contributing](CONTRIBUTING.md): setup and pull request checklist.
 
 ## License
 
