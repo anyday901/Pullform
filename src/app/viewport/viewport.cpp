@@ -30,10 +30,9 @@ glm::vec4 dim(glm::vec4 c, float a) { return {c.r, c.g, c.b, a}; }
 
 } // namespace
 
-Viewport::Viewport(Renderer& renderer) : renderer_(renderer) {}
+Viewport::Viewport(Renderer& renderer) : renderer_(renderer), meshes_(renderer) {}
 
 Viewport::~Viewport() {
-    for (auto& [id, cached] : meshes_) renderer_.destroyMesh(cached.handle);
     if (previewHandle_ != kNoMesh) renderer_.destroyMesh(previewHandle_);
 }
 
@@ -49,36 +48,12 @@ bool Viewport::contains(const Vec2& p) const {
 }
 
 PointerInput Viewport::pointerAt(const Vec2& windowPos, const Document& document) {
-    sync(document);
+    meshes_.sync(document);
     PointerInput in;
     in.screen = windowPos;
     in.ray = camera_.rayThrough(toLocal(windowPos), size_);
-    for (const auto& [id, cached] : meshes_) {
-        const auto hit = pickObject(in.ray, *cached.source, cached.mesh);
-        if (hit && (!in.pick || hit->distance < in.pick->distance)) in.pick = hit;
-    }
+    in.pick = meshes_.pick(in.ray);
     return in;
-}
-
-void Viewport::sync(const Document& document) {
-    // Drop meshes for objects that no longer exist.
-    for (auto it = meshes_.begin(); it != meshes_.end();) {
-        if (document.indexOf(it->first) < 0) {
-            renderer_.destroyMesh(it->second.handle);
-            it = meshes_.erase(it);
-        } else {
-            ++it;
-        }
-    }
-    // Rebuild meshes whose document entry changed (pointer identity).
-    for (const auto& obj : document.objects) {
-        auto& cached = meshes_[obj->id];
-        if (cached.source == obj) continue;
-        if (cached.handle != kNoMesh) renderer_.destroyMesh(cached.handle);
-        cached.source = obj;
-        cached.mesh = buildMesh(*obj);
-        cached.handle = renderer_.createMesh(cached.mesh);
-    }
 }
 
 void Viewport::drawGrid(std::vector<LineSegment>& lines) {
@@ -121,7 +96,7 @@ void Viewport::drawFaceOverlay(const CachedMesh& cached, const FaceId& face, con
 
 void Viewport::render(const Editor& editor, const ToolController& tools) {
     const Document& doc = editor.document();
-    sync(doc);
+    meshes_.sync(doc);
 
     FrameSetup frame;
     frame.view = camera_.view();
@@ -151,12 +126,12 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
     const auto& hover = editor.hover();
 
     // Solid fills.
-    for (const auto& [id, cached] : meshes_) {
+    for (const auto& [id, cached] : meshes_.entries()) {
         if (pushPreview && pushPreview->objectId == id) continue; // replaced by the preview below
         renderer_.drawMesh(cached.handle, cached.mesh.closed ? kSolidFill : kSheetFill);
     }
     // Face highlights: one logical face, all of its triangles.
-    for (const auto& [id, cached] : meshes_) {
+    for (const auto& [id, cached] : meshes_.entries()) {
         if (pushPreview && pushPreview->objectId == id) continue;
         if (hover && hover->objectId == id && hover->face && !(selection && *selection == *hover)) {
             drawFaceOverlay(cached, *hover->face, kHoverFace);
@@ -166,7 +141,7 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
     // Real edges only (no triangulation diagonals); the selected object's edges in blue.
     lines.clear();
     std::vector<LineSegment> selectedLines;
-    for (const auto& [id, cached] : meshes_) {
+    for (const auto& [id, cached] : meshes_.entries()) {
         if (pushPreview && pushPreview->objectId == id) continue;
         const bool selected = selection && selection->objectId == id;
         appendEdges(selected ? selectedLines : lines, cached.mesh, selected ? kSelectedEdge : kEdge);

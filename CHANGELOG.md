@@ -17,6 +17,13 @@ include breaking changes, but project files will keep a migration path.
   not 1.9999999999999998 m, and the 0.1 mm minimum is accepted.
 - A first rectangle corner beyond the 10 km model range (clicked near the horizon) is
   refused with a message instead of starting a rectangle that could not be finished.
+- Hovering no longer slows down quadratically with the number of objects. The viewport
+  skips its mesh sync when the document has not changed and looks up object IDs in a set
+  (hover over 5,000 boxes: about 15 ms to 0.8 ms of CPU per mouse move).
+
+### Added
+
+- `pullform_bench`, a hover benchmark for large models; results in `docs/VERIFICATION.md`.
 
 ## [0.2.0] - 2026-11-10
 

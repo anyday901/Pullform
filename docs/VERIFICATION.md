@@ -25,6 +25,39 @@ CI (`.github/workflows/ci.yml`) additionally builds and tests with MSVC on Windo
 Clang on macOS (arm64, CMake 4). All of these passed on pull request #1. A local build
 with CMake 4.4 also passed, alongside the CMake 3.28 builds above.
 
+## Performance (benchmark; run by hand)
+
+`pullform_bench` times the CPU work done on every mouse move over the viewport
+(`Viewport::pointerAt`): syncing the derived-mesh cache with the document, then ray casting
+every mesh. GPU uploads go to a counting stub, so driver time is not included. It is built
+with the tests but not run by CTest.
+
+```
+cmake -B build/rel -G Ninja -DCMAKE_BUILD_TYPE=Release -DPULLFORM_BUILD_APP=OFF
+cmake --build build/rel --target pullform_bench
+build/rel/tests/pullform_bench          # 5,000 boxes; pass a number for another count
+```
+
+Release build, GCC 13, Linux x64, one core of a 2.1 GHz Xeon (cloud VM):
+
+| Step (average) | 5,000 boxes | 20,000 boxes |
+| --- | --- | --- |
+| First sync (build every mesh) | 15.7 ms | 65.6 ms |
+| Sync, document unchanged | 0.002 ms | 0.009 ms |
+| Sync, document unchanged, 0.2.0 algorithm | 14.7 ms | 243.6 ms |
+| Sync after one object changed | 0.5 ms | 3.3 ms |
+| Ray cast against every mesh | 0.8 ms | 3.5 ms |
+| **Hover total** | **0.8 ms** | **3.2 ms** |
+| Hover total in 0.2.0 (sync + ray cast) | 15.5 ms | 247 ms |
+
+0.2.0 ran that sync on every hover and again on each redraw, so hovering a 5,000-box model
+cost about 30 ms of CPU per mouse move. The sync is now skipped when the object list is
+unchanged and uses an ID set otherwise. What remains is linear: the ray cast tests every
+triangle, and an edit still compares every object pointer once. A bounding-volume check
+before the per-triangle test is the next step if larger models need it. Not measured: a
+real GPU, the GPU upload cost on first load, and frame rate with a 5,000-box model on
+screen.
+
 ## Manual (performed once; not automated)
 
 Run on Linux under Xvfb with Mesa llvmpipe (software OpenGL 3.3/4.5), driving the app
@@ -53,4 +86,5 @@ rather than an app defect, but it was not proven.
 - macOS: running the app (CI only builds and runs tests); Retina scaling.
 - A real GPU and driver, and a physical display and mouse (only software rendering).
 - The window close button path (it uses the same code path as Ctrl+Q, which was tested).
-- Performance with large models (no benchmark yet).
+- Frame rate and GPU upload time with large models on real hardware (only the CPU side of
+  hovering is benchmarked; see above).

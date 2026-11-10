@@ -176,6 +176,9 @@ void App::applyScale(float scale) {
     const float layoutScale = scale;
     const float rasterScale = 1.0f;
 #endif
+    // Start from default sizes: ScaleAllSizes multiplies in place, so scaling the
+    // previous monitor's style again would compound on every monitor change.
+    ImGui::GetStyle() = ImGuiStyle();
     applyTheme();
     ImGui::GetStyle().ScaleAllSizes(layoutScale);
     io.Fonts->Clear();
@@ -187,6 +190,22 @@ void App::applyScale(float scale) {
     io.FontGlobalScale = 1.0f / rasterScale;
     ImGui_ImplOpenGL3_DestroyFontsTexture();
     ImGui_ImplOpenGL3_CreateFontsTexture();
+}
+
+double App::idleWakeTimeout() const {
+    const ImGuiContext& g = *GImGui;
+    // A text field is being edited: wake for each caret blink transition.
+    if (g.IO.WantTextInput && g.IO.ConfigInputTextCursorBlink && g.InputTextState.ID != 0 && g.ActiveId == g.InputTextState.ID) {
+        const float anim = g.InputTextState.CursorAnim;
+        if (anim <= 0.0f) return std::max(0.02, double(-anim)); // caret stays on briefly after typing
+        const float phase = std::fmod(anim, 1.2f);               // on for 0.8 s, off for 0.4 s
+        const float next = phase <= 0.8f ? 0.8f - phase : 1.2f - phase;
+        return std::max(0.02, double(next) + 0.01);
+    }
+    // An item with a delayed tooltip is hovered: keep frames coming until the
+    // mouse has rested long enough for the tooltip to have appeared.
+    if (g.HoverItemDelayId != 0 && g.MouseStationaryTimer < 1.0f) return 0.05;
+    return 0.0;
 }
 
 void App::onContentScale(float scale) {
@@ -205,9 +224,13 @@ int App::run(const std::optional<std::filesystem::path>& openPath) {
     if (openPath) openFile(*openPath);
     while (!quit_) {
         // Redraw only while something changes; otherwise sleep until input arrives.
+        // Tooltip delays and the caret blink advance only when a frame is drawn,
+        // so while one is pending wake up on a timer even without input.
+        const double timeout = framesToDraw_ > 0 ? 0.0 : idleWakeTimeout();
         if (framesToDraw_ > 0) glfwPollEvents();
+        else if (timeout > 0.0) glfwWaitEventsTimeout(timeout);
         else glfwWaitEvents();
-        if (framesToDraw_ <= 0) framesToDraw_ = 2;
+        if (framesToDraw_ <= 0) framesToDraw_ = timeout > 0.0 ? 1 : 2;
         if (pendingScale_ > 0.0f) {
             applyScale(pendingScale_);
             pendingScale_ = 0.0f;

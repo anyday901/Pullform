@@ -46,6 +46,8 @@ private:
     void initImGui();
     void applyScale(float scale);
     void frame();
+    /// Seconds to wait for input before drawing anyway, or 0 to wait indefinitely.
+    [[nodiscard]] double idleWakeTimeout() const;
     void handleViewportInput();
     void handleShortcuts();
     void handleActions();
