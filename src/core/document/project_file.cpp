@@ -4,6 +4,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <fstream>
@@ -19,6 +20,11 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#else
+#include <cerrno>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #endif
 
 namespace pf {
@@ -230,37 +236,176 @@ Expected<std::string> readProjectFile(const std::filesystem::path& path) {
     return buffer.str();
 }
 
-std::optional<std::string> writeFileAtomically(const std::filesystem::path& path, std::string_view contents) {
-    namespace fs = std::filesystem;
+namespace {
+
+namespace fs = std::filesystem;
+
+/// Follows a chain of symbolic links so a save replaces the file a link points
+/// at, never the link itself. A dangling link resolves to the missing target.
+fs::path resolveSaveTarget(const fs::path& path) {
+    fs::path p = path;
+    for (int hops = 0; hops < 40; ++hops) {
+        std::error_code ec;
+        if (!fs::is_symlink(fs::symlink_status(p, ec))) break;
+        const fs::path link = fs::read_symlink(p, ec);
+        if (ec) break;
+        p = link.is_absolute() ? link : p.parent_path() / link;
+    }
+    return p;
+}
+
+/// Random part of the temporary file name. The file is always created
+/// exclusively (O_EXCL / CREATE_NEW), so the name only has to make clashes rare.
+std::string tempSuffix() {
     std::random_device rd;
-    const auto tmp = fs::path(path).concat(".tmp-" + std::to_string(rd() % 1000000u));
-    {
-        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
-        if (!out) return "Could not create a temporary file next to " + pathToUtf8(path.filename()) + ".";
-        out.write(contents.data(), static_cast<std::streamsize>(contents.size()));
-        out.flush();
-        if (!out) {
-            out.close();
-            std::error_code ignored;
-            fs::remove(tmp, ignored);
-            return "Could not write " + pathToUtf8(path.filename()) + " (is the disk full?).";
+    static constexpr char kDigits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
+    std::string s = ".tmp-";
+    std::uniform_int_distribution<int> pick(0, 35);
+    for (int i = 0; i < 8; ++i) s += kDigits[pick(rd)];
+    return s;
+}
+
+#ifdef _WIN32
+
+std::string windowsErrorText(DWORD code) { return std::system_category().message(static_cast<int>(code)); }
+
+/// Creates `tmp` (failing if it exists), writes everything and flushes it to the disk.
+std::optional<DWORD> writeAndFlushTemp(const fs::path& tmp, std::string_view contents, bool& created) {
+    HANDLE h = CreateFileW(tmp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return GetLastError();
+    created = true;
+    std::optional<DWORD> err;
+    std::size_t done = 0;
+    while (!err && done < contents.size()) {
+        const DWORD chunk = static_cast<DWORD>(std::min<std::size_t>(contents.size() - done, 1u << 30));
+        DWORD written = 0;
+        if (!WriteFile(h, contents.data() + done, chunk, &written, nullptr)) err = GetLastError();
+        done += written;
+    }
+    if (!err && !FlushFileBuffers(h)) err = GetLastError();
+    if (!CloseHandle(h) && !err) err = GetLastError();
+    return err;
+}
+
+#else
+
+/// Flushes a file descriptor to stable storage. On macOS plain fsync only
+/// reaches the drive's cache; F_FULLFSYNC asks the drive to commit it.
+bool syncDescriptor(int fd) {
+#ifdef F_FULLFSYNC
+    if (::fcntl(fd, F_FULLFSYNC) == 0) return true;
+#endif
+    while (::fsync(fd) != 0) {
+        if (errno != EINTR) return false;
+    }
+    return true;
+}
+
+/// Creates `tmp` (failing if it exists) with the permissions of `existing` when
+/// there is one, writes everything and flushes it to the disk.
+std::optional<int> writeAndSyncTemp(const fs::path& tmp, std::string_view contents, const struct stat* existing,
+                                    bool& created) {
+    const int fd = ::open(tmp.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0666);
+    if (fd < 0) return errno;
+    created = true;
+    std::optional<int> err;
+    if (existing) {
+        // Keep the replaced file's owner and mode. Changing the owner needs
+        // privileges and usually fails; that is fine, the mode still applies.
+        if (::fchown(fd, existing->st_uid, existing->st_gid) != 0) {
+        }
+        if (::fchmod(fd, existing->st_mode & 07777) != 0) err = errno;
+    }
+    std::size_t done = 0;
+    while (!err && done < contents.size()) {
+        const ssize_t n = ::write(fd, contents.data() + done, contents.size() - done);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            err = errno;
+        } else {
+            done += static_cast<std::size_t>(n);
         }
     }
-    std::error_code ec;
-#ifdef _WIN32
-    // Atomic replace on NTFS; write-through so the rename is durable.
-    if (!MoveFileExW(tmp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-        ec = std::error_code(static_cast<int>(GetLastError()), std::system_category());
-    }
-#else
-    fs::rename(tmp, path, ec); // rename(2) atomically replaces the destination
+    if (!err && !syncDescriptor(fd)) err = errno;
+    if (::close(fd) != 0 && !err) err = errno;
+    return err;
+}
+
+/// Makes a rename durable by flushing the directory entry. Best effort: some
+/// file systems do not support syncing a directory.
+void syncDirectory(const fs::path& dir) {
+    const int fd = ::open(dir.empty() ? "." : dir.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (fd < 0) return;
+    (void)syncDescriptor(fd);
+    ::close(fd);
+}
+
 #endif
-    if (ec) {
-        std::error_code ignored;
-        fs::remove(tmp, ignored);
-        return "Could not save " + pathToUtf8(path.filename()) + ": " + ec.message();
+
+} // namespace
+
+std::optional<std::string> writeFileAtomically(const std::filesystem::path& path, std::string_view contents) {
+    const std::string name = pathToUtf8(path.filename());
+    const fs::path target = resolveSaveTarget(path);
+    const auto diskError = [&](const std::string& reason) {
+        return "Could not save " + name + ": " + reason + ". The previous version of the file was not changed.";
+    };
+
+#ifdef _WIN32
+    for (int attempt = 0; attempt < 16; ++attempt) {
+        const fs::path tmp = fs::path(target).concat(tempSuffix());
+        bool created = false;
+        if (const auto err = writeAndFlushTemp(tmp, contents, created)) {
+            if (!created && *err == ERROR_FILE_EXISTS) continue; // name collision: pick another
+            if (created) DeleteFileW(tmp.c_str());
+            if (!created) return "Could not create a temporary file next to " + name + ": " + windowsErrorText(*err);
+            return diskError(windowsErrorText(*err));
+        }
+        // ReplaceFileW keeps the replaced file's security descriptor, attributes
+        // and creation time. It needs an existing destination and is not
+        // available on every file system, so fall back to a write-through move.
+        bool replaced = false;
+        DWORD err = 0;
+        if (GetFileAttributesW(target.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            replaced = ReplaceFileW(target.c_str(), tmp.c_str(), nullptr,
+                                    REPLACEFILE_IGNORE_MERGE_ERRORS | REPLACEFILE_IGNORE_ACL_ERRORS, nullptr, nullptr) != 0;
+            if (!replaced) err = GetLastError();
+        }
+        if (!replaced) {
+            replaced = MoveFileExW(tmp.c_str(), target.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+            if (!replaced && err == 0) err = GetLastError();
+        }
+        if (!replaced) {
+            DeleteFileW(tmp.c_str());
+            return diskError(windowsErrorText(err));
+        }
+        return std::nullopt;
     }
-    return std::nullopt;
+    return "Could not create a temporary file next to " + name + ".";
+#else
+    struct stat existing {};
+    const bool hasExisting = ::stat(target.c_str(), &existing) == 0 && S_ISREG(existing.st_mode);
+    for (int attempt = 0; attempt < 16; ++attempt) {
+        const fs::path tmp = fs::path(target).concat(tempSuffix());
+        bool created = false;
+        if (const auto err = writeAndSyncTemp(tmp, contents, hasExisting ? &existing : nullptr, created)) {
+            if (!created && *err == EEXIST) continue; // name collision: pick another
+            if (created) ::unlink(tmp.c_str());
+            const std::string reason = std::generic_category().message(*err);
+            if (!created) return "Could not create a temporary file next to " + name + ": " + reason;
+            return diskError(*err == ENOSPC ? "the disk is full" : reason);
+        }
+        // rename(2) atomically replaces the destination.
+        if (::rename(tmp.c_str(), target.c_str()) != 0) {
+            const int err = errno;
+            ::unlink(tmp.c_str());
+            return diskError(std::generic_category().message(err));
+        }
+        syncDirectory(target.parent_path());
+        return std::nullopt;
+    }
+    return "Could not create a temporary file next to " + name + ".";
+#endif
 }
 
 std::string pathToUtf8(const std::filesystem::path& path) {
@@ -268,19 +413,39 @@ std::string pathToUtf8(const std::filesystem::path& path) {
     return std::string(u8.begin(), u8.end());
 }
 
+namespace {
+
+bool endsWithIgnoringCase(std::string_view text, std::string_view suffix) {
+    if (text.size() < suffix.size()) return false;
+    for (std::size_t i = 0; i < suffix.size(); ++i) {
+        const auto a = std::tolower(static_cast<unsigned char>(text[text.size() - suffix.size() + i]));
+        const auto b = std::tolower(static_cast<unsigned char>(suffix[i]));
+        if (a != b) return false;
+    }
+    return true;
+}
+
+} // namespace
+
 std::filesystem::path withProjectExtension(std::filesystem::path path) {
     const auto name = pathToUtf8(path.filename());
-    const auto endsWith = [&](std::string_view suffix) {
-        if (name.size() < suffix.size()) return false;
-        for (std::size_t i = 0; i < suffix.size(); ++i) {
-            const char a = static_cast<char>(std::tolower(static_cast<unsigned char>(name[name.size() - suffix.size() + i])));
-            if (a != suffix[i]) return false;
-        }
-        return true;
-    };
-    if (endsWith(".json")) return path;
+    if (endsWithIgnoringCase(name, kProjectExtension)) return path;
+    if (endsWithIgnoringCase(name, ".json")) {
+        // The save dialog's filter is "*.json", so a typed "house" comes back as
+        // "house.json". Turn it into "house.pullform.json".
+        const auto stem = name.substr(0, name.size() - std::string_view(".json").size());
+        path.replace_filename(std::filesystem::path(std::u8string(stem.begin(), stem.end())));
+    }
     path += std::string(kProjectExtension);
     return path;
+}
+
+bool saveAsNeedsConfirmation(const std::filesystem::path& chosen, const std::filesystem::path& finalPath) {
+    // The native dialog already asked about `chosen`. Anything else is a file
+    // the user never saw a warning for.
+    if (finalPath == chosen) return false;
+    std::error_code ec;
+    return std::filesystem::exists(std::filesystem::symlink_status(finalPath, ec));
 }
 
 } // namespace pf

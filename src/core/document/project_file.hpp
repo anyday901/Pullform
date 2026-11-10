@@ -39,15 +39,25 @@ Expected<LoadedProject> parseProject(std::string_view text);
 /// Reads a whole file (refusing files over kMaxProjectBytes).
 Expected<std::string> readProjectFile(const std::filesystem::path& path);
 
-/// Writes `contents` to a temporary file beside `path`, flushes it, then renames
-/// it over `path`, so an interrupted save never leaves a truncated project.
-/// Returns an error message on failure (the original file is left untouched).
+/// Writes `contents` to a temporary file beside `path`, flushes it to the disk
+/// (fsync / FlushFileBuffers), then renames it over `path`, so an interrupted
+/// save or a power cut never leaves a truncated or empty project. An existing
+/// file keeps its permissions, and a symbolic link keeps pointing at the saved
+/// file (the link's target is replaced, not the link). Returns an error message
+/// on failure; the original file is left untouched.
 std::optional<std::string> writeFileAtomically(const std::filesystem::path& path, std::string_view contents);
 
 /// UTF-8 text of a path (safe for non-ASCII names on Windows).
 std::string pathToUtf8(const std::filesystem::path& path);
 
-/// Appends ".pullform.json" unless the name already ends with it (or ".json").
+/// Gives a name chosen in the save dialog the ".pullform.json" extension:
+/// "house" and "house.json" both become "house.pullform.json"; a name that
+/// already ends with ".pullform.json" (any case) is kept.
 std::filesystem::path withProjectExtension(std::filesystem::path path);
+
+/// True when Save As must ask before replacing `finalPath`: the name was changed
+/// after the native dialog (which only checked `chosen`) and a file already
+/// exists there.
+bool saveAsNeedsConfirmation(const std::filesystem::path& chosen, const std::filesystem::path& finalPath);
 
 } // namespace pf

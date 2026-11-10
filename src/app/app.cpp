@@ -267,9 +267,17 @@ void App::frame() {
     if (const auto choice = ui_.takeUnsavedChoice()) {
         const Pending pending = std::exchange(pending_, Pending::None);
         if (*choice == Ui::UnsavedChoice::Save) {
-            if (save()) finishPending(pending);
+            save(pending);
         } else if (*choice == Ui::UnsavedChoice::Discard) {
             finishPending(pending);
+        }
+    }
+    if (const auto replace = ui_.takeReplaceChoice()) {
+        const auto path = std::exchange(replacePath_, std::nullopt);
+        const Pending then = std::exchange(afterReplace_, Pending::None);
+        if (*replace && path && writeTo(*path)) {
+            path_ = *path;
+            finishPending(then);
         }
     }
     if (tools_.tool() != lastTool_) {
@@ -488,20 +496,30 @@ void App::openFile(const std::filesystem::path& path) {
     editor_.notify(Message{Message::Kind::Info, "Opened " + pathToUtf8(path.filename())});
 }
 
-bool App::save() {
-    if (!path_) return saveAs();
-    return writeTo(*path_);
+bool App::save(Pending then) {
+    if (!path_) return saveAs(then);
+    if (!writeTo(*path_)) return false;
+    finishPending(then);
+    return true;
 }
 
-bool App::saveAs() {
+bool App::saveAs(Pending then) {
     tools_.cancel();
-    const auto path = dialogs_->saveProject(path_ ? pathToUtf8(path_->filename()) : "untitled.pullform.json");
-    if (!path) {
+    const auto target = dialogs_->saveProject(path_ ? pathToUtf8(path_->filename()) : "untitled.pullform.json");
+    if (!target) {
         if (!dialogs_->error().empty()) ui_.showError("Could not show the Save dialog", dialogs_->error());
         return false;
     }
-    if (!writeTo(*path)) return false;
-    path_ = *path;
+    if (target->confirmReplace) {
+        // The extension was added after the dialog's own overwrite check.
+        replacePath_ = target->path;
+        afterReplace_ = then;
+        ui_.askReplace(pathToUtf8(target->path.filename()));
+        return false;
+    }
+    if (!writeTo(target->path)) return false;
+    path_ = target->path;
+    finishPending(then);
     return true;
 }
 

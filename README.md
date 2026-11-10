@@ -147,7 +147,10 @@ with an explanation.
 `File > Save` writes a `.pullform.json` file: versioned JSON that stores the editable
 model (units, stable object IDs, rectangle profiles, extrusion heights, placements) and
 the camera view. It is not a mesh export. Files are written atomically (to a temporary
-file, then renamed), so a failed save never corrupts an existing project. Opening
+file that is flushed to the disk, then renamed), so a failed save or a power cut never
+corrupts an existing project; the saved file keeps its permissions, and saving through a
+symbolic link updates the linked file. Save As always uses the `.pullform.json`
+extension and asks before replacing an existing file. Opening
 validates the whole file first; a malformed file or an unsupported version shows an error
 and leaves the open project untouched. Opening or starting a new project clears the undo
 history. Pullform asks before discarding unsaved changes (New, Open, quit or closing the

@@ -56,8 +56,10 @@ private:
     void doNew();
     void doOpen();
     void openFile(const std::filesystem::path& path);
-    bool save();
-    bool saveAs();
+    /// Save and Save As run `then` once the project is written. Save As may
+    /// first ask to replace an existing file; `then` waits for that answer.
+    bool save(Pending then = Pending::None);
+    bool saveAs(Pending then = Pending::None);
     bool writeTo(const std::filesystem::path& path);
     void deleteSelection();
     void fitView();
@@ -77,6 +79,8 @@ private:
 
     std::optional<std::filesystem::path> path_;
     Pending pending_ = Pending::None;
+    std::optional<std::filesystem::path> replacePath_; // Save As target waiting for "Replace?"
+    Pending afterReplace_ = Pending::None;
     bool quit_ = false;
     DragMode drag_ = DragMode::None;
     int dragButton_ = -1;

@@ -181,8 +181,109 @@ TEST_CASE("reading a missing file reports an error") {
     CHECK_FALSE(readProjectFile("/definitely/not/here.pullform.json").ok());
 }
 
+namespace {
+
+std::string readAll(const std::filesystem::path& path) {
+    const auto text = readProjectFile(path);
+    REQUIRE(text.ok());
+    return *text;
+}
+
+/// Files in `dir` whose name contains ".tmp-" (leftover temporary files).
+int leftoverTempFiles(const std::filesystem::path& dir) {
+    int n = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(dir)) {
+        if (pathToUtf8(entry.path().filename()).find(".tmp-") != std::string::npos) ++n;
+    }
+    return n;
+}
+
+} // namespace
+
 TEST_CASE("project extension") {
     CHECK(withProjectExtension("house").filename() == "house.pullform.json");
     CHECK(withProjectExtension("house.pullform.json").filename() == "house.pullform.json");
-    CHECK(withProjectExtension("house.JSON").filename() == "house.JSON");
+    CHECK(withProjectExtension("house.PullForm.JSON").filename() == "house.PullForm.JSON");
+    // The save dialog filters on "*.json", so typing "house" can come back as
+    // "house.json". Save As must never produce a bare ".json" name.
+    CHECK(withProjectExtension("house.json").filename() == "house.pullform.json");
+    CHECK(withProjectExtension("house.JSON").filename() == "house.pullform.json");
+    CHECK(withProjectExtension("my.house").filename() == "my.house.pullform.json");
+    CHECK(withProjectExtension(std::filesystem::path("dir") / "house.json") ==
+          std::filesystem::path("dir") / "house.pullform.json");
+    const std::u8string accented = u8"maison \u00e9t\u00e9";
+    CHECK(withProjectExtension(std::filesystem::path(accented + u8".json")).filename() ==
+          std::filesystem::path(accented + u8".pullform.json"));
 }
+
+TEST_CASE("Save As asks before replacing a file the dialog did not check") {
+    const auto dir = tempDir();
+    const auto existing = dir / "house.pullform.json";
+    REQUIRE_FALSE(writeFileAtomically(existing, "old").has_value());
+
+    // The dialog returned the final name, so its own overwrite prompt covered it.
+    CHECK_FALSE(saveAsNeedsConfirmation(existing, existing));
+    // "house" or "house.json" became an existing "house.pullform.json": ask.
+    CHECK(saveAsNeedsConfirmation(dir / "house", existing));
+    CHECK(saveAsNeedsConfirmation(dir / "house.json", existing));
+    // Nothing to replace: no question.
+    CHECK_FALSE(saveAsNeedsConfirmation(dir / "barn", dir / "barn.pullform.json"));
+    std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("durable save writes, replaces and cleans up") {
+    const auto dir = tempDir();
+    const auto file = dir / "house.pullform.json";
+
+    REQUIRE_FALSE(writeFileAtomically(file, "first").has_value());
+    CHECK(readAll(file) == "first");
+    REQUIRE_FALSE(writeFileAtomically(file, "second, longer contents").has_value());
+    CHECK(readAll(file) == "second, longer contents");
+    REQUIRE_FALSE(writeFileAtomically(file, "").has_value());
+    CHECK(readAll(file).empty());
+    CHECK(leftoverTempFiles(dir) == 0);
+
+    // Non-ASCII names work.
+    const auto named = dir / std::filesystem::path(u8"\u00e9t\u00e9 \u5bb6.pullform.json");
+    const auto namedError = writeFileAtomically(named, "x");
+    INFO(namedError.value_or(""));
+    REQUIRE_FALSE(namedError.has_value());
+    CHECK(readAll(named) == "x");
+
+    // A folder that does not exist is reported, not thrown.
+    const auto missing = writeFileAtomically(dir / "no-such-folder" / "a.pullform.json", "x");
+    REQUIRE(missing.has_value());
+    CHECK(missing->find("a.pullform.json") != std::string::npos);
+    CHECK(leftoverTempFiles(dir) == 0);
+    std::filesystem::remove_all(dir);
+}
+
+#ifndef _WIN32
+TEST_CASE("durable save keeps permissions and symbolic links") {
+    namespace fs = std::filesystem;
+    const auto dir = tempDir();
+    const auto file = dir / "house.pullform.json";
+    REQUIRE_FALSE(writeFileAtomically(file, "first").has_value());
+
+    // A file the user made private stays private after a save.
+    fs::permissions(file, fs::perms::owner_read | fs::perms::owner_write, fs::perm_options::replace);
+    REQUIRE_FALSE(writeFileAtomically(file, "second").has_value());
+    CHECK((fs::status(file).permissions() & fs::perms::all) == (fs::perms::owner_read | fs::perms::owner_write));
+
+    // Saving through a link updates the file it points at and keeps the link.
+    const auto link = dir / "link.pullform.json";
+    fs::create_symlink("house.pullform.json", link);
+    REQUIRE_FALSE(writeFileAtomically(link, "through the link").has_value());
+    CHECK(fs::is_symlink(fs::symlink_status(link)));
+    CHECK(readAll(file) == "through the link");
+
+    // A link to a missing file creates that file.
+    const auto dangling = dir / "dangling.pullform.json";
+    fs::create_symlink("target.pullform.json", dangling);
+    REQUIRE_FALSE(writeFileAtomically(dangling, "new").has_value());
+    CHECK(fs::is_symlink(fs::symlink_status(dangling)));
+    CHECK(readAll(dir / "target.pullform.json") == "new");
+    CHECK(leftoverTempFiles(dir) == 0);
+    fs::remove_all(dir);
+}
+#endif

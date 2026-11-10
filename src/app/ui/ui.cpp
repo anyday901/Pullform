@@ -79,6 +79,13 @@ void Ui::askUnsaved(const std::string& actionLabel) {
 
 std::optional<Ui::UnsavedChoice> Ui::takeUnsavedChoice() { return std::exchange(unsavedChoice_, std::nullopt); }
 
+void Ui::askReplace(const std::string& fileName) {
+    replaceName_ = fileName;
+    openReplace_ = true;
+}
+
+std::optional<bool> Ui::takeReplaceChoice() { return std::exchange(replaceChoice_, std::nullopt); }
+
 void Ui::showError(const std::string& title, const std::string& text) {
     errorTitle_ = title;
     errorText_ = text;
@@ -380,6 +387,10 @@ void Ui::modals() {
         ImGui::OpenPopup("Unsaved changes");
         openUnsaved_ = false;
     }
+    if (openReplace_) {
+        ImGui::OpenPopup("Replace file?");
+        openReplace_ = false;
+    }
     if (openError_) {
         ImGui::OpenPopup("##error");
         openError_ = false;
@@ -410,6 +421,23 @@ void Ui::modals() {
         ImGui::SameLine();
         if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
             unsavedChoice_ = UnsavedChoice::Cancel;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (ImGui::BeginPopupModal("Replace file?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("\"%s\" already exists.", replaceName_.c_str());
+        ImGui::Text("Do you want to replace it?");
+        ImGui::Spacing();
+        if (ImGui::Button("Replace")) {
+            replaceChoice_ = true;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere(); // Enter means Cancel, not Replace
+        if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            replaceChoice_ = false;
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();

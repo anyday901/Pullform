@@ -17,6 +17,15 @@ include breaking changes, but project files will keep a migration path.
   not 1.9999999999999998 m, and the 0.1 mm minimum is accepted.
 - A first rectangle corner beyond the 10 km model range (clicked near the horizon) is
   refused with a message instead of starting a rectangle that could not be finished.
+- Saves are flushed to the disk (`fsync`, `F_FULLFSYNC` on macOS, `FlushFileBuffers` on
+  Windows) before the rename, so a power cut right after saving cannot leave an empty or
+  truncated project. Saving keeps the file's permissions (and its ACL on Windows) and no
+  longer replaces a symbolic link with a regular file.
+- Save As could replace an existing project without asking when the `.pullform.json`
+  extension was added after the dialog closed. Pullform now checks the final name and asks
+  first. Typing `house` no longer saves `house.json`; it saves `house.pullform.json`.
+- Opening a project from the Windows command line (or by double-clicking it, once the file
+  association exists) works with non-English file names.
 - Hovering no longer slows down quadratically with the number of objects. The viewport
   skips its mesh sync when the document has not changed and looks up object IDs in a set
   (hover over 5,000 boxes: about 15 ms to 0.8 ms of CPU per mouse move).
