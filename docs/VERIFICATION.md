@@ -22,8 +22,8 @@ a full pointer-driven tool workflow with synthetic input.
 
 CI (`.github/workflows/ci.yml`) additionally builds and tests with MSVC on Windows
 (Debug and Release, then packages and uploads the installer), Clang on Linux, and Apple
-Clang on macOS. **Those CI jobs have not run yet**, because the GitHub repository did not
-exist when this was written.
+Clang on macOS (arm64, CMake 4). All of these passed on pull request #1. A local build
+with CMake 4.4 also passed, alongside the CMake 3.28 builds above.
 
 ## Manual (performed once; not automated)
 
@@ -48,10 +48,9 @@ rather than an app defect, but it was not proven.
 
 ## Not verified
 
-- Native Windows: the MSVC build, the installer actually installing and the app running on
-  Windows 10/11, high-DPI behavior there, and the Windows file dialogs.
-- macOS: building and running (no Mac was available); Retina scaling.
-- Clang builds locally (only GCC was used locally; CI covers Clang).
+- Native Windows: the installer actually installing and the app running on Windows 10/11,
+  high-DPI behavior there, and the Windows file dialogs (CI only builds and runs tests).
+- macOS: running the app (CI only builds and runs tests); Retina scaling.
 - A real GPU and driver, and a physical display and mouse (only software rendering).
 - The window close button path (it uses the same code path as Ctrl+Q, which was tested).
 - Performance with large models (no benchmark yet).
