@@ -1,0 +1,95 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": { "PULLFORM_WARNINGS_AS_ERRORS": "ON" }
+    },
+    {
+      "name": "windows",
+      "displayName": "Windows (Visual Studio 2022, x64)",
+      "inherits": "base",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    },
+    {
+      "name": "unix-base",
+      "hidden": true,
+      "inherits": "base",
+      "generator": "Ninja Multi-Config",
+      "condition": { "type": "notEquals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    },
+    { "name": "linux", "displayName": "Linux (Ninja Multi-Config)", "inherits": "unix-base" },
+    { "name": "macos", "displayName": "macOS (Ninja Multi-Config)", "inherits": "unix-base" },
+    {
+      "name": "linux-sanitize",
+      "displayName": "Linux Debug with AddressSanitizer + UndefinedBehaviorSanitizer",
+      "inherits": "unix-base",
+      "generator": "Ninja",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "PULLFORM_SANITIZE": "ON" }
+    },
+    {
+      "name": "headless",
+      "displayName": "Core library and tests only (no window, no GPU)",
+      "inherits": "base",
+      "cacheVariables": { "PULLFORM_BUILD_APP": "OFF" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "windows-debug", "configurePreset": "windows", "configuration": "Debug" },
+    { "name": "windows-release", "configurePreset": "windows", "configuration": "Release" },
+    { "name": "linux-debug", "configurePreset": "linux", "configuration": "Debug" },
+    { "name": "linux-release", "configurePreset": "linux", "configuration": "Release" },
+    { "name": "macos-debug", "configurePreset": "macos", "configuration": "Debug" },
+    { "name": "macos-release", "configurePreset": "macos", "configuration": "Release" },
+    { "name": "linux-sanitize", "configurePreset": "linux-sanitize" },
+    { "name": "headless", "configurePreset": "headless", "configuration": "Debug" }
+  ],
+  "testPresets": [
+    { "name": "test-base", "hidden": true, "output": { "outputOnFailure": true }, "execution": { "noTestsAction": "error" } },
+    { "name": "windows-debug", "inherits": "test-base", "configurePreset": "windows", "configuration": "Debug" },
+    { "name": "windows-release", "inherits": "test-base", "configurePreset": "windows", "configuration": "Release" },
+    { "name": "linux-debug", "inherits": "test-base", "configurePreset": "linux", "configuration": "Debug" },
+    { "name": "linux-release", "inherits": "test-base", "configurePreset": "linux", "configuration": "Release" },
+    { "name": "macos-debug", "inherits": "test-base", "configurePreset": "macos", "configuration": "Debug" },
+    { "name": "macos-release", "inherits": "test-base", "configurePreset": "macos", "configuration": "Release" },
+    { "name": "linux-sanitize", "inherits": "test-base", "configurePreset": "linux-sanitize" },
+    { "name": "headless", "inherits": "test-base", "configurePreset": "headless", "configuration": "Debug" }
+  ],
+  "packagePresets": [
+    { "name": "windows-installer", "configurePreset": "windows", "configurations": ["Release"], "generators": ["NSIS"] },
+    { "name": "linux-archive", "configurePreset": "linux", "configurations": ["Release"], "generators": ["TGZ"] },
+    { "name": "macos-archive", "configurePreset": "macos", "configurations": ["Release"], "generators": ["TGZ"] }
+  ],
+  "workflowPresets": [
+    {
+      "name": "windows-release",
+      "steps": [
+        { "type": "configure", "name": "windows" },
+        { "type": "build", "name": "windows-release" },
+        { "type": "test", "name": "windows-release" },
+        { "type": "package", "name": "windows-installer" }
+      ]
+    },
+    {
+      "name": "linux-release",
+      "steps": [
+        { "type": "configure", "name": "linux" },
+        { "type": "build", "name": "linux-release" },
+        { "type": "test", "name": "linux-release" }
+      ]
+    },
+    {
+      "name": "macos-release",
+      "steps": [
+        { "type": "configure", "name": "macos" },
+        { "type": "build", "name": "macos-release" },
+        { "type": "test", "name": "macos-release" }
+      ]
+    }
+  ]
+}

@@ -1,6 +1,9 @@
-node_modules/
-dist/
-test-results/
-playwright-report/
+/build/
+/out/
+.vs/
+.vscode/
+.idea/
+CMakeUserPresets.json
 *.log
 .DS_Store
+__pycache__/

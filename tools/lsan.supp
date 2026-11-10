@@ -1,0 +1,6 @@
+# LeakSanitizer suppressions for leaks inside system libraries (not Pullform code).
+# GTK's accessibility bridge, initialized by the native file dialog library on
+# Linux, keeps a few small allocations until process exit.
+leak:atk_bridge_adaptor_init
+leak:libdbus-1.so
+leak:libatk-bridge-2.0.so

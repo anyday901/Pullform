@@ -1,163 +1,200 @@
 # Architecture
 
-Pullform is a TypeScript + React + Vite + Three.js browser application. Modeling logic
-does not depend on React or Three.js; React renders the interface and Three.js renders and
-picks the viewport.
+Pullform is a native C++20 desktop application. The editable model, geometry and history
+live in a core library with no windowing, GPU or UI dependency; the application layers
+interaction, rendering and interface on top.
 
 ```
 src/
-  core/         units, tolerances, vectors, ID helpers                (pure)
-  model/        document types, validation, modeling operations      (pure)
-  geometry/     rectangle construction, faces, render data, checks   (pure)
-  history/      snapshot undo/redo                                   (pure)
-  editor/       Editor store: state, the single commit path, selection
-  tools/        ToolController: pointer/numeric interaction state machines
-  persistence/  versioned JSON project files
-  viewport/     Three.js scene, camera navigation, picking, highlights
-  ui/           React components, actions, keyboard shortcuts
+  core/                    pullform_core (static library; GLM + nlohmann/json only)
+    document/              units, tolerances, entities, stable IDs, validation, project files
+    geometry/              rectangles, faces, render meshes, solid checks, CPU ray picking
+    commands/              modeling operations, selection, Editor (commit path + undo/redo)
+  app/
+    tools/                 pullform_app_logic: tool state machines, snapping, numeric entry
+    viewport/camera.*      pullform_app_logic: orbit camera and pick rays (pure math)
+    viewport/renderer.hpp  rendering interface
+    viewport/gl_*.{hpp,cpp} OpenGL 3.3 core implementation (RAII GL handles)
+    viewport/viewport.*    mesh cache, picking glue, grid/axes/highlights/previews
+    ui/                    Dear ImGui menus, toolbar, properties, measurements, status
+    platform/              native file dialogs behind a small interface
+    app.*, main.cpp        window, frame loop, input routing, file actions
+tests/                     doctest unit tests (link pullform_app_logic only; headless)
+third_party/glad/          generated OpenGL 3.3 core loader
 ```
 
-Data flows one way: **document → derived render data → Three.js objects**. Tools read
-pointer input from the viewport, update a transient *preview*, and on completion call
-`editor.commit()`.
+Dependencies point one way: `core` <- `app_logic` (tools, camera) <- application
+(viewport rendering, UI, platform). `pullform_core` and `pullform_app_logic` build and
+their tests run without a display or GPU (`headless` preset), so CI tests them on every
+platform. Data flows **document -> derived meshes -> GPU buffers**. Tools receive pointer
+input from the viewport, update a transient *preview*, and on completion call
+`Editor::commit`.
 
-## Coordinates and units
+## Coordinates, units and tolerances
 
 - Right-handed, **Z-up**. The ground and initial drawing plane is XY at z = 0.
-- The internal length unit is the **meter**, stored as ordinary JavaScript doubles.
-- Units are converted only at the input/display boundary (`src/core/units.ts`). Unitless
-  input uses the document's display unit (millimeters by default).
-- Tolerances live in `src/core/tolerance.ts`: the smallest accepted width/depth/height is
-  0.1 mm and the largest coordinate or dimension is 10 km. Coordinates are compared with a
-  1 nm epsilon. This is the supported scale range.
+- The internal length unit is the **meter**, stored as `double` (`glm::dvec3`).
+  Conversion to `float` happens only when uploading to the GPU, relative to a local origin
+  (each mesh's minimum corner; lines relative to the eye), so precision does not degrade
+  far from the world origin.
+- Units are converted only at input and display (`core/document/units.*`). Unitless input
+  uses the document's display unit (millimeters by default). Parsing is locale-independent.
+- Tolerances live in `core/document/tolerance.hpp`: smallest width/depth/height 0.1 mm,
+  largest coordinate or dimension 10 km, coordinate equality 1 nm. This is the supported
+  scale range. Non-finite values, zero-area rectangles, non-positive heights, unknown
+  objects and out-of-range values are rejected before anything is committed.
 
 ## Document model
 
-`src/model/types.ts`. The canonical document holds editable modeling data only:
+`core/document/document.hpp`. The canonical document holds editable modeling data only:
 
-```ts
-ModelDocument {
-  lengthUnit: 'm';           // always meters
-  displayUnit: 'mm' | 'cm' | 'm' | 'in' | 'ft';
-  nextId: number;            // allocator for stable object IDs, saved with the file
-  objects: ProfileObject[];
-}
-ProfileObject {
-  id: 'obj-<n>';             // stable; never reused, survives save/reload and undo
-  type: 'profile';
-  name: string;
-  profile: {
-    kind: 'rectangle';
-    plane: { origin, xAxis, yAxis };   // local plane; normal = xAxis × yAxis
-    boundary: Vec2[];                  // ordered, counter-clockwise loop in plane coordinates
-  };
-  extrusion: { height } | null;        // total height along the plane normal; > 0
-  transform: { translation: Vec3 };    // world placement
-}
+```cpp
+struct Document {
+    LengthUnit displayUnit;            // display/input unit; storage is always meters
+    uint64_t nextId;                   // allocator for stable object IDs (saved in files)
+    std::vector<ObjectPtr> objects;    // shared_ptr<const ProfileObject>
+};
+struct ProfileObject {
+    ObjectId id;                       // stable: never reused; survives undo/redo/save/load
+    std::string name;
+    Profile profile;                   // kind, plane basis, ordered CCW boundary (plane coords)
+    std::optional<Extrusion> extrusion;// total height along the plane normal; > 0
+    Transform transform;               // translation (milestone 1)
+};
 ```
 
-Milestone 1 restricts this to an axis-aligned rectangle `[0,0],[w,0],[w,d],[0,d]` on the
-local XY plane with a translation-only transform. The fields are already shaped for a
-general polygon profile (`kind: 'polygon'`), other planes (a different `plane` basis) and
-full transforms, so these can be added without changing what existing files mean.
+Milestone 1 restricts the profile to an axis-aligned rectangle `[0,0],[w,0],[w,d],[0,d]` on
+the local XY plane with a translation-only transform. The fields are already shaped for a
+general polygon profile, other planes (a different `PlaneBasis`) and full transforms, so
+those can be added without changing what existing files mean. Validation
+(`core/document/validate.*`) enforces the current restrictions explicitly.
 
-Documents are immutable. Operations in `src/model/operations.ts` (`createRectangle`,
-`extrudeProfile`, `setExtrusionHeight`, `deleteObject`) return a new document that shares
-unchanged objects, or an error. Each produced object is validated
-(`src/model/validate.ts`) before it can be committed: non-finite values, out-of-range
-values, zero-area rectangles, zero/negative heights and references to missing objects are
-rejected.
+Objects are immutable once in a document. Operations (`core/commands/operations.*`:
+`createRectangle`, `extrudeProfile`, `setExtrusionHeight`, `deleteObject`,
+`setDisplayUnit`) are pure functions that return a new document sharing unchanged objects,
+or an `Error` with a user-facing message.
 
 ## Geometry and render mapping
 
-`src/geometry/solid.ts` derives everything the viewport draws:
+`core/geometry/solid.*` derives everything that is drawn and picked:
 
-- `buildFaces(obj)` produces **logical faces** with semantic IDs: `profile` for a planar
-  rectangle; `base`, `cap` and `side-0..3` for an extrusion (`side-i` is generated from
-  boundary edge i). Every face loop is counter-clockwise seen from outside, so normals point
-  outward.
-- `buildRenderData(obj)` triangulates each face (fan triangulation, valid for the convex
-  profiles supported now) and records `triangleFaces[t]`, the logical face of triangle *t*.
-  Faces do not share vertices, giving flat normals.
-- Edges are emitted from face boundary loops, so only real profile/solid edges are drawn,
-  never triangulation diagonals.
-- `checkSolid()` verifies a closed mesh: every directed edge is matched by exactly one
-  opposite edge (closed, consistently oriented, manifold), stored normals agree with the
-  winding, and the signed volume is positive.
-- Solids are rendered single-sided (`FrontSide`), so a wrongly wound face would be visible
-  as a hole rather than hidden. A planar rectangle has no inside; it is an explicit
-  two-sided sheet (a front and a reversed back triangle set), not a double-sided material.
+- `buildFaces(object)` produces **logical faces** with semantic IDs: `Profile` for a planar
+  rectangle; `Base`, `Cap` and `Side i` for an extrusion (side *i* is generated from
+  boundary edge *i*). Every face loop is counter-clockwise seen from outside, so normals
+  point outward.
+- `buildMesh(object)` triangulates each face (fan triangulation, valid for the convex
+  profiles supported now) and records `triangleFaces[t]`, the logical face of triangle *t*,
+  plus a contiguous index range per face. Faces do not share vertices (flat shading).
+- Edges come from face boundary loops (deduplicated), so only real profile/solid edges are
+  drawn, never triangulation diagonals.
+- `checkSolid()` verifies a closed mesh: every directed edge has exactly one opposite
+  twin (closed, manifold, consistently oriented), stored normals agree with winding, and
+  the signed volume is positive.
+- Back-face culling stays on for everything. A planar rectangle has no inside, so it is an
+  explicit two-sided sheet (a front and a reversed back triangle set, both mapped to the
+  `Profile` face) rather than a reason to disable culling. A wrongly wound face would show
+  as a hole.
 
-Picking (`src/viewport/Viewport.ts`) raycasts the object meshes; the hit's `faceIndex`
-maps through `triangleFaces` to `(objectId, faceId)`. Highlighting draws every triangle of
-the logical face, so a rectangle selects as one face even though it is two triangles.
+**Picking** is a CPU ray cast (Moller-Trumbore, back faces culled like rendering) against
+the cached meshes; the hit triangle maps through `triangleFaces` to `(ObjectId, FaceId)`.
+Highlighting draws the face's whole index range, so a rectangle selects and highlights as
+one face even though it is two triangles. GPU meshes are rebuilt only for objects whose
+document entry (pointer) changed, and are released when objects disappear.
 
-Render meshes are rebuilt only for objects whose document entry changed (object identity),
-and replaced geometries are disposed. Materials are shared and disposed with the viewport.
+**Rendering** goes through `app/viewport/renderer.hpp` (create/destroy mesh, draw mesh,
+draw face overlay, draw lines). The OpenGL 3.3 core implementation compiles its shaders
+from strings in the binary and owns every GL object through move-only RAII handles that
+are released before the context is destroyed. A Vulkan or other backend can implement the
+same interface.
 
 ## Commands, history and previews
 
-- **Single commit path:** `Editor.commit(label, op)` runs a pure operation. On success it
-  records one history entry and clears the redo branch; on failure it shows the error and
-  changes nothing. Delete, draw, push/pull and height edits all use it.
-- **Previews are transient:** pointer movement only calls `editor.setPreview()`. A preview
-  is rendered (the push/pull preview temporarily hides the real object) but is never put in
-  the document or history. Escape (`ToolController.cancel`) clears it.
-- **One gesture, one entry:** click-click and press-drag-release each commit exactly once.
-  A zero-distance push/pull is a no-op, not an edit.
-- **Snapshot history** (`src/history/history.ts`): entries store the previous document and
-  selection. Because documents share unchanged objects, a snapshot costs the object array
-  plus changed objects. The undo stack is bounded at 200 entries (oldest dropped). Undo and
-  redo restore selection and sanitize it against the restored document (e.g. a selected
-  cap becomes the planar face again when an extrusion is undone).
-- Camera navigation, hover, tool changes, snap settings and the display unit are not model
-  history.
-- **New/Open** clear history.
+- **Single commit path:** `Editor::commit(label, operation, selectAfter)` runs a pure
+  operation, validates the *whole* resulting document, and only then makes it current with
+  exactly one history entry, clearing the redo branch. On failure nothing changes and the
+  error is shown in the status bar. Drawing, push/pull, height edits, delete and unit
+  changes all use it.
+- **Previews are transient:** pointer movement only calls `Editor::setPreview`. The viewport
+  draws the preview (a push/pull preview temporarily replaces the real object's drawing),
+  but it is never in the document or history. Escape (`ToolController::cancel`) clears it.
+- **One gesture, one entry:** click-click and press-drag-release each commit once.
+  A zero-distance push/pull is a no-op. Setting the same height again is a no-op.
+- **Snapshot history:** entries store the previous `Document` and selection. Because
+  objects are shared immutable pointers, a snapshot costs about 16 bytes per object plus
+  the objects that changed. Each stack is bounded at 200 entries (oldest dropped), so
+  history memory is at most 200 x (object count x 16 bytes + one changed object).
+  Undo/redo restore selection and sanitize it (a selected cap becomes the planar face when
+  an extrusion is undone).
+- **Dirty state:** every committed state has an ID; the document is "unsaved" when the
+  current state ID differs from the last saved one, so undoing back to the saved state is
+  clean again.
+- Camera navigation, hover, tool changes and snap settings are not model history.
+- **New/Open** replace the project and clear history.
 
 ## Tools and input
 
-`src/tools/ToolController.ts` contains the select, rectangle and push/pull state machines.
-It receives a pick ray, the logical face under the cursor and screen coordinates from the
-viewport, so it is unit-testable without WebGL.
+`app/tools/tool_controller.*` contains the select, rectangle and push/pull state machines.
+It receives a `PointerInput` (world ray, resolved pick, screen position), so tests drive it
+with synthetic events and no window.
 
 - Rectangle: ground-plane intersection, optional grid snap, normalization of any drawing
-  direction to a positive-size, counter-clockwise rectangle.
-- Push/pull: projects the pointer ray onto the vertical line through the clicked point
-  (closest point between two lines). The *total* height snaps to the grid when snap is on.
-- Numeric entry calls the same operations as the mouse.
-
-Mouse ownership is split so tools and navigation never consume the same drag: the left
-button belongs to the active tool (or to orbiting with the Orbit tool), middle orbits,
-right pans, and the wheel zooms (`OrbitControls`).
+  direction to a positive-size, counter-clockwise rectangle. Typed sizes follow the
+  pointer's direction from the first corner. Mouse and numeric entry call the same
+  `createRectangle` operation.
+- Push/pull: the pointer ray is projected onto the vertical line through the clicked point
+  (closest point between two lines). The **total** height snaps to the grid increment when
+  snap is on. Invalid heights (at or below the base) show as a red preview and cannot be
+  committed; the gesture stays active.
+- Input ownership (`App::handleViewportInput`): Dear ImGui owns the pointer over panels,
+  menus and popups (`WantCaptureMouse`); a drag that starts in the viewport belongs to the
+  viewport until its button is released. Left button = active tool (or orbit with the
+  Orbit tool), middle = orbit (Shift = pan), right = pan, wheel = zoom. One drag never
+  drives both the camera and a tool. Keyboard shortcuts are ignored while a text field has
+  focus (`WantTextInput`) or a popup is open.
+- The frame loop sleeps in `glfwWaitEvents` when idle and redraws only after input or a
+  model change.
 
 ## Persistence
 
-`src/persistence/projectFile.ts`. Files are UTF-8 JSON:
+`core/document/project_file.*`. Files are UTF-8 JSON:
 
 ```json
 {
   "format": "pullform-project",
   "version": 1,
-  "generator": "Pullform 0.1.0",
-  "document": { "lengthUnit": "m", "displayUnit": "mm", "nextId": 2, "objects": [ ... ] },
+  "generator": "Pullform 0.2.0",
+  "document": {
+    "lengthUnit": "m", "displayUnit": "mm", "nextId": 2,
+    "objects": [{
+      "id": "obj-1", "type": "profile", "name": "Box 1",
+      "profile": { "kind": "rectangle",
+                   "plane": { "origin": [0,0,0], "xAxis": [1,0,0], "yAxis": [0,1,0] },
+                   "boundary": [[0,0],[2,0],[2,1],[0,1]] },
+      "extrusion": { "height": 0.75 },
+      "transform": { "translation": [0,0,0] } }]
+  },
   "view": { "position": [x, y, z], "target": [x, y, z] }
 }
 ```
 
-- `document` is exactly the editable model above; `view` (camera) is optional and ignored
-  if invalid.
-- Opening validates the entire file first (format, version, every object, unique IDs,
-  `nextId` greater than every used ID) and only then replaces the open project.
-- An unknown `format` or a `version` other than 1 is rejected; a higher version tells the
-  user to update the app. Future versions should add explicit migrations from older
-  versions here.
-- Saving uses a Blob download, which works in all browsers. The File System Access API can
-  be added later as an enhancement where available.
+- `document` is exactly the editable model; `view` (camera) is optional and ignored if
+  invalid.
+- Opening reads the file (max 50 MB), parses it, checks structure and types, then runs
+  the same `validateDocument` used for every commit (ranges, rectangles, unique IDs,
+  `nextId` greater than every used ID). Only then does it replace the open project.
+- An unknown `format`, or a `version` other than 1, is rejected; a newer version asks the
+  user to update. Future versions add explicit migrations from older versions here.
+- Saving writes to `<file>.tmp-N` beside the target, flushes, and renames over the target
+  (`MoveFileExW(MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)` on Windows,
+  `rename(2)` elsewhere).
+- This schema is identical to the one written by the earlier TypeScript prototype, so its
+  files still open.
 
 ## Geometry boundaries (what this design does not do yet)
 
-There is no boundary-representation topology (shared vertices/edges between faces),
-no boolean operations, no face splitting and no general polygon triangulation. These are
-deliberately deferred; see the roadmap. The `RenderData`/`FaceId` mapping is the seam a
-richer topology model would replace: as long as it still produces faces with stable IDs and
-triangle-to-face maps, the viewport, picking and tools keep working.
+There is no boundary-representation topology (shared vertices/edges between faces), no
+boolean operations, no face splitting and no general polygon triangulation. These are
+deliberately deferred; see the roadmap. `MeshData` with stable `FaceId`s and
+triangle-to-face maps is the seam a richer topology model would replace: as long as it
+still produces logical faces with stable IDs, the viewport, picking and tools keep
+working.

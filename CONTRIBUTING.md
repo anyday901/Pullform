@@ -4,37 +4,33 @@ Thanks for your interest in improving Pullform.
 
 ## Getting set up
 
-1. Install Node.js 22.12 or newer and Git.
-2. Clone the repository and install dependencies:
+1. Install the prerequisites for your platform listed in the [README](README.md):
+   CMake 3.25+, Git, a C++20 compiler (Visual Studio 2022, GCC 11+, Clang 15+ or
+   Apple Clang 15+) and Ninja on Linux/macOS.
+2. Clone, configure, build and test:
    ```sh
    git clone https://github.com/anyday901/pullform.git
    cd pullform
-   npm ci
+   cmake --workflow --preset linux-release   # or windows-release / macos-release
    ```
-3. Start the dev server with `npm run dev` and open http://localhost:5173.
+3. For quick iteration on the model and tools without a window, use the `headless`
+   preset: `cmake --preset headless && cmake --build build/headless && ctest --test-dir build/headless`.
 
-## Before opening a pull request
+## Guidelines
 
-- Run `npm run check` (type checks, unit tests and production build).
-- Run `npm run test:e2e` for changes that touch the interface, tools or viewport.
-- Add or update tests for behavior you change. Geometry and file-format changes need unit
-  tests.
-- Update `CHANGELOG.md` under **Unreleased**, and the README or docs if behavior or
-  controls change.
+- Keep `src/core` free of windowing, GPU and UI code; it must build with the `headless`
+  preset. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+- Every model change goes through `Editor::commit` with a pure operation. Previews never
+  enter the document or history.
+- Add a doctest for new behavior in `tests/`. Tests must not need a display.
+- The build uses warnings as errors in the presets; fix warnings rather than silencing
+  them. Run the `linux-sanitize` preset for changes to memory-sensitive code.
+- Project file changes need a new format version and a migration with tests.
+- Keep the interface original; do not copy other products' assets, icons or text.
 
-## Ground rules
+## Pull requests
 
-- Every model change goes through `Editor.commit()`, so it is validated and undoable.
-  Previews must never modify the document or history.
-- Keep modeling logic (`src/core`, `src/model`, `src/geometry`, `src/history`) free of
-  React and Three.js.
-- Store lengths in meters; convert units only at input and display.
-- Changing the project file format requires a new format version and a migration from the
-  previous one.
-- Use original code and assets, and only dependencies with permissive open-source
-  licenses. Record new bundled dependencies in `THIRD_PARTY_NOTICES.md`.
+Describe what changed and how you verified it (automated tests, manual steps, and what you
+could not check). CI must pass on Windows, Linux and macOS.
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the pieces fit together and
-[docs/ROADMAP.md](docs/ROADMAP.md) for planned work.
-
-By contributing, you agree that your contributions are licensed under the MIT License.
+By contributing you agree that your contributions are licensed under the MIT License.

@@ -1,0 +1,442 @@
+#include "app/ui/ui.hpp"
+
+#include "app/ui/shortcuts.hpp"
+#include "core/commands/operations.hpp"
+#include "core/geometry/solid.hpp"
+
+#include <imgui.h>
+
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+
+namespace pf {
+
+namespace {
+
+const ImVec4 kErrorColor{0.78f, 0.12f, 0.10f, 1.0f};
+const ImVec4 kMutedColor{0.40f, 0.43f, 0.48f, 1.0f};
+const ImVec4 kAccent{0.16f, 0.45f, 0.85f, 1.0f};
+
+constexpr const char* kLimitsText =
+    "This version supports rectangles drawn on the ground plane and their straight extrusions.\n"
+    "- Push/Pull works on a rectangle or on an extrusion's top cap.\n"
+    "- Side and base faces cannot be pushed yet.\n"
+    "- Heights must be positive: pushing below the base, holes and cutting are not supported.\n"
+    "- Touching or overlapping objects stay separate (no merging).\n"
+    "- No move, rotate, scale or copy yet.";
+
+void tooltip(const char* text) {
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", text);
+}
+
+void copyTo(std::array<char, 64>& dst, const std::string& s) {
+    std::snprintf(dst.data(), dst.size(), "%s", s.c_str());
+}
+
+bool toolButton(const char* label, bool active, const char* tip) {
+    if (active) {
+        ImGui::PushStyleColor(ImGuiCol_Button, kAccent);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kAccent);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
+    }
+    const bool pressed = ImGui::Button(label);
+    if (active) ImGui::PopStyleColor(3);
+    tooltip(tip);
+    return pressed;
+}
+
+const char* snapLabel(double step) {
+    if (step <= 0.0105) return "10 mm";
+    if (step <= 0.0505) return "50 mm";
+    if (step <= 0.1005) return "100 mm";
+    if (step <= 0.5005) return "500 mm";
+    return "1000 mm";
+}
+
+} // namespace
+
+std::vector<UiAction> Ui::takeActions() { return std::exchange(actions_, {}); }
+
+void Ui::typeMeasurement(unsigned int c) {
+    if (c < 32 || c > 126) return; // printable ASCII only: lengths never need more
+    const std::size_t n = std::strlen(measure_.data());
+    if (n + 1 < measure_.size()) {
+        measure_[n] = static_cast<char>(c);
+        measure_[n + 1] = '\0';
+    }
+}
+
+void Ui::eraseMeasurementChar() {
+    const std::size_t n = std::strlen(measure_.data());
+    if (n > 0) measure_[n - 1] = '\0';
+}
+
+void Ui::askUnsaved(const std::string& actionLabel) {
+    unsavedLabel_ = actionLabel;
+    openUnsaved_ = true;
+}
+
+std::optional<Ui::UnsavedChoice> Ui::takeUnsavedChoice() { return std::exchange(unsavedChoice_, std::nullopt); }
+
+void Ui::showError(const std::string& title, const std::string& text) {
+    errorTitle_ = title;
+    errorText_ = text;
+    openError_ = true;
+}
+
+std::string Ui::measurementLabel(const UiContext& ctx) const {
+    switch (ctx.tools.tool()) {
+    case Tool::Rectangle: return "Dimensions (width, depth)";
+    case Tool::PushPull: return "Distance (incremental)";
+    case Tool::Select: return "Total height";
+    case Tool::Orbit: return "Measurements";
+    }
+    return "Measurements";
+}
+
+std::string Ui::measurementLive(const UiContext& ctx) const {
+    const LengthUnit u = ctx.editor.document().displayUnit;
+    if (const auto* r = std::get_if<RectanglePreview>(&ctx.editor.preview())) {
+        const double w = std::abs(r->end.x - r->start.x), d = std::abs(r->end.y - r->start.y);
+        return formatLength(w, u) + ", " + formatLength(d, u);
+    }
+    if (const auto* p = std::get_if<PushPullPreview>(&ctx.editor.preview())) {
+        return (p->delta >= 0 ? "+" : "") + formatLength(p->delta, u) + "   (total height " + formatLength(p->height, u) + ")";
+    }
+    if (ctx.tools.tool() == Tool::Select && ctx.editor.selection()) {
+        if (const auto* o = ctx.editor.document().find(ctx.editor.selection()->objectId); o && o->extrusion) {
+            return formatLength(o->extrusion->height, u);
+        }
+    }
+    return {};
+}
+
+void Ui::submitMeasurement(UiContext& ctx) {
+    const std::string text(measure_.data());
+    if (text.empty()) return;
+    std::optional<std::string> error;
+    switch (ctx.tools.tool()) {
+    case Tool::Rectangle: error = ctx.tools.submitRectangleSize(text); break;
+    case Tool::PushPull: error = ctx.tools.submitPushDistance(text); break;
+    case Tool::Select:
+        if (ctx.editor.selection()) error = ctx.tools.setTotalHeight(ctx.editor.selection()->objectId, text);
+        else error = "Select an object first, or pick the Rectangle or Push/Pull tool.";
+        break;
+    case Tool::Orbit: error = "The Orbit tool takes no measurements."; break;
+    }
+    // Clear the box either way: the error stays in the status bar, and a stale
+    // value would otherwise keep capturing the single-key shortcuts.
+    if (error) ctx.editor.notify(Message{Message::Kind::Error, "\"" + text + "\": " + *error});
+    clearMeasurement();
+}
+
+UiRect Ui::draw(UiContext& ctx) {
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    menuBar(ctx);
+    const float menuH = ImGui::GetFrameHeight();
+    const float s = ImGui::GetFontSize() / 15.0f;
+    const float toolbarH = ImGui::GetFrameHeight() + 14.0f * s;
+    const float bottomH = 2.0f * ImGui::GetFrameHeight() + 22.0f * s;
+    const float panelW = std::min(320.0f * s, vp->Size.x * 0.4f);
+    const float top = vp->Pos.y + menuH;
+
+    toolbar(ctx, top, toolbarH, vp->Size.x);
+    const float bodyY = top + toolbarH;
+    const float bodyH = std::max(1.0f, vp->Size.y - menuH - toolbarH - bottomH);
+    properties(ctx, vp->Pos.x + vp->Size.x - panelW, bodyY, panelW, bodyH);
+    bottomBar(ctx, vp->Pos.y + vp->Size.y - bottomH, vp->Size.x, bottomH);
+    modals();
+    return UiRect{vp->Pos.x, bodyY, std::max(1.0f, vp->Size.x - panelW), bodyH};
+}
+
+void Ui::menuBar(UiContext& ctx) {
+    if (!ImGui::BeginMainMenuBar()) return;
+    if (ImGui::BeginMenu("File")) {
+        if (ImGui::MenuItem("New", shortcuts::kNew)) action(UiAction::New);
+        if (ImGui::MenuItem("Open...", shortcuts::kOpen)) action(UiAction::Open);
+        if (ImGui::MenuItem("Save", shortcuts::kSave)) action(UiAction::Save);
+        if (ImGui::MenuItem("Save As...", shortcuts::kSaveAs)) action(UiAction::SaveAs);
+        ImGui::Separator();
+        if (ImGui::MenuItem("Exit", shortcuts::kQuit)) action(UiAction::Quit);
+        ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("Edit")) {
+        const std::string undo = ctx.editor.canUndo() ? "Undo " + ctx.editor.undoLabel() : "Undo";
+        const std::string redo = ctx.editor.canRedo() ? "Redo " + ctx.editor.redoLabel() : "Redo";
+        if (ImGui::MenuItem(undo.c_str(), shortcuts::kUndo, false, ctx.editor.canUndo())) action(UiAction::Undo);
+        if (ImGui::MenuItem(redo.c_str(), shortcuts::kRedo, false, ctx.editor.canRedo())) action(UiAction::Redo);
+        ImGui::Separator();
+        if (ImGui::MenuItem("Delete", shortcuts::kDelete, false, ctx.editor.selection().has_value())) action(UiAction::Delete);
+        if (ImGui::MenuItem("Clear selection", "Esc", false, ctx.editor.selection().has_value())) ctx.editor.select(std::nullopt);
+        ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("View")) {
+        if (ImGui::MenuItem("Fit to model", shortcuts::kFit)) action(UiAction::FitView);
+        if (ImGui::MenuItem("Reset view")) action(UiAction::ResetView);
+        ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("Tools")) {
+        const Tool t = ctx.tools.tool();
+        if (ImGui::MenuItem("Select", shortcuts::kSelect, t == Tool::Select)) ctx.tools.setTool(Tool::Select);
+        if (ImGui::MenuItem("Rectangle", shortcuts::kRectangle, t == Tool::Rectangle)) ctx.tools.setTool(Tool::Rectangle);
+        if (ImGui::MenuItem("Push/Pull", shortcuts::kPushPull, t == Tool::PushPull)) ctx.tools.setTool(Tool::PushPull);
+        if (ImGui::MenuItem("Orbit", shortcuts::kOrbit, t == Tool::Orbit)) ctx.tools.setTool(Tool::Orbit);
+        ImGui::Separator();
+        ImGui::MenuItem("Grid snap", shortcuts::kSnap, &ctx.tools.snap().enabled);
+        ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("Help")) {
+        if (ImGui::MenuItem("Controls and shortcuts")) openControls_ = true;
+        if (ImGui::MenuItem("About Pullform")) openAbout_ = true;
+        ImGui::EndMenu();
+    }
+    ImGui::EndMainMenuBar();
+}
+
+void Ui::toolbar(UiContext& ctx, float y, float height, float width) {
+    constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+                                       ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollWithMouse;
+    ImGui::SetNextWindowPos(ImVec2(ImGui::GetMainViewport()->Pos.x, y));
+    ImGui::SetNextWindowSize(ImVec2(width, height));
+    ImGui::Begin("##toolbar", nullptr, flags);
+    const Tool t = ctx.tools.tool();
+    if (toolButton("Select", t == Tool::Select, "Select (Space)\nClick an object or face. Click empty space to clear.")) ctx.tools.setTool(Tool::Select);
+    ImGui::SameLine();
+    if (toolButton("Rectangle", t == Tool::Rectangle, "Rectangle (R)\nClick two corners on the ground, or type width, depth.")) ctx.tools.setTool(Tool::Rectangle);
+    ImGui::SameLine();
+    if (toolButton("Push/Pull", t == Tool::PushPull, "Push/Pull (P)\nClick a rectangle or a top cap and move up, or type a distance.")) ctx.tools.setTool(Tool::PushPull);
+    ImGui::SameLine();
+    if (toolButton("Orbit", t == Tool::Orbit, "Orbit (O)\nLeft-drag to orbit. Middle-drag always orbits; right-drag pans.")) ctx.tools.setTool(Tool::Orbit);
+    ImGui::SameLine(0, 18);
+    if (ImGui::Button("Fit")) action(UiAction::FitView);
+    tooltip("Fit view to model (F)");
+    ImGui::SameLine(0, 18);
+    ImGui::BeginDisabled(!ctx.editor.canUndo());
+    if (ImGui::Button("Undo")) action(UiAction::Undo);
+    ImGui::EndDisabled();
+    tooltip(ctx.editor.canUndo() ? ("Undo " + ctx.editor.undoLabel() + " (" + shortcuts::kUndo + ")").c_str() : "Nothing to undo");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!ctx.editor.canRedo());
+    if (ImGui::Button("Redo")) action(UiAction::Redo);
+    ImGui::EndDisabled();
+    tooltip(ctx.editor.canRedo() ? ("Redo " + ctx.editor.redoLabel() + " (" + shortcuts::kRedo + ")").c_str() : "Nothing to redo");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!ctx.editor.selection());
+    if (ImGui::Button("Delete")) action(UiAction::Delete);
+    ImGui::EndDisabled();
+    tooltip("Delete the selected object (Delete)");
+    ImGui::SameLine(0, 18);
+    ImGui::Checkbox("Grid snap", &ctx.tools.snap().enabled);
+    tooltip("Snap rectangle corners and push/pull heights to the grid increment (G)");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.0f);
+    if (ImGui::BeginCombo("##snapstep", snapLabel(ctx.tools.snap().step))) {
+        for (double step : {0.01, 0.05, 0.1, 0.5, 1.0}) {
+            if (ImGui::Selectable(snapLabel(step), std::abs(step - ctx.tools.snap().step) < 1e-9)) ctx.tools.snap().step = step;
+        }
+        ImGui::EndCombo();
+    }
+    tooltip("Snap increment");
+    ImGui::End();
+}
+
+void Ui::properties(UiContext& ctx, float x, float y, float width, float height) {
+    constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
+                                       ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus;
+    ImGui::SetNextWindowPos(ImVec2(x, y));
+    ImGui::SetNextWindowSize(ImVec2(width, height));
+    ImGui::Begin("Properties", nullptr, flags);
+    const Document& doc = ctx.editor.document();
+    const LengthUnit u = doc.displayUnit;
+    const auto& sel = ctx.editor.selection();
+    const ProfileObject* o = sel ? doc.find(sel->objectId) : nullptr;
+
+    if (!o) {
+        ImGui::TextColored(kMutedColor, "Nothing selected");
+        ImGui::TextWrapped("Pick the Select tool (Space) and click an object, or draw a rectangle (R).");
+        heightEditing_ = false;
+    } else {
+        const Bounds b = objectBounds(*o);
+        if (ImGui::BeginTable("##props", 2, ImGuiTableFlags_SizingStretchProp)) {
+            const auto row = [](const char* k, const std::string& v) {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TextColored(kMutedColor, "%s", k);
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted(v.c_str());
+            };
+            row("Name", o->name);
+            row("ID", idString(o->id));
+            row("Type", o->extrusion ? "Rectangular extrusion" : "Rectangle (planar face)");
+            row("Target face", faceLabel(sel->face));
+            row("Position X", formatLength(b.min.x, u));
+            row("Position Y", formatLength(b.min.y, u));
+            row("Width (X)", formatLength(b.size().x, u));
+            row("Depth (Y)", formatLength(b.size().y, u));
+            ImGui::EndTable();
+        }
+        ImGui::Spacing();
+        ImGui::TextUnformatted("Total height");
+        tooltip("Absolute height from the base. The Push/Pull distance is incremental from the current cap.");
+        if (!heightEditing_) copyTo(heightField_, o->extrusion ? formatLength(o->extrusion->height, u, false) : std::string());
+        ImGui::SetNextItemWidth(-1);
+        const char* hint = o->extrusion ? "" : "planar - enter a height to extrude";
+        const bool enter = ImGui::InputTextWithHint("##height", hint, heightField_.data(), heightField_.size(),
+                                                    ImGuiInputTextFlags_EnterReturnsTrue);
+        heightEditing_ = ImGui::IsItemActive();
+        tooltip("Type a total height (unitless values use the display unit) and press Enter.");
+        if (enter) {
+            if (auto e = ctx.tools.setTotalHeight(o->id, heightField_.data())) ctx.editor.notify(Message{Message::Kind::Error, *e});
+            heightEditing_ = false;
+        }
+        ImGui::Spacing();
+        if (ImGui::Button("Delete object")) action(UiAction::Delete);
+        tooltip("Deletes the whole object (Delete). Faces cannot be deleted on their own yet.");
+    }
+
+    ImGui::Separator();
+    ImGui::TextColored(kMutedColor, "Model");
+    ImGui::Text("Objects: %zu", doc.objects.size());
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 7.0f);
+    if (ImGui::BeginCombo("Display unit", std::string(unitSuffix(u)).c_str())) {
+        for (LengthUnit unit : kAllLengthUnits) {
+            if (ImGui::Selectable(std::string(unitSuffix(unit)).c_str(), unit == u) && unit != u) {
+                ctx.editor.commit("Change units", [unit](const Document& d) { return setDisplayUnit(d, unit); });
+            }
+        }
+        ImGui::EndCombo();
+    }
+    tooltip("Unit for display and for values typed without a unit. The model is stored in meters.");
+
+    ImGui::Spacing();
+    if (ImGui::CollapsingHeader("Current limits", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextColored(kMutedColor, "%s", kLimitsText);
+        ImGui::PopTextWrapPos();
+    }
+    if (ImGui::CollapsingHeader("Controls")) {
+        ImGui::PushTextWrapPos(0.0f);
+        for (const auto& [keys, what] : shortcuts::kTable) ImGui::BulletText("%s: %s", keys, what);
+        ImGui::PopTextWrapPos();
+    }
+    ImGui::End();
+}
+
+void Ui::bottomBar(UiContext& ctx, float y, float width, float height) {
+    constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+                                       ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollWithMouse;
+    ImGui::SetNextWindowPos(ImVec2(ImGui::GetMainViewport()->Pos.x, y));
+    ImGui::SetNextWindowSize(ImVec2(width, height));
+    ImGui::Begin("##bottom", nullptr, flags);
+
+    // Measurements row.
+    const std::string label = measurementLabel(ctx);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(label.c_str());
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 16.0f);
+    const std::string live = measurementLive(ctx);
+    const bool enter = ImGui::InputTextWithHint("##measure", live.empty() ? "type a value, then Enter" : live.c_str(),
+                                                measure_.data(), measure_.size(), ImGuiInputTextFlags_EnterReturnsTrue);
+    measureEditing_ = ImGui::IsItemActive();
+    tooltip("Type here, or just start typing in the viewport.\nUnits: mm (default), cm, m, in or \", ft or '. "
+            "Unitless values use the display unit.\nRectangle: width, depth. Push/Pull: distance from the current face. "
+            "Select: total height.");
+    if (enter) submitMeasurement(ctx);
+    if (!live.empty() && measure_[0] != '\0') {
+        ImGui::SameLine();
+        ImGui::TextColored(kMutedColor, "live: %s", live.c_str());
+    }
+
+    // Status row: hint, message, state.
+    const auto& msg = ctx.editor.message();
+    if (msg) {
+        ImGui::TextColored(msg->kind == Message::Kind::Error ? kErrorColor : kAccent, "%s", msg->text.c_str());
+    } else {
+        ImGui::TextColored(kMutedColor, "%s", ctx.tools.hint().c_str());
+    }
+    char state[160];
+    std::snprintf(state, sizeof(state), "Snap: %s   Grid: %s   Units: %s", ctx.tools.snap().enabled ? snapLabel(ctx.tools.snap().step) : "off",
+                  formatLength(ctx.gridStep, LengthUnit::Millimeter).c_str(), std::string(unitSuffix(ctx.editor.document().displayUnit)).c_str());
+    const float w = ImGui::CalcTextSize(state).x;
+    ImGui::SameLine(std::max(ImGui::GetCursorPosX() + 20.0f, width - w - 16.0f));
+    ImGui::TextColored(kMutedColor, "%s", state);
+    ImGui::End();
+}
+
+void Ui::modals() {
+    if (openUnsaved_) {
+        ImGui::OpenPopup("Unsaved changes");
+        openUnsaved_ = false;
+    }
+    if (openError_) {
+        ImGui::OpenPopup("##error");
+        openError_ = false;
+    }
+    if (openControls_) {
+        ImGui::OpenPopup("Controls and shortcuts");
+        openControls_ = false;
+    }
+    if (openAbout_) {
+        ImGui::OpenPopup("About Pullform");
+        openAbout_ = false;
+    }
+    const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (ImGui::BeginPopupModal("Unsaved changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("The project has unsaved changes.");
+        ImGui::Text("Save them before you %s?", unsavedLabel_.c_str());
+        ImGui::Spacing();
+        if (ImGui::Button("Save")) {
+            unsavedChoice_ = UnsavedChoice::Save;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Don't save")) {
+            unsavedChoice_ = UnsavedChoice::Discard;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            unsavedChoice_ = UnsavedChoice::Cancel;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (ImGui::BeginPopupModal("##error", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextColored(kErrorColor, "%s", errorTitle_.c_str());
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32.0f);
+        ImGui::TextUnformatted(errorText_.c_str());
+        ImGui::PopTextWrapPos();
+        if (ImGui::Button("OK") || ImGui::IsKeyPressed(ImGuiKey_Escape) || ImGui::IsKeyPressed(ImGuiKey_Enter)) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (ImGui::BeginPopupModal("Controls and shortcuts", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        if (ImGui::BeginTable("##keys", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV)) {
+            for (const auto& [keys, what] : shortcuts::kTable) {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted(keys);
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted(what);
+            }
+            ImGui::EndTable();
+        }
+        if (ImGui::Button("Close") || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (ImGui::BeginPopupModal("About Pullform", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Pullform %s", PULLFORM_VERSION);
+        ImGui::TextUnformatted("A free, open-source 3D modeler. MIT licensed.");
+        ImGui::TextUnformatted("Works fully offline; projects are saved as .pullform.json files.");
+        ImGui::TextColored(kMutedColor, "Third-party notices: THIRD_PARTY_NOTICES.md in the install folder.");
+        if (ImGui::Button("Close") || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+}
+
+} // namespace pf
