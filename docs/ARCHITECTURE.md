@@ -15,11 +15,13 @@ src/
     viewport/camera.*      pullform_app_logic: orbit camera and pick rays (pure math)
     viewport/renderer.hpp  rendering interface
     viewport/gl_*.{hpp,cpp} OpenGL 3.3 core implementation (RAII GL handles)
-    viewport/viewport.*    mesh cache, picking glue, grid/axes/highlights/previews
+    viewport/mesh_cache.*  pullform_app_logic: derived meshes per object, CPU picking
+    viewport/viewport.*    picking glue, grid/axes/highlights/previews
     ui/                    Dear ImGui menus, toolbar, properties, measurements, status
     platform/              native file dialogs behind a small interface
     app.*, main.cpp        window, frame loop, input routing, file actions
 tests/                     doctest unit tests (link pullform_app_logic only; headless)
+tests/bench/               hover benchmark for large models (built, not run by CTest)
 third_party/glad/          generated OpenGL 3.3 core loader
 ```
 
