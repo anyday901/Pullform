@@ -7,6 +7,18 @@ include breaking changes, but project files will keep a migration path.
 
 ## [Unreleased]
 
+### Fixed
+
+- Saves are flushed to the disk (`fsync`, `F_FULLFSYNC` on macOS, `FlushFileBuffers` on
+  Windows) before the rename, so a power cut right after saving cannot leave an empty or
+  truncated project. Saving keeps the file's permissions (and its ACL on Windows) and no
+  longer replaces a symbolic link with a regular file.
+- Save As could replace an existing project without asking when the `.pullform.json`
+  extension was added after the dialog closed. Pullform now checks the final name and asks
+  first. Typing `house` no longer saves `house.json`; it saves `house.pullform.json`.
+- Opening a project from the Windows command line (or by double-clicking it, once the file
+  association exists) works with non-English file names.
+
 ## [0.2.0] - 2026-11-10
 
 A native rewrite. The browser prototype is replaced by a C++20 desktop application with

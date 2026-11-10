@@ -53,6 +53,11 @@ public:
     void askUnsaved(const std::string& actionLabel);
     std::optional<UnsavedChoice> takeUnsavedChoice();
 
+    /// "Replace existing file?" prompt for Save As. The answer (true = replace)
+    /// comes back through takeReplaceChoice().
+    void askReplace(const std::string& fileName);
+    std::optional<bool> takeReplaceChoice();
+
     void showError(const std::string& title, const std::string& text);
 
 private:
@@ -73,6 +78,9 @@ private:
     bool openUnsaved_ = false;
     std::string unsavedLabel_;
     std::optional<UnsavedChoice> unsavedChoice_;
+    bool openReplace_ = false;
+    std::string replaceName_;
+    std::optional<bool> replaceChoice_;
     bool openError_ = false;
     std::string errorTitle_, errorText_;
     bool openControls_ = false;

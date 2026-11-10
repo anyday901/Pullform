@@ -30,6 +30,7 @@ add_executable(pullform WIN32
   platform/file_dialog.cpp)
 if(WIN32)
   target_sources(pullform PRIVATE ${PROJECT_SOURCE_DIR}/packaging/windows/pullform.rc)
+  target_link_libraries(pullform PRIVATE shell32) # CommandLineToArgvW in main.cpp
 endif()
 target_link_libraries(pullform PRIVATE pullform_app_logic pullform_assets glad glfw imgui nfd)
 target_compile_definitions(pullform PRIVATE GLFW_INCLUDE_NONE)

@@ -26,18 +26,18 @@ Suggested order is top to bottom.
 
 ## PR 3: File safety
 
-- [ ] **Saves are not durable across power loss.** `src/core/document/project_file.cpp`
+- [x] **Saves are not durable across power loss.** `src/core/document/project_file.cpp`
       (`writeFileAtomically`). Add `fsync` (POSIX) / `FlushFileBuffers` (Windows) on the
       temporary file before the rename; keep the existing file's permissions and do not
       replace a symlink with a regular file.
-- [ ] **Save As can overwrite an existing project without asking.**
+- [x] **Save As can overwrite an existing project without asking.**
       `src/app/platform/file_dialog.cpp`. The `.pullform.json` extension is appended after
       the native dialog has done its overwrite check. Check the final path ourselves and
       confirm before replacing; make sure the dialog cannot produce `name.json`.
-- [ ] **Non-ASCII project path on the Windows command line fails to open.**
+- [x] **Non-ASCII project path on the Windows command line fails to open.**
       `src/app/main.cpp`. Use the wide command line (`CommandLineToArgvW`) so double-clicking
       a project with any file name works once file association exists.
-- [ ] Tests: durable-write helper, extension handling, overwrite confirmation logic.
+- [x] Tests: durable-write helper, extension handling, overwrite confirmation logic.
 
 ## PR 4: Interface polish
 

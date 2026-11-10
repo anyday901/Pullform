@@ -39,7 +39,7 @@ std::optional<std::filesystem::path> FileDialogs::openProject() {
     return path;
 }
 
-std::optional<std::filesystem::path> FileDialogs::saveProject(const std::string& defaultName) {
+std::optional<SaveTarget> FileDialogs::saveProject(const std::string& defaultName) {
     if (!available_) return std::nullopt;
     nfdu8char_t* out = nullptr;
     const nfdresult_t r = NFD_SaveDialogU8(&out, kFilters, 1, nullptr, defaultName.c_str());
@@ -47,9 +47,11 @@ std::optional<std::filesystem::path> FileDialogs::saveProject(const std::string&
         error_ = r == NFD_ERROR && NFD_GetError() ? NFD_GetError() : "";
         return std::nullopt;
     }
-    auto path = withProjectExtension(fromUtf8(out));
+    const auto chosen = fromUtf8(out);
     NFD_FreePathU8(out);
-    return path;
+    SaveTarget target{withProjectExtension(chosen), false};
+    target.confirmReplace = saveAsNeedsConfirmation(chosen, target.path);
+    return target;
 }
 
 } // namespace pf
