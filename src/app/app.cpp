@@ -361,6 +361,7 @@ void App::handleShortcuts() {
         }
     }
     if (ui_.hasMeasurementText()) {
+        backspaceGuard_.noteTyping(ImGui::GetTime());
         if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter)) {
             UiContext ctx{editor_, tools_, projectName(), editor_.isDirty(), viewport_->gridStep()};
             ui_.submitMeasurement(ctx);
@@ -384,7 +385,11 @@ void App::handleShortcuts() {
     if (ImGui::IsKeyPressed(ImGuiKey_O, false)) tools_.setTool(Tool::Orbit);
     if (ImGui::IsKeyPressed(ImGuiKey_F, false)) fitView();
     if (ImGui::IsKeyPressed(ImGuiKey_G, false)) tools_.snap().enabled = !tools_.snap().enabled;
-    if (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false)) deleteSelection();
+    // Backspace also erases typed values: right after the last character is
+    // erased it stays erase-only, so an extra press does not delete the object.
+    const bool backspaceDeletes =
+        ImGui::IsKeyPressed(ImGuiKey_Backspace, false) && backspaceGuard_.mayDelete(ImGui::GetTime());
+    if (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || backspaceDeletes) deleteSelection();
 }
 
 void App::handleActions() {

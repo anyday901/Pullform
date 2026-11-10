@@ -7,22 +7,22 @@ Suggested order is top to bottom.
 
 ## PR 2: Input and editing correctness (small, do first)
 
-- [ ] **Backspace deletes the selection after clearing a typed value.**
+- [x] **Backspace deletes the selection after clearing a typed value.**
       `src/app/app.cpp` (`handleShortcuts`). Type `12`, press Backspace three times: the
       third press deletes the selected object. Make Backspace erase-only for a short time
       after typing, or bind delete to the Delete key only.
-- [ ] **Pressing Enter in Total height without typing changes the height.**
+- [x] **Pressing Enter in Total height without typing changes the height.**
       `src/app/ui/ui.cpp`. The field is pre-filled with the rounded display string
       (for example `3.937` in), and Enter commits that rounded value as a new height with an
       undo entry. Commit only when the text was edited.
-- [ ] **Typed dimensions are not stored exactly.** `src/core/geometry/rectangle.cpp`
+- [x] **Typed dimensions are not stored exactly.** `src/core/geometry/rectangle.cpp`
       (`rectangleFromSignedSize`). Width is converted to a second corner and re-derived by
       subtraction, so `2000` can become 1.9999999999999998 m, and a typed 0.1 mm minimum
       can be rejected. Pass the typed sizes straight through.
-- [ ] **A first corner near the horizon starts a rectangle that can never finish.**
+- [x] **A first corner near the horizon starts a rectangle that can never finish.**
       `src/app/tools/tool_controller.cpp` (`rectDown`). Validate the first corner against
       the 10 km range and refuse it with a message.
-- [ ] Tests for each of the above in `tests/tools_tests.cpp` and `tests/geometry_tests.cpp`.
+- [x] Tests for each of the above in `tests/tools_tests.cpp` and `tests/geometry_tests.cpp`.
 
 ## PR 3: File safety
 

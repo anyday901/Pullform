@@ -69,6 +69,7 @@ private:
     std::array<char, 128> measure_{};
     std::array<char, 64> heightField_{};
     bool heightEditing_ = false;
+    bool heightEdited_ = false; ///< the user changed the text since it was pre-filled
     bool measureEditing_ = false;
     bool openUnsaved_ = false;
     std::string unsavedLabel_;

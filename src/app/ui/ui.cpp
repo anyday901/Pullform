@@ -256,6 +256,7 @@ void Ui::properties(UiContext& ctx, float x, float y, float width, float height)
         ImGui::TextColored(kMutedColor, "Nothing selected");
         ImGui::TextWrapped("Pick the Select tool (Space) and click an object, or draw a rectangle (R).");
         heightEditing_ = false;
+        heightEdited_ = false;
     } else {
         const Bounds b = objectBounds(*o);
         if (ImGui::BeginTable("##props", 2, ImGuiTableFlags_SizingStretchProp)) {
@@ -279,16 +280,25 @@ void Ui::properties(UiContext& ctx, float x, float y, float width, float height)
         ImGui::Spacing();
         ImGui::TextUnformatted("Total height");
         tooltip("Absolute height from the base. The Push/Pull distance is incremental from the current cap.");
-        if (!heightEditing_) copyTo(heightField_, o->extrusion ? formatLength(o->extrusion->height, u, false) : std::string());
+        if (!heightEditing_) {
+            copyTo(heightField_, o->extrusion ? formatLength(o->extrusion->height, u, false) : std::string());
+            heightEdited_ = false;
+        }
         ImGui::SetNextItemWidth(-1);
         const char* hint = o->extrusion ? "" : "planar - enter a height to extrude";
         const bool enter = ImGui::InputTextWithHint("##height", hint, heightField_.data(), heightField_.size(),
                                                     ImGuiInputTextFlags_EnterReturnsTrue);
+        if (ImGui::IsItemEdited()) heightEdited_ = true;
         heightEditing_ = ImGui::IsItemActive();
         tooltip("Type a total height (unitless values use the display unit) and press Enter.");
-        if (enter) {
+        // The field is pre-filled with the rounded display string; committing it
+        // unedited would replace the exact height with the rounded one.
+        if (enter && heightEdited_) {
             if (auto e = ctx.tools.setTotalHeight(o->id, heightField_.data())) ctx.editor.notify(Message{Message::Kind::Error, *e});
+        }
+        if (enter) {
             heightEditing_ = false;
+            heightEdited_ = false;
         }
         ImGui::Spacing();
         if (ImGui::Button("Delete object")) action(UiAction::Delete);
