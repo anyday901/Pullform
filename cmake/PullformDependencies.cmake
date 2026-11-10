@@ -11,6 +11,12 @@
 # or FETCHCONTENT_SOURCE_DIR_<NAME> to use a local checkout.
 include(FetchContent)
 
+# CMake 4 refuses projects that declare compatibility with CMake < 3.5; doctest
+# 2.4.11 still does. This only raises the floor for such old declarations.
+if(NOT DEFINED CMAKE_POLICY_VERSION_MINIMUM)
+  set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+endif()
+
 set(FETCHCONTENT_QUIET ON)
 
 # --- Core dependencies (header-only, no display or GPU needed) --------------

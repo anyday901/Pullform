@@ -18,7 +18,7 @@ jobs:
     name: Windows (MSVC) + installer
     runs-on: windows-2022
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Ensure NSIS is available
         shell: pwsh
         run: |
@@ -62,7 +62,7 @@ jobs:
       CC: ${{ matrix.cc }}
       CXX: ${{ matrix.cxx }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -87,7 +87,7 @@ jobs:
       ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
       UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -103,7 +103,7 @@ jobs:
     name: macOS (Apple Clang)
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install Ninja
         run: brew install ninja || true
       - name: Configure
