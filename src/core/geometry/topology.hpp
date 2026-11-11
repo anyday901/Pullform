@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/document/document.hpp"
+#include "core/document/element_ref.hpp"
 #include "core/geometry/solid.hpp"
 
 #include <cstdint>
@@ -8,9 +9,6 @@
 #include <vector>
 
 namespace pf {
-
-/// The kinds of sub-object element that can be picked, hovered and selected.
-enum class ElementKind : std::uint8_t { Vertex, Edge, Face };
 
 /// The vertices, edges and faces of one object as the viewport sees them, in
 /// world space, with the adjacency needed for picking, profile-edge detection
@@ -49,6 +47,7 @@ struct ElementTopology {
     std::vector<Edge> edges;
     std::vector<Face> faces;
     std::vector<Triangle> triangles; ///< front-side triangulation of every face
+    Bounds bounds;                   ///< of every vertex, for culling picks
 
     [[nodiscard]] bool empty() const { return vertices.empty(); }
     /// Index of the face whose semantic id is `logical`, if any.
@@ -67,14 +66,6 @@ ElementTopology buildTopology(const std::vector<FacePolygon>& faces, double tole
 
 /// Topology of a document object.
 ElementTopology buildTopology(const ProfileObject& object);
-
-/// An element of one object, by stable id.
-struct ElementRef {
-    ObjectId object;
-    ElementKind kind = ElementKind::Face;
-    std::uint32_t id = 0;
-    friend auto operator<=>(const ElementRef&, const ElementRef&) = default;
-};
 
 /// Edges that outline the shape from the eye: border edges (one face, as on a
 /// sheet) and silhouette edges, where one neighbor faces the eye and the other

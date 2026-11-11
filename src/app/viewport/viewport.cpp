@@ -24,6 +24,7 @@ constexpr glm::vec4 kSheetFill{0.80f, 0.84f, 0.90f, 1.0f};
 constexpr glm::vec4 kEdge{0.13f, 0.14f, 0.16f, 1.0f};
 constexpr glm::vec4 kSelectedEdge{0.08f, 0.42f, 0.95f, 1.0f};
 constexpr glm::vec4 kHoverFace{1.0f, 0.72f, 0.18f, 0.30f};
+constexpr glm::vec4 kHoverEdge{1.0f, 0.62f, 0.10f, 1.0f};
 constexpr glm::vec4 kSelectedFace{0.15f, 0.50f, 1.0f, 0.32f};
 constexpr glm::vec4 kPreviewEdge{0.95f, 0.45f, 0.08f, 1.0f};
 constexpr glm::vec4 kPreviewFill{0.95f, 0.55f, 0.15f, 0.35f};
@@ -95,6 +96,7 @@ PointerInput Viewport::pointerAt(const Vec2& windowPos, const Document& document
     in.ray = camera_.rayThrough(toLocal(windowPos), size_);
     in.pick = meshes_.pick(in.ray);
     in.pixelAngle = pixelAngle();
+    in.element = meshes_.pickElement(in.ray, ElementPickOptions{in.pixelAngle});
     return in;
 }
 
@@ -228,6 +230,51 @@ void Viewport::drawFaceOverlay(const CachedMesh& cached, const FaceId& face, con
     }
 }
 
+void Viewport::appendVertexMarker(std::vector<LineSegment>& lines, const Vec3& p, double pixels, const glm::vec4& color) const {
+    const Vec3 f = camera_.forward();
+    Vec3 right = glm::cross(f, Vec3{0.0, 0.0, 1.0});
+    right = glm::length(right) > 1e-9 ? glm::normalize(right) : Vec3{1.0, 0.0, 0.0};
+    const Vec3 up = glm::cross(right, f);
+    const double r = pixels * camera_.worldPerPixel(p, size_);
+    const Vec3 c[4] = {p + (-right - up) * r, p + (right - up) * r, p + (right + up) * r, p + (-right + up) * r};
+    for (int i = 0; i < 4; ++i) lines.push_back({c[i], c[(i + 1) % 4], color});
+}
+
+void Viewport::drawElements(const Editor& editor, std::optional<ObjectId> previewed, std::vector<LineSegment>& onTop) {
+    const auto& set = editor.selectionSet();
+    std::vector<LineSegment> selectedEdges;
+    std::vector<LineSegment> hoverEdges;
+    const auto edgeSegment = [](const ElementTopology& topo, std::uint32_t index, const glm::vec4& color) {
+        const auto& e = topo.edges[index];
+        return LineSegment{topo.vertices[e.a].position, topo.vertices[e.b].position, color};
+    };
+    for (const auto& ref : set.elements()) {
+        if (previewed == ref.object) continue;
+        const auto* cached = meshes_.find(ref.object);
+        if (!cached) continue;
+        const auto index = cached->topology.indexOf(ref.kind, ref.id);
+        if (!index) continue;
+        switch (ref.kind) {
+        case ElementKind::Face: drawFaceOverlay(*cached, cached->topology.faces[*index].logical, kSelectedFace); break;
+        case ElementKind::Edge: selectedEdges.push_back(edgeSegment(cached->topology, *index, kSelectedEdge)); break;
+        case ElementKind::Vertex: appendVertexMarker(onTop, cached->topology.vertices[*index].position, 4.0, kSelectedEdge); break;
+        }
+    }
+    if (const auto& hover = editor.hoverElement(); hover && previewed != hover->object && !set.containsElement(*hover)) {
+        if (const auto* cached = meshes_.find(hover->object)) {
+            if (const auto index = cached->topology.indexOf(hover->kind, hover->id)) {
+                switch (hover->kind) {
+                case ElementKind::Face: drawFaceOverlay(*cached, cached->topology.faces[*index].logical, kHoverFace); break;
+                case ElementKind::Edge: hoverEdges.push_back(edgeSegment(cached->topology, *index, kHoverEdge)); break;
+                case ElementKind::Vertex: appendVertexMarker(onTop, cached->topology.vertices[*index].position, 5.0, kHoverEdge); break;
+                }
+            }
+        }
+    }
+    renderer_.drawWideLines(selectedEdges, kHighlightWidthPx, true);
+    renderer_.drawWideLines(hoverEdges, kHighlightWidthPx, true);
+}
+
 void Viewport::drawTransformResult(const std::optional<ProfileObject>& result, bool error, const ProfileObject* original,
                                    std::vector<LineSegment>& lines) {
     if (result) {
@@ -281,28 +328,48 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
         if (previewed == id) continue; // replaced by the preview below
         renderer_.drawMesh(cached.handle, cached.mesh.closed ? kSolidFill : kSheetFill);
     }
-    // Face highlights: one logical face, all of its triangles.
+    // Face highlights: one logical face, all of its triangles. An object
+    // selected through its elements shows those instead (drawElements).
+    const auto& set = editor.selectionSet();
     for (const auto& [id, cached] : meshes_.entries()) {
         if (previewed == id) continue;
         if (hover && hover->objectId == id && hover->face && !(selection && *selection == *hover)) {
             drawFaceOverlay(cached, *hover->face, kHoverFace);
         }
-        if (selection && selection->objectId == id && selection->face) drawFaceOverlay(cached, *selection->face, kSelectedFace);
+        if (selection && selection->objectId == id && selection->face && !set.hasElements(id)) {
+            drawFaceOverlay(cached, *selection->face, kSelectedFace);
+        }
     }
-    // Real edges only (no triangulation diagonals); the selected object's edges in blue.
+    // Real edges only (no triangulation diagonals); wholly selected objects' edges
+    // in blue. With the profiles style, outline edges are drawn wide on top.
     lines.clear();
     std::vector<LineSegment> selectedLines;
+    std::vector<LineSegment> profileLines;
+    std::vector<LineSegment> selectedProfileLines;
+    const Vec3 eye = camera_.position();
     for (const auto& [id, cached] : meshes_.entries()) {
         if (previewed == id) {
             // A moving object leaves a faint outline where it started.
             if (movePreview) appendEdges(lines, cached.mesh, dim(kEdge, 0.25f));
             continue;
         }
-        const bool selected = selection && selection->objectId == id;
+        const bool selected = set.contains(id) && !set.hasElements(id);
         appendEdges(selected ? selectedLines : lines, cached.mesh, selected ? kSelectedEdge : kEdge);
+        if (profileEdges_) {
+            const auto& topo = cached.topology;
+            for (const auto e : pf::profileEdges(topo, eye)) {
+                (selected ? selectedProfileLines : profileLines)
+                    .push_back({topo.vertices[topo.edges[e].a].position, topo.vertices[topo.edges[e].b].position,
+                                selected ? kSelectedEdge : kEdge});
+            }
+        }
     }
     renderer_.drawLines(lines, true);
     renderer_.drawLines(selectedLines, true);
+    renderer_.drawWideLines(profileLines, kProfileWidthPx, true);
+    renderer_.drawWideLines(selectedProfileLines, kProfileWidthPx, true);
+    std::vector<LineSegment> elementMarks;
+    drawElements(editor, previewed, elementMarks);
 
     // Previews: transient, never part of the document.
     if (previewHandle_ != kNoMesh) {
@@ -404,6 +471,7 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
     }
     if (const auto& snap = tools.snapIndicator()) drawSnap(lines, *snap);
     renderer_.drawLines(lines, false);
+    renderer_.drawWideLines(elementMarks, 2.0f, false);
     renderer_.endFrame();
 }
 

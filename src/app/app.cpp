@@ -252,7 +252,7 @@ void App::frame() {
 
     // A key that closes a popup this frame must not also act as a shortcut.
     const bool popupWasOpen = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
-    UiContext ctx{editor_, tools_, projectName(), editor_.isDirty(), viewport_->gridStep()};
+    UiContext ctx{editor_, tools_, projectName(), editor_.isDirty(), viewport_->gridStep(), &viewport_->profileEdges()};
     const UiRect rect = ui_.draw(ctx);
     const ImGuiIO& io = ImGui::GetIO();
     int fbw = 0, fbh = 0, ww = 0, wh = 0;
@@ -321,7 +321,9 @@ void App::handleViewportInput() {
                 drag_ = DragMode::Orbit;
             } else {
                 drag_ = DragMode::Tool;
-                tools_.pointerDown(viewport_->pointerAt(mouse, editor_.document()));
+                PointerInput press = viewport_->pointerAt(mouse, editor_.document());
+                press.clicks = clicks_.click(ImGui::GetTime(), mouse); // double/triple click in the Select tool
+                tools_.pointerDown(press);
             }
         } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Middle)) {
             dragButton_ = ImGuiMouseButton_Middle;
@@ -415,7 +417,7 @@ void App::handleShortcuts() {
     if (ui_.hasMeasurementText()) {
         backspaceGuard_.noteTyping(ImGui::GetTime());
         if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter)) {
-            UiContext ctx{editor_, tools_, projectName(), editor_.isDirty(), viewport_->gridStep()};
+            UiContext ctx{editor_, tools_, projectName(), editor_.isDirty(), viewport_->gridStep(), &viewport_->profileEdges()};
             ui_.submitMeasurement(ctx);
         } else if (ImGui::IsKeyPressed(ImGuiKey_Backspace)) {
             ui_.eraseMeasurementChar();

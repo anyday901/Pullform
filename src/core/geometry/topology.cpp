@@ -92,6 +92,7 @@ ElementTopology buildTopology(const std::vector<FacePolygon>& polygons, double t
         }
         topo.faces.push_back(std::move(face));
     }
+    for (const auto& v : topo.vertices) topo.bounds.extend(v.position);
     return topo;
 }
 

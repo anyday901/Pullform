@@ -6,6 +6,7 @@ add_library(pullform_app_logic STATIC
   tools/snapper.cpp
   tools/tool_controller.cpp
   tools/measure_tool.cpp
+  tools/element_select.cpp
   viewport/camera.cpp
   viewport/mesh_cache.cpp)
 target_link_libraries(pullform_app_logic PUBLIC pullform_core)

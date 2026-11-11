@@ -166,3 +166,116 @@ TEST_CASE("clicks at one spot in quick succession count up to three") {
     CHECK(clicks.click(1.60, {30, 11}) == 1); // moved too far
     CHECK(clicks.click(1.70, {30, 11}) == 2);
 }
+
+// ---- Select tool: the acceptance sequence -----------------------------------
+
+#include "app/tools/tool_controller.hpp"
+#include "helpers.hpp"
+
+namespace {
+
+/// A pointer looking from `eye` through `at`, with the element pick resolved
+/// against the document as the viewport does it.
+PointerInput lookAt(const Editor& editor, const Vec3& eye, const Vec3& at, int clicks = 1) {
+    PointerInput in;
+    in.ray = through(eye, at);
+    in.pick = pickDocument(in.ray, editor.document());
+    in.pixelAngle = kPixel;
+    std::vector<ElementTopology> topos;
+    for (const auto& o : editor.document().objects) topos.push_back(buildTopology(*o));
+    std::vector<PickTarget> targets;
+    for (std::size_t i = 0; i < topos.size(); ++i) targets.push_back({editor.document().objects[i]->id, &topos[i]});
+    in.element = pickElement(in.ray, targets, ElementPickOptions{kPixel});
+    in.clicks = clicks;
+    return in;
+}
+
+} // namespace
+
+TEST_CASE("Select: click an edge, then a face, then triple-click") {
+    Editor editor;
+    ToolController tools(editor);
+    const ObjectId box = test::makeBox(editor, tools, "1000,1000", "1000");
+    tools.setTool(Tool::Select);
+    const Vec3 eye{0.5, 0.5, 11.0};
+    const auto topo = buildTopology(*editor.document().find(box));
+    const auto capIndex = *topo.faceFor(FaceId::cap());
+
+    // Hovering an edge highlights that edge.
+    tools.pointerMove(lookAt(editor, eye, {0.5, 0.97, 1.0}));
+    REQUIRE(editor.hoverElement());
+    CHECK(editor.hoverElement()->kind == ElementKind::Edge);
+
+    // Click the edge: just that edge is selected; its object counts for whole-object tools.
+    auto in = lookAt(editor, eye, {0.5, 0.97, 1.0});
+    tools.pointerDown(in);
+    tools.pointerUp(in);
+    REQUIRE(editor.selectionSet().elements().size() == 1);
+    const ElementRef edge = editor.selectionSet().elements().front();
+    CHECK(edge.kind == ElementKind::Edge);
+    CHECK(edge.object == box);
+    CHECK(editor.selectedObjects() == std::vector<ObjectId>{box});
+    CHECK(editor.selectionSet().hasElements(box));
+
+    // Click the face: the face replaces the edge, and stays the primary's face (push/pull).
+    in = lookAt(editor, eye, {0.5, 0.5, 1.0});
+    tools.pointerDown(in);
+    tools.pointerUp(in);
+    REQUIRE(editor.selectionSet().elements().size() == 1);
+    CHECK(editor.selectionSet().elements().front() == ElementRef{box, ElementKind::Face, topo.faces[capIndex].id});
+    REQUIRE(editor.selection());
+    CHECK(editor.selection()->face == FaceId::cap());
+
+    // Double-click the face: the face and its four edges.
+    in = lookAt(editor, eye, {0.5, 0.5, 1.0}, 2);
+    tools.pointerDown(in);
+    tools.pointerUp(in);
+    CHECK(countKind(editor.selectionSet().elements(), ElementKind::Face) == 1);
+    CHECK(countKind(editor.selectionSet().elements(), ElementKind::Edge) == 4);
+
+    // Triple-click: everything connected, all 12 edges and 6 faces.
+    in = lookAt(editor, eye, {0.5, 0.5, 1.0}, 3);
+    tools.pointerDown(in);
+    tools.pointerUp(in);
+    CHECK(countKind(editor.selectionSet().elements(), ElementKind::Face) == 6);
+    CHECK(countKind(editor.selectionSet().elements(), ElementKind::Edge) == 12);
+
+    // Clicking empty space clears it.
+    in = lookAt(editor, eye, {5.0, 5.0, 0.0});
+    tools.pointerDown(in);
+    tools.pointerUp(in);
+    CHECK(editor.selectionSet().empty());
+    CHECK(editor.selectionSet().elements().empty());
+}
+
+TEST_CASE("element selection survives undo only while the elements still exist") {
+    Editor editor;
+    ToolController tools(editor);
+    const ObjectId box = test::makeBox(editor, tools, "1000,1000", "1000");
+    SelectionSet set;
+    set.addElements({{box, ElementKind::Edge, 1}, {box, ElementKind::Face, 99}}, std::nullopt);
+    const auto clean = sanitizeSelection(editor.document(), set);
+    CHECK(clean.elements() == std::vector<ElementRef>{{box, ElementKind::Edge, 1}});
+    CHECK(clean.contains(box));
+
+    SelectionSet gone;
+    gone.addElements({{box, ElementKind::Face, 99}}, std::nullopt);
+    CHECK(sanitizeSelection(editor.document(), gone).empty());
+}
+
+TEST_CASE("selecting an object whole drops its element entries; removing the last element drops the object") {
+    const ObjectId a{1};
+    SelectionSet set;
+    set.addElements({{a, ElementKind::Edge, 3}}, std::nullopt);
+    CHECK(set.hasElements(a));
+    set.add(Selection{a, std::nullopt});
+    CHECK_FALSE(set.hasElements(a));
+    CHECK(set.contains(a));
+
+    SelectionSet other;
+    other.addElements({{a, ElementKind::Edge, 3}, {a, ElementKind::Face, 1}}, std::nullopt);
+    other.toggleElements({{a, ElementKind::Edge, 3}}, std::nullopt);
+    CHECK(other.contains(a));
+    other.toggleElements({{a, ElementKind::Face, 1}}, std::nullopt);
+    CHECK_FALSE(other.contains(a));
+}

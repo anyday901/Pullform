@@ -1,5 +1,7 @@
 #include "app/tools/tool_controller.hpp"
 
+#include "app/tools/element_select.hpp"
+
 #include "core/commands/operations.hpp"
 #include "core/document/tolerance.hpp"
 #include "core/geometry/solid.hpp"
@@ -104,6 +106,7 @@ void ToolController::setTool(Tool tool) {
     if (tool == Tool::TapeMeasure) measure_.start(MeasureTool::Mode::Tape);
     if (tool == Tool::Dimension) measure_.start(MeasureTool::Mode::Dimension);
     editor_.setHover(std::nullopt);
+    editor_.setHoverElement(std::nullopt);
     editor_.notify(std::nullopt);
 }
 
@@ -169,10 +172,7 @@ void ToolController::pointerDown(const PointerInput& input) {
 
 void ToolController::pointerMove(const PointerInput& input) {
     switch (tool_) {
-    case Tool::Select:
-        editor_.setHover(input.pick ? std::optional<Selection>(Selection{input.pick->objectId, input.pick->faceId})
-                                    : std::nullopt);
-        break;
+    case Tool::Select: hoverElementAt(editor_, input); break;
     case Tool::Rectangle: rectMove(input); break;
     case Tool::PushPull: pushMove(input); break;
     case Tool::Rotate: rotateMove(input); break;
@@ -207,8 +207,10 @@ void ToolController::pointerUp(const PointerInput& input) {
 // ---- Select -----------------------------------------------------------------
 
 void ToolController::selectDown(const PointerInput& input) {
-    if (input.pick) editor_.select(Selection{input.pick->objectId, input.pick->faceId});
-    else editor_.select(std::nullopt); // clicking empty space clears the selection
+    // A click selects the vertex, edge or face under the pointer (double click:
+    // with its edges or faces; triple click: everything connected). Clicking
+    // empty space clears the selection.
+    selectElementAt(editor_, input, SelectModifier::Replace);
 }
 
 // ---- Rectangle --------------------------------------------------------------

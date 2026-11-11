@@ -20,6 +20,33 @@ struct Candidate {
     double pixels = 0.0;   ///< from the pointer, on screen
 };
 
+/// Whether the ray passes within `margin` of the box (slab test on the inflated box).
+bool rayNearBox(const Ray& ray, const Bounds& b, double margin, double limit) {
+    if (!b.valid) return false;
+    double t0 = 0.0, t1 = limit;
+    for (int axis = 0; axis < 3; ++axis) {
+        const double lo = b.min[axis] - margin, hi = b.max[axis] + margin;
+        const double o = ray.origin[axis], d = ray.direction[axis];
+        if (std::abs(d) < 1e-15) {
+            if (o < lo || o > hi) return false;
+            continue;
+        }
+        double a = (lo - o) / d, c = (hi - o) / d;
+        if (a > c) std::swap(a, c);
+        t0 = std::max(t0, a);
+        t1 = std::min(t1, c);
+        if (t0 > t1) return false;
+    }
+    return true;
+}
+
+/// Pick tolerance in world units around a box: the widest pixel radius at the
+/// box's far side.
+double pickMargin(const Ray& ray, const Bounds& b, double pixels, double pixelAngle) {
+    const double far = glm::length(b.center() - ray.origin) + 0.5 * glm::length(b.size());
+    return pixels * pixelAngle * far;
+}
+
 /// Nearest triangle hit along `ray` closer than `limit`, optionally skipping
 /// faces of one target that touch the element being tested.
 template <typename Skip>
@@ -27,7 +54,9 @@ std::optional<std::pair<std::size_t, double>> castFaces(const Ray& ray, std::spa
                                                         Skip&& skip, std::uint32_t* faceOut) {
     std::optional<std::pair<std::size_t, double>> best;
     for (std::size_t ti = 0; ti < targets.size(); ++ti) {
+        if (!targets[ti].topology) continue;
         const auto& topo = *targets[ti].topology;
+        if (!rayNearBox(ray, topo.bounds, 1e-9 + 1e-9 * glm::length(topo.bounds.size()), limit)) continue;
         for (const auto& tri : topo.triangles) {
             if (skip(ti, tri.face)) continue;
             const auto& face = topo.faces[tri.face];
@@ -62,6 +91,11 @@ std::optional<ElementHit> pickElement(const Ray& ray, std::span<const PickTarget
     for (std::size_t ti = 0; ti < targets.size(); ++ti) {
         if (!targets[ti].topology) continue;
         const auto& topo = *targets[ti].topology;
+        const double reach = std::max(options.vertexPixels, options.edgePixels);
+        if (!rayNearBox(ray, topo.bounds, pickMargin(ray, topo.bounds, reach, pixelAngle),
+                        std::numeric_limits<double>::infinity())) {
+            continue;
+        }
         for (std::uint32_t v = 0; v < topo.vertices.size(); ++v) {
             const Vec3 p = topo.vertices[v].position;
             const double t = glm::dot(p - ray.origin, ray.direction);
