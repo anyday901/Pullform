@@ -11,6 +11,8 @@
 
 #include <doctest/doctest.h>
 
+#include <string>
+
 using namespace pf;
 
 namespace {
@@ -98,7 +100,7 @@ TEST_CASE("Eraser: erasing the edge between two coplanar faces leaves one face")
     const ObjectId id = twoSquares(editor);
     const std::size_t depth = editor.undoDepth();
     tools.setTool(Tool::Eraser);
-    CHECK(toolName(Tool::Eraser) == "Eraser");
+    CHECK(std::string(toolName(Tool::Eraser)) == "Eraser");
 
     // Hovering the middle edge highlights it.
     tools.pointerMove(above(editor, 1.0, 0.4));
