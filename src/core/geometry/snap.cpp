@@ -56,9 +56,9 @@ SnapFeatures snapFeatures(const ProfileObject& object, std::optional<double> hei
         for (std::size_t i = 0; i < n; ++i) {
             const int a = ids[i];
             const int b = ids[(i + 1) % n];
-            const auto key = std::minmax(a, b);
-            const bool seen = std::any_of(f.edges.begin(), f.edges.end(),
-                                          [&](const auto& e) { return std::minmax(e.first, e.second) == key; });
+            const bool seen = std::any_of(f.edges.begin(), f.edges.end(), [a, b](const std::pair<int, int>& e) {
+                return (e.first == a && e.second == b) || (e.first == b && e.second == a);
+            });
             if (!seen && a != b) f.edges.emplace_back(a, b);
         }
     }

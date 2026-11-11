@@ -347,32 +347,32 @@ std::optional<double> ToolController::snapPushHeight(const PointerInput& input, 
     // 2. The height lines up with another object's corner (for example its cap).
     if (snap_.points && input.pixelAngle > 0.0) {
         const double tolerance = this->tolerance(input, axisPoint);
-        const SnapFeatures* bestF = nullptr;
-        ObjectId bestId;
-        int bestV = -1;
-        double bestDz = tolerance, bestXY = std::numeric_limits<double>::infinity();
+        // Nearest height first; among equal heights, the nearest corner draws the guide.
+        struct Best {
+            ObjectId id;
+            int vertex = 0;
+            Vec3 point{0.0};
+            double dz = 0.0;
+            double dxy = 0.0;
+        };
+        std::optional<Best> best;
         for (const auto& [id, entry] : snapIndex_.entries()) {
             if (id == push_->objectId) continue;
-            const auto& f = entry.features;
-            for (std::size_t i = 0; i < f.vertices.size(); ++i) {
-                const Vec3& v = f.vertices[i];
+            const auto& vertices = entry.features.vertices;
+            for (std::size_t i = 0; i < vertices.size(); ++i) {
+                const Vec3& v = vertices[i];
                 const double dz = std::abs(v.z - axisPoint.z);
                 const double dxy = glm::length(Vec2{v.x - axisPoint.x, v.y - axisPoint.y});
-                // Nearest height first; among equal heights, the nearest corner draws the guide.
-                if (dz < bestDz - tol::kLengthEpsilon || (bestF && std::abs(dz - bestDz) <= tol::kLengthEpsilon && dxy < bestXY)) {
-                    bestDz = dz;
-                    bestXY = dxy;
-                    bestF = &f;
-                    bestId = id;
-                    bestV = static_cast<int>(i);
-                }
+                if (dz >= tolerance) continue;
+                const bool nearerHeight = !best || dz < best->dz - tol::kLengthEpsilon;
+                const bool sameHeightCloser = best && std::abs(dz - best->dz) <= tol::kLengthEpsilon && dxy < best->dxy;
+                if (nearerHeight || sameHeightCloser) best = Best{id, static_cast<int>(i), v, dz, dxy};
             }
         }
-        if (bestF) {
-            const Vec3& v = bestF->vertices[static_cast<std::size_t>(bestV)];
-            const double h = v.z - push_->baseZ;
-            SnapResult res{at(h), SnapKind::Inference, bestId, bestV, v, {}};
-            res.guides.push_back({v, res.point, -1});
+        if (best) {
+            const double h = best->point.z - push_->baseZ;
+            SnapResult res{at(h), SnapKind::Inference, best->id, best->vertex, best->point, {}};
+            res.guides.push_back({best->point, res.point, -1});
             indicator_ = res;
             return h;
         }
