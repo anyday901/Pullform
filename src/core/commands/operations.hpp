@@ -113,7 +113,11 @@ Expected<OpResult> rotateObjects(const Document& doc, const std::vector<ObjectId
 /// Scales every object by `factors` along its own axes, and moves its base
 /// centre away from `pivot` by the same factors along the world axes, so a
 /// uniform factor scales the selection as one rigid group.
-Expected<OpResult> scaleObjects(const Document& doc, const std::vector<ObjectId>& ids, const Vec3& factors, const Vec3& pivot);
+/// `frame` (orthonormal columns) gives the axes the factors apply along when
+/// moving base centres: world axes by default, or one object's own axes
+/// (objectAxes) so a single turned object scales about a point of its own box.
+Expected<OpResult> scaleObjects(const Document& doc, const std::vector<ObjectId>& ids, const Vec3& factors, const Vec3& pivot,
+                                const Mat3& frame = Mat3(1.0));
 /// Copies every object, offset by `offset`. The copies (new IDs, in the order
 /// of `ids`) are in OpResult::objectIds; objectId is the last copy.
 Expected<OpResult> duplicateObjects(const Document& doc, const std::vector<ObjectId>& ids, const Vec3& offset);
@@ -167,5 +171,46 @@ Expected<OpResult> drawArc(const Document& doc, std::optional<ObjectId> target, 
 /// `pushed`, when given, receives the face where it ended up (the new cap of an extrusion).
 Expected<OpResult> pushPullFace(const Document& doc, ObjectId id, mesh::FaceId face, double distance,
                                 mesh::FaceId* pushed = nullptr);
+
+// ---- Moving, rotating and scaling vertices, edges and faces ------------------------
+// The selected elements move and the geometry connected to them stretches
+// (mesh::Mesh::transformVertices): faces that would bend are folded along soft
+// edges. A rectangle or box is converted to a mesh group first (same ids, so
+// selections and dimension anchors stay attached). Every owner of an element
+// changes in one operation; OpResult::objectIds lists them.
+
+/// An affine map of world space, p -> linear * p + translation.
+struct AffineMap {
+    Mat3 linear{1.0};
+    Vec3 translation{0.0};
+    static AffineMap shift(const Vec3& offset);
+    /// Turn by `radians` about the line through `pivot` along unit `axis` (right-hand rule).
+    static AffineMap rotation(const Vec3& pivot, const Vec3& axis, double radians);
+    /// Scale by `factors` along the columns of `frame` (orthonormal), keeping `pivot` fixed.
+    static AffineMap scale(const Vec3& pivot, const Vec3& factors, const Mat3& frame = Mat3(1.0));
+};
+
+/// An object's own axes in world space (columns: width, depth, height), the
+/// axes scaleObject's factors apply along.
+Mat3 objectAxes(const ProfileObject& object);
+
+/// World positions of the vertices `elements` use (an edge's ends, a face's
+/// loops), each once.
+std::vector<Vec3> elementPoints(const Document& doc, const std::vector<ElementRef>& elements);
+
+/// Applies `map` to the vertices of `elements`. Fails, changing nothing, when
+/// an element is gone, a face with holes would have to fold, or the result is
+/// invalid (an edge shrunk to nothing, a face turned inside out).
+Expected<OpResult> transformElements(const Document& doc, const std::vector<ElementRef>& elements, const AffineMap& map);
+/// Moves the elements by `offset` (world space). A zero offset is rejected.
+Expected<OpResult> moveElements(const Document& doc, const std::vector<ElementRef>& elements, const Vec3& offset);
+/// Rotates the elements about the world line through `pivot` along `axis`
+/// (for example a face about one of its edges).
+Expected<OpResult> rotateElements(const Document& doc, const std::vector<ElementRef>& elements, const Vec3& pivot,
+                                  const Vec3& axis, double radians);
+/// Scales the elements about `pivot` along the columns of `frame`. Factors must
+/// not be zero; a negative factor mirrors.
+Expected<OpResult> scaleElements(const Document& doc, const std::vector<ElementRef>& elements, const Vec3& factors,
+                                 const Vec3& pivot, const Mat3& frame = Mat3(1.0));
 
 } // namespace pf

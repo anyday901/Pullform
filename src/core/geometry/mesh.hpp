@@ -100,6 +100,15 @@ struct AddEdgeResult {
     std::vector<FaceId> removedFaces; ///< faces that were split (replaced by createdFaces)
 };
 
+/// What one transformVertices call did.
+struct TransformResult {
+    /// Faces that would have bent and were folded: each was split into planar
+    /// pieces (the largest keeps the face's id, the others are in createdFaces).
+    std::vector<FaceId> folded;
+    std::vector<FaceId> createdFaces;
+    std::vector<EdgeId> foldEdges; ///< the new edges between the pieces (soft)
+};
+
 struct EraseEdgeResult {
     std::vector<FaceId> removedFaces;
     std::optional<FaceId> mergedFace; ///< set when two coplanar faces became this one
@@ -203,10 +212,29 @@ public:
     void pruneCurves();
 
     /// Moves every vertex by `f` (component-wise scale about the origin) and
-    /// recomputes face normals. Factors must be non-zero.
+    /// recomputes face normals (transform with a diagonal map: an odd number of
+    /// negative factors mirrors, with the faces turned to keep facing outwards).
+    /// Factors must be non-zero.
     void scale(const Vec3& factors);
     /// Moves every vertex (and curve) by `offset`.
     void translate(const Vec3& offset);
+
+    /// Maps the vertices `ids` by p -> linear * p + translation; the geometry
+    /// connected to them stretches. A face whose vertices all move keeps its
+    /// shape (an affine map keeps it planar); when the map mirrors
+    /// (determinant < 0) its loops are reversed so it still faces outwards.
+    /// A face only partly moved gets a new plane, or, when its vertices no
+    /// longer lie on one plane, is folded: split along soft edges into planar
+    /// pieces (auto-fold). Curves move along when all their vertices do and the
+    /// map keeps circles round; otherwise the record is dropped and the
+    /// segments stay as plain edges. Returns nothing, with the mesh unchanged,
+    /// when no id exists, the map is singular, or a face with holes would have
+    /// to fold. The result may still be invalid (an edge shrunk to nothing, a
+    /// face turned inside out): check it with validateMesh.
+    std::optional<TransformResult> transformVertices(const std::vector<VertexId>& ids, const Mat3& linear,
+                                                     const Vec3& translation);
+    /// transformVertices on every vertex.
+    std::optional<TransformResult> transform(const Mat3& linear, const Vec3& translation);
 
     friend bool operator==(const Mesh&, const Mesh&) = default;
 

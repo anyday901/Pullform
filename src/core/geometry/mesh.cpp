@@ -3,6 +3,7 @@
 #include "core/document/tolerance.hpp"
 
 #include <glm/geometric.hpp>
+#include <glm/matrix.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -914,20 +915,253 @@ void Mesh::pruneCurves() {
 }
 
 void Mesh::scale(const Vec3& f) {
-    for (auto& [id, v] : vertices_) v.position *= f;
-    for (auto& [id, face] : faces_) {
-        const Vec3 n = loopNormal(loopPositions(face.loops[0]));
-        if (glm::length(n) > 0.0) face.normal = n;
-    }
-    for (auto& [id, c] : curves_) {
-        c.center *= f; // curves only survive uniform scales meaningfully; radius follows x
-        c.radius *= std::abs(f.x);
-    }
+    if (vertices_.empty()) return;
+    transform(Mat3(Vec3{f.x, 0.0, 0.0}, Vec3{0.0, f.y, 0.0}, Vec3{0.0, 0.0, f.z}), Vec3{0.0});
 }
 
 void Mesh::translate(const Vec3& offset) {
     for (auto& [id, v] : vertices_) v.position += offset;
     for (auto& [id, c] : curves_) c.center += offset;
+}
+
+namespace {
+
+/// Whether `linear` maps circles to circles (a rotation, mirror or uniform
+/// scale, possibly combined): its columns are orthogonal with equal lengths.
+/// `scale` receives that length.
+bool isSimilarity(const Mat3& m, double& scale) {
+    const double a = glm::length(m[0]);
+    const double b = glm::length(m[1]);
+    const double c = glm::length(m[2]);
+    scale = a;
+    const double eps = 1e-9 * std::max({a, b, c, 1e-300});
+    return std::abs(a - b) <= eps && std::abs(a - c) <= eps && std::abs(glm::dot(m[0], m[1])) <= eps * a &&
+           std::abs(glm::dot(m[0], m[2])) <= eps * a && std::abs(glm::dot(m[1], m[2])) <= eps * a;
+}
+
+/// Disjoint-set forest over triangle indices.
+struct Groups {
+    std::vector<std::size_t> parent;
+    explicit Groups(std::size_t n) : parent(n) {
+        for (std::size_t i = 0; i < n; ++i) parent[i] = i;
+    }
+    std::size_t find(std::size_t i) {
+        while (parent[i] != i) i = parent[i] = parent[parent[i]];
+        return i;
+    }
+};
+
+} // namespace
+
+std::optional<TransformResult> Mesh::transform(const Mat3& linear, const Vec3& translation) {
+    std::vector<VertexId> all;
+    all.reserve(vertices_.size());
+    for (const auto& [id, v] : vertices_) all.push_back(VertexId{id});
+    return transformVertices(all, linear, translation);
+}
+
+std::optional<TransformResult> Mesh::transformVertices(const std::vector<VertexId>& ids, const Mat3& linear,
+                                                       const Vec3& translation) {
+    const double det = glm::determinant(linear);
+    if (!std::isfinite(det) || std::abs(det) < 1e-18) return std::nullopt;
+    std::set<std::uint32_t> moving;
+    for (const VertexId v : ids) {
+        if (vertices_.contains(v.value)) moving.insert(v.value);
+    }
+    if (moving.empty()) return std::nullopt;
+    const auto moves = [&moving](VertexId v) { return moving.contains(v.value); };
+
+    // Faces only partly moved may bend: triangulate them on their old plane
+    // first, so they can be folded along those diagonals afterwards.
+    std::vector<FaceId> whole;
+    std::vector<std::pair<FaceId, std::vector<std::array<VertexId, 3>>>> partial;
+    for (const auto& [fid, face] : faces_) {
+        std::size_t count = 0;
+        std::size_t total = 0;
+        for (const Loop& loop : face.loops) {
+            for (const VertexId v : loopVertices(loop)) {
+                ++total;
+                if (moves(v)) ++count;
+            }
+        }
+        if (count == 0) continue;
+        if (count == total) whole.push_back(FaceId{fid});
+        else partial.emplace_back(FaceId{fid}, triangulateFace(*this, FaceId{fid}));
+    }
+
+    Mesh next = *this; // work on a copy so a refusal leaves this mesh unchanged
+    for (const std::uint32_t v : moving) {
+        Vec3& p = next.vertices_.at(v).position;
+        p = linear * p + translation;
+    }
+
+    // Curves: carried along by a map that keeps them round, else dropped.
+    double scale = 1.0;
+    const bool similar = isSimilarity(linear, scale);
+    for (auto it = next.curves_.begin(); it != next.curves_.end();) {
+        Curve& c = it->second;
+        bool all = true;
+        bool any = false;
+        for (const EdgeId e : c.edges) {
+            if (const Edge* edge = next.edge(e)) {
+                for (const VertexId v : {edge->v0, edge->v1}) {
+                    if (moves(v)) any = true;
+                    else all = false;
+                }
+            }
+        }
+        if (!any) {
+            ++it;
+            continue;
+        }
+        if (all && similar) {
+            c.center = linear * c.center + translation;
+            c.xAxis = glm::normalize(linear * c.xAxis);
+            // A mirror reverses the turning direction about the mapped normal;
+            // flipping the normal keeps start and sweep valid.
+            c.normal = glm::normalize(linear * c.normal) * (det < 0.0 ? -1.0 : 1.0);
+            c.radius *= scale;
+            ++it;
+            continue;
+        }
+        for (auto& [eid, edge] : next.edges_) {
+            if (edge.curve && edge.curve->value == it->first) edge.curve.reset();
+        }
+        it = next.curves_.erase(it);
+    }
+
+    for (const FaceId fid : whole) {
+        Face& face = next.faces_.at(fid.value);
+        if (det < 0.0) {
+            for (Loop& loop : face.loops) loop = reversedLoop(loop);
+        }
+        const Vec3 n = loopNormal(next.loopPositions(face.loops[0]));
+        if (glm::length(n) > 0.0) face.normal = n;
+    }
+
+    TransformResult result;
+    for (const auto& [fid, triangles] : partial) {
+        Face& face = next.faces_.at(fid.value);
+        const Vec3 n = loopNormal(next.loopPositions(face.loops[0]));
+        bool planar = glm::length(n) > 0.0;
+        if (planar) {
+            const Vec3 origin = next.vertex(next.useStart(face.loops[0].front()))->position;
+            for (const Loop& loop : face.loops) {
+                for (const Vec3& p : next.loopPositions(loop)) {
+                    if (std::abs(glm::dot(p - origin, n)) > tol::kPlanarity) planar = false;
+                }
+            }
+        }
+        if (planar) {
+            face.normal = n;
+            continue;
+        }
+        // Auto-fold. Each connected set of triangles of a simple polygon's
+        // triangulation is itself a simple polygon, so merging neighbouring
+        // triangles while they stay on one plane gives valid planar pieces.
+        if (face.loops.size() > 1 || triangles.empty()) return std::nullopt;
+        const auto pos = [&next](VertexId v) { return next.vertex(v)->position; };
+        Groups groups(triangles.size());
+        std::vector<std::vector<VertexId>> members(triangles.size());
+        for (std::size_t i = 0; i < triangles.size(); ++i) members[i] = {triangles[i].begin(), triangles[i].end()};
+        const auto planeOf = [&pos](const std::vector<VertexId>& vs, Vec3& normal, Vec3& origin) {
+            // The best-conditioned triangle of the set spans its plane.
+            double best = 0.0;
+            for (std::size_t i = 0; i + 2 < vs.size(); i += 3) {
+                const Vec3 c = glm::cross(pos(vs[i + 1]) - pos(vs[i]), pos(vs[i + 2]) - pos(vs[i]));
+                if (glm::length(c) > best) {
+                    best = glm::length(c);
+                    normal = c / best;
+                    origin = pos(vs[i]);
+                }
+            }
+            return best > 0.0;
+        };
+        const auto onPlane = [&pos](const std::vector<VertexId>& vs, const Vec3& normal, const Vec3& origin) {
+            return std::ranges::all_of(vs, [&](VertexId v) { return std::abs(glm::dot(pos(v) - origin, normal)) <= tol::kPlanarity; });
+        };
+        // Neighbouring triangles share a diagonal: a vertex pair that is not an edge of the face.
+        for (std::size_t i = 0; i < triangles.size(); ++i) {
+            for (std::size_t j = i + 1; j < triangles.size(); ++j) {
+                int shared = 0;
+                for (const VertexId a : triangles[i]) {
+                    if (std::ranges::find(triangles[j], a) != triangles[j].end()) ++shared;
+                }
+                if (shared != 2) continue;
+                const std::size_t gi = groups.find(i);
+                const std::size_t gj = groups.find(j);
+                if (gi == gj) continue;
+                std::vector<VertexId> joined = members[gi];
+                joined.insert(joined.end(), members[gj].begin(), members[gj].end());
+                Vec3 normal{0.0};
+                Vec3 origin{0.0};
+                if (!planeOf(joined, normal, origin) || !onPlane(joined, normal, origin)) continue;
+                groups.parent[gj] = gi;
+                members[gi] = std::move(joined);
+                members[gj].clear();
+            }
+        }
+        // Each group's boundary: its triangles' directed sides whose reverse is not in the group.
+        std::map<std::size_t, std::vector<std::pair<VertexId, VertexId>>> sides;
+        for (std::size_t i = 0; i < triangles.size(); ++i) {
+            auto& list = sides[groups.find(i)];
+            for (int k = 0; k < 3; ++k) list.emplace_back(triangles[i][k], triangles[i][(k + 1) % 3]);
+        }
+        struct Piece {
+            std::vector<VertexId> loop;
+            double area = 0.0;
+        };
+        std::vector<Piece> pieces;
+        for (auto& [g, list] : sides) {
+            std::map<std::uint32_t, VertexId> nextOf;
+            for (const auto& [a, b] : list) {
+                const bool inner = std::ranges::any_of(list, [&](const auto& s) { return s.first == b && s.second == a; });
+                if (!inner) nextOf[a.value] = b;
+            }
+            if (nextOf.size() < 3) return std::nullopt;
+            Piece piece;
+            VertexId at{nextOf.begin()->first};
+            for (std::size_t guard = 0; guard <= nextOf.size(); ++guard) {
+                piece.loop.push_back(at);
+                const auto it = nextOf.find(at.value);
+                if (it == nextOf.end()) return std::nullopt;
+                at = it->second;
+                if (at == piece.loop.front()) break;
+            }
+            if (piece.loop.size() != nextOf.size()) return std::nullopt; // not one simple loop
+            std::vector<Vec3> pts;
+            for (const VertexId v : piece.loop) pts.push_back(pos(v));
+            const Vec3 pn = loopNormal(pts);
+            if (glm::length(pn) == 0.0) return std::nullopt;
+            piece.area = signedArea(pts, pn);
+            pieces.push_back(std::move(piece));
+        }
+        if (pieces.size() < 2) return std::nullopt; // cannot happen for a non-planar face
+        std::ranges::sort(pieces, [](const Piece& a, const Piece& b) { return a.area > b.area; });
+        next.faces_.erase(fid.value);
+        result.folded.push_back(fid);
+        for (std::size_t i = 0; i < pieces.size(); ++i) {
+            const auto& loop = pieces[i].loop;
+            for (std::size_t k = 0; k < loop.size(); ++k) {
+                const VertexId a = loop[k];
+                const VertexId b = loop[(k + 1) % loop.size()];
+                if (next.findEdge(a, b)) continue;
+                const EdgeId e = next.appendEdge(a, b);
+                next.edges_.at(e.value).soft = true;
+                result.foldEdges.push_back(e);
+            }
+            Face piece;
+            piece.loops.push_back(next.makeLoop(loop));
+            std::vector<Vec3> pts;
+            for (const VertexId v : loop) pts.push_back(pos(v));
+            piece.normal = loopNormal(pts);
+            const FaceId id = i == 0 ? fid : FaceId{next.nextFace_};
+            next.insertFace(id, piece);
+            if (i > 0) result.createdFaces.push_back(id);
+        }
+    }
+    *this = std::move(next);
+    return result;
 }
 
 std::optional<PushPullResult> Mesh::pushPull(FaceId id, double distance) {

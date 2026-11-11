@@ -172,7 +172,7 @@ TEST_CASE("scaling a rotated object scales along its own axes") {
 TEST_CASE("invalid scales are rejected") {
     auto [doc, id] = boxDoc(1.0, 1.0, 1.0);
     CHECK_FALSE(scaleObject(doc, id, Vec3{0.0}).ok());
-    CHECK_FALSE(scaleObject(doc, id, {-1.0, 1.0, 1.0}).ok()); // no mirroring
+    CHECK(scaleObject(doc, id, {-1.0, 1.0, 1.0}).ok()); // mirroring is allowed (item 15)
     CHECK_FALSE(scaleObject(doc, id, Vec3{std::nan("")}).ok());
     CHECK_FALSE(scaleObject(doc, id, Vec3{1e-5}).ok());       // below 0.1 mm
     CHECK_FALSE(scaleObject(doc, id, Vec3{1e5}).ok());        // beyond 10 km
