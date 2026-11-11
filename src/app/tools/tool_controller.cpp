@@ -1,6 +1,7 @@
 #include "app/tools/tool_controller.hpp"
 
 #include "core/commands/operations.hpp"
+#include "core/document/tolerance.hpp"
 
 #include <glm/geometric.hpp>
 
@@ -25,6 +26,7 @@ std::string_view toolName(Tool tool) {
     case Tool::Select: return "Select";
     case Tool::Rectangle: return "Rectangle";
     case Tool::PushPull: return "Push/Pull";
+    case Tool::Move: return "Move";
     case Tool::Orbit: return "Orbit";
     }
     return "Select";
@@ -33,6 +35,7 @@ std::string_view toolName(Tool tool) {
 void ToolController::setTool(Tool tool) {
     if (tool == tool_) return;
     cancel();
+    axisLock_.reset();
     tool_ = tool;
     editor_.setHover(std::nullopt);
     editor_.notify(std::nullopt);
@@ -42,6 +45,7 @@ bool ToolController::cancel() {
     const bool had = active() || !std::holds_alternative<std::monostate>(editor_.preview());
     rect_.reset();
     push_.reset();
+    move_.reset();
     editor_.cancelPreview();
     return had;
 }
@@ -62,6 +66,7 @@ void ToolController::pointerDown(const PointerInput& input) {
     case Tool::Select: selectDown(input); break;
     case Tool::Rectangle: rectDown(input); break;
     case Tool::PushPull: pushDown(input); break;
+    case Tool::Move: moveDown(input); break;
     case Tool::Orbit: break; // navigation owns the drag
     }
 }
@@ -74,6 +79,7 @@ void ToolController::pointerMove(const PointerInput& input) {
         break;
     case Tool::Rectangle: rectMove(input); break;
     case Tool::PushPull: pushMove(input); break;
+    case Tool::Move: moveMove(input); break;
     case Tool::Orbit: break;
     }
 }
@@ -87,6 +93,9 @@ void ToolController::pointerUp(const PointerInput& input) {
     } else if (push_ && push_->pressed) {
         push_->pressed = false;
         if (moved(push_->pressScreen)) pushFinish();
+    } else if (move_ && move_->pressed) {
+        move_->pressed = false;
+        if (moved(move_->pressScreen)) moveFinish();
     }
 }
 
@@ -307,6 +316,152 @@ std::optional<std::string> ToolController::submitPushDistance(std::string_view t
     return std::nullopt;
 }
 
+// ---- Move -------------------------------------------------------------------
+
+void ToolController::toggleAxisLock(MoveAxis axis) {
+    if (axisLock_ == axis) axisLock_.reset();
+    else axisLock_ = axis;
+    if (move_ && move_->lastRay) updateMovePreview(*move_->lastRay);
+    else if (move_) {
+        if (const auto* p = std::get_if<MovePreview>(&editor_.preview())) {
+            MovePreview next = *p;
+            next.axis = axisLock_;
+            editor_.setPreview(next);
+        }
+    }
+}
+
+void ToolController::moveDown(const PointerInput& input) {
+    if (move_) {
+        moveFinish(); // second click of click-move-click
+        return;
+    }
+    if (!input.pick) {
+        editor_.select(std::nullopt);
+        return;
+    }
+    const auto& pick = *input.pick;
+    const auto* o = editor_.document().find(pick.objectId);
+    if (!o) return;
+    editor_.select(Selection{pick.objectId, pick.faceId});
+    move_ = MoveGesture{pick.objectId, pick.point, o->transform.translation, input.screen, true, std::nullopt};
+    editor_.notify(std::nullopt);
+    editor_.setPreview(MovePreview{pick.objectId, pick.point, Vec3{0.0}, axisLock_, std::nullopt});
+}
+
+std::optional<Vec3> ToolController::moveOffset(const Ray& ray) const {
+    if (!move_) return std::nullopt;
+    const bool snapping = snap_.enabled && snap_.step > 0.0;
+    // Snapping places the object's corner (its translation) on the grid, the
+    // same points rectangle corners snap to.
+    const auto snapped = [&](double start, double delta) {
+        return snapping ? snapValue(start + delta, snap_.step) - start : delta;
+    };
+    const Vec3& start = move_->startTranslation;
+    if (axisLock_) {
+        const Vec3 axis = axisVector(*axisLock_);
+        const auto t = closestParameterOnAxis(move_->anchor, axis, ray);
+        if (!t) return std::nullopt;
+        const int i = static_cast<int>(*axisLock_);
+        return axis * snapped(start[i], *t);
+    }
+    // Free move: slide in the horizontal plane through the picked point.
+    const auto p = intersectHorizontalPlane(ray, move_->anchor.z);
+    if (!p) return std::nullopt;
+    const Vec3 d = *p - move_->anchor;
+    return Vec3{snapped(start.x, d.x), snapped(start.y, d.y), 0.0};
+}
+
+void ToolController::updateMovePreview(const Ray& ray) {
+    if (!move_) return;
+    move_->lastRay = ray;
+    const auto offset = moveOffset(ray);
+    if (!offset) return;
+    const auto* o = editor_.document().find(move_->objectId);
+    if (!o) return;
+    editor_.setPreview(MovePreview{move_->objectId, move_->anchor, *offset, axisLock_, checkMove(*o, *offset)});
+}
+
+void ToolController::moveMove(const PointerInput& input) {
+    if (!move_) {
+        const auto& pick = input.pick;
+        editor_.setHover(pick ? std::optional<Selection>(Selection{pick->objectId, pick->faceId}) : std::nullopt);
+        return;
+    }
+    updateMovePreview(input.ray);
+}
+
+void ToolController::moveFinish() {
+    const auto* preview = std::get_if<MovePreview>(&editor_.preview());
+    if (!move_ || !preview) return;
+    const Vec3 offset = preview->offset;
+    if (glm::length(offset) < tol::kLengthEpsilon) {
+        // A zero-distance gesture is a no-op, not an edit.
+        cancel();
+        editor_.notify(Message{Message::Kind::Info, "Move cancelled (zero distance)."});
+        return;
+    }
+    if (preview->error) {
+        // Keep the gesture alive so the user can move back into range.
+        editor_.notify(Message{Message::Kind::Error, *preview->error});
+        return;
+    }
+    commitMove(move_->objectId, offset);
+}
+
+bool ToolController::commitMove(ObjectId id, const Vec3& offset) {
+    const LengthUnit unit = editor_.document().displayUnit;
+    std::string label = "Move " + formatLength(glm::length(offset), unit);
+    // Name the axis when the move is along exactly one of them.
+    const int nonZero = (offset.x != 0.0) + (offset.y != 0.0) + (offset.z != 0.0);
+    if (nonZero == 1) label += offset.x != 0.0 ? " along X" : offset.y != 0.0 ? " along Y" : " along Z";
+    const bool ok = editor_.commit(label, [&](const Document& doc) { return moveObject(doc, id, offset); });
+    if (ok) {
+        move_.reset();
+        axisLock_.reset();
+        editor_.cancelPreview();
+    }
+    return ok;
+}
+
+std::optional<std::string> ToolController::submitMoveDistance(std::string_view text) {
+    const LengthUnit unit = editor_.document().displayUnit;
+    ObjectId id;
+    if (move_) {
+        id = move_->objectId;
+    } else {
+        const auto& sel = editor_.selection();
+        const auto* o = sel ? editor_.document().find(sel->objectId) : nullptr;
+        if (!o) return std::string("Select an object to move first.");
+        id = o->id;
+    }
+    Vec3 offset{0.0};
+    if (text.find_first_of(",;") != std::string_view::npos) {
+        const auto list = parseLengthList(text, 3, unit);
+        if (!list) return "Enter one distance, or x, y, z separated by commas (for example 500, 0, 0).";
+        offset = Vec3{(*list)[0], (*list)[1], (*list)[2]};
+    } else {
+        const auto d = parseLength(text, unit);
+        if (!d) return d.error();
+        Vec3 direction{0.0};
+        if (axisLock_) {
+            direction = axisVector(*axisLock_);
+        } else if (const auto* p = std::get_if<MovePreview>(&editor_.preview()); move_ && p && glm::length(p->offset) > 0.0) {
+            direction = glm::normalize(p->offset);
+        } else {
+            return std::string("Lock an axis first (X, Y or Z, or the arrow keys), move the pointer to set a direction, "
+                               "or type x, y, z.");
+        }
+        offset = direction * *d;
+    }
+    if (glm::length(offset) < tol::kLengthEpsilon) return std::string("Distance must not be zero.");
+    const auto* o = editor_.document().find(id);
+    if (!o) return std::string("The object no longer exists.");
+    if (auto e = checkMove(*o, offset)) return e;
+    if (!commitMove(id, offset)) return lastError("Move failed.");
+    return std::nullopt;
+}
+
 std::optional<std::string> ToolController::setTotalHeight(ObjectId id, std::string_view text) {
     const auto parsed = parseLength(text, editor_.document().displayUnit);
     if (!parsed) return parsed.error();
@@ -328,6 +483,15 @@ std::string ToolController::hint() const {
     case Tool::PushPull:
         if (push_) return "Push/Pull: move to set the height and click, or type a distance and press Enter. Esc cancels.";
         return "Push/Pull: click a rectangle or an extrusion's top cap, then move up. Side and base faces are not supported yet.";
+    case Tool::Move: {
+        const std::string lock = axisLock_ ? std::string(" Locked to ") + axisName(*axisLock_) + "." : std::string();
+        if (move_) {
+            return "Move: click the destination, or type a distance and press Enter. X, Y, Z or the arrow keys lock an "
+                   "axis. Esc cancels." + lock;
+        }
+        return "Move: click an object and move it, or select one and type x, y, z. X, Y, Z or the arrow keys lock an "
+               "axis." + lock;
+    }
     case Tool::Orbit:
         return "Orbit: drag with the left button to orbit. Right-drag pans, the wheel zooms.";
     }

@@ -4,6 +4,24 @@
 
 namespace pf {
 
+Vec3 axisVector(MoveAxis axis) {
+    switch (axis) {
+    case MoveAxis::X: return {1.0, 0.0, 0.0};
+    case MoveAxis::Y: return {0.0, 1.0, 0.0};
+    case MoveAxis::Z: return {0.0, 0.0, 1.0};
+    }
+    return {1.0, 0.0, 0.0};
+}
+
+const char* axisName(MoveAxis axis) {
+    switch (axis) {
+    case MoveAxis::X: return "X";
+    case MoveAxis::Y: return "Y";
+    case MoveAxis::Z: return "Z";
+    }
+    return "X";
+}
+
 Editor::Editor() = default;
 
 bool Editor::commit(const std::string& label, const Operation& op, const SelectAfter& selectAfter) {
