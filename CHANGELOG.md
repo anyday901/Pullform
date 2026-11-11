@@ -18,6 +18,15 @@ include breaking changes, but project files will keep a migration path.
   corner hovered while locked is projected onto it. The tape measure and dimension tools
   infer from their first point, Move snaps its start and destination, the rectangle tool
   also snaps to edges, and snapping now works on lines drawn into mesh groups.
+- **Arc tools.** Arc (A): click the start and the end, then move to set the bulge and
+  click, or type the chord length and then the bulge. Starting from the open end of a line
+  or arc, the bulge snaps to the tangent arc (drawn cyan), and double-clicking the end point
+  takes it right away; the bulge also snaps to a half circle. 3 Point Arc: start, a point on
+  the arc, end. Pie: centre, start of the arc (or type the radius), end (or type the angle);
+  the pie closes into a face. Type `12s` with any arc tool for 12 segments (default 24 per
+  full turn). Arcs are stored as true arcs (a curve record) plus their segment edges, and a
+  loop closed by an arc becomes a face, so a rounded rectangle drawn from lines and tangent
+  arcs is one face. Tools > Arcs and the toolbar list all three.
 - **Draw on any face and plane.** The Rectangle tool draws on the face under the pointer,
   including walls and tilted faces, or on the ground; once the first corner is placed the
   plane stays fixed, so the second corner can be anywhere on screen. Arrow keys lock the
@@ -31,6 +40,14 @@ include breaking changes, but project files will keep a migration path.
   on a wall, pushed in) extrudes it behind its face; typed negative distances do the same.
   A rectangle drawn on a face is still its own object, so it overlaps the wall rather than
   cutting it (cutting comes with push/pull on any face).
+- **Circle (C) and Polygon (Shift+C) tools.** Click the center on a face or the ground (arrow keys
+  lock a plane, as for Rectangle), then a point on the circle, or type the radius. Type a count such as `48s` (before or while drawing)
+  for the number of segments (circle, default 24) or sides (polygon, default 6). Push/Pull
+  extrudes them into cylinders and prisms (either way); a cylinder's sides are smooth, without a line per
+  segment. Circles and polygons keep their true shape in the model, so their center snaps
+  (a green circle marker), also on the top of a cylinder. The properties panel shows the
+  radius and segment count. Saved in project files as profile kind `"circle"` or
+  `"polygon"` with their curves.
 
 - **Line tool (L).** Click a start point, then each next point, to draw a chain of edges
   (one undo entry per segment). Type a length to draw the next segment toward the pointer,

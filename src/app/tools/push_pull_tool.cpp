@@ -229,7 +229,7 @@ std::optional<std::string> PushPullTool::submitDistance(std::string_view text) {
     } else {
         const auto& sel = editor().selection();
         const auto* o = sel ? editor().document().find(sel->objectId) : nullptr;
-        if (!o) return std::string("Select a rectangle or an extrusion cap first.");
+        if (!o) return std::string("Select a rectangle, circle or polygon, or an extrusion cap first.");
         if (sel->face) {
             if (auto reason = pushableReason(*sel->face)) return reason;
         }
@@ -256,8 +256,8 @@ std::optional<std::string> PushPullTool::setTotalHeight(ObjectId id, std::string
 
 std::string PushPullTool::hint() const {
     if (gesture_) return "Push/Pull: move to set the height and click, or type a distance and press Enter. Esc cancels.";
-    return "Push/Pull: click a rectangle (it moves either way), an extrusion's top cap or a drawn face, then move. Side and "
-           "base faces of boxes are not supported yet.";
+    return "Push/Pull: click a rectangle, circle or polygon (it moves either way), an extrusion's top cap or a drawn "
+           "face, then move. Side and base faces of boxes are not supported yet.";
 }
 
 } // namespace pf

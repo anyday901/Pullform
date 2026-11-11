@@ -306,6 +306,67 @@ VertexId Mesh::weldVertex(const Vec3& p) {
     return appendVertex(p);
 }
 
+namespace {
+
+/// Walks the edges in `left` from `at`, one shared vertex to the next, and
+/// returns them in order; edges it cannot reach stay in `left`.
+std::vector<EdgeId> walkChain(const Mesh& m, std::optional<VertexId> at, std::set<std::uint32_t>& left) {
+    std::vector<EdgeId> chain;
+    const auto& edges = m.edges();
+    while (at.has_value() && !left.empty()) {
+        const VertexId here = *at;
+        const auto next = std::ranges::find_if(left, [&edges, here](std::uint32_t e) {
+            const auto it = edges.find(e);
+            return it != edges.end() && (it->second.v0 == here || it->second.v1 == here);
+        });
+        if (next == left.end()) break;
+        const Edge& edge = edges.at(*next);
+        at = edge.v0 == here ? edge.v1 : edge.v0;
+        chain.push_back(EdgeId{*next});
+        left.erase(next);
+    }
+    return chain;
+}
+
+} // namespace
+
+std::optional<AddEdgeResult> Mesh::addCurve(Curve curve, const std::vector<Vec3>& points, CurveId* id) {
+    if (points.size() < 2) return std::nullopt;
+    std::set<std::uint32_t> facesBefore;
+    for (const auto& [fid, f] : faces_) facesBefore.insert(fid);
+    std::set<std::uint32_t> left;
+    for (std::size_t i = 0; i + 1 < points.size(); ++i) {
+        if (const auto r = addEdge(points[i], points[i + 1])) {
+            for (const EdgeId e : r->edges) left.insert(e.value);
+        }
+    }
+    std::erase_if(left, [this](std::uint32_t e) { return !edges_.contains(e); });
+    if (left.empty()) return std::nullopt;
+
+    // Walk the drawn pieces from the first point, so the curve's edges are in
+    // order even when a later segment split an earlier one.
+    AddEdgeResult result;
+    result.edges = walkChain(*this, findVertex(points.front()), left);
+    for (const auto& [fid, f] : faces_) {
+        if (!facesBefore.contains(fid)) result.createdFaces.push_back(FaceId{fid});
+    }
+    for (const auto fid : facesBefore) {
+        if (!faces_.contains(fid)) result.removedFaces.push_back(FaceId{fid});
+    }
+
+    // Record the curve only over a clean chain of new, untagged edges (a curve
+    // drawn over an existing curve leaves both as they were).
+    if (left.empty() && std::ranges::none_of(result.edges, [this](EdgeId e) { return edges_.at(e.value).curve.has_value(); })) {
+        const CurveId cid{nextCurve_};
+        curve.edges = result.edges;
+        curve.segments = static_cast<int>(result.edges.size());
+        insertCurve(cid, curve);
+        for (const EdgeId e : result.edges) edges_.at(e.value).curve = cid;
+        if (id) *id = cid;
+    }
+    return result;
+}
+
 std::optional<AddEdgeResult> Mesh::addEdge(const Vec3& a, const Vec3& b) {
     if (glm::length(b - a) <= tol::kWeldDistance) return std::nullopt;
     const VertexId va = weldVertex(a);
@@ -819,9 +880,17 @@ bool Mesh::eraseFace(FaceId id) { return faces_.erase(id.value) > 0; }
 
 void Mesh::pruneCurves() {
     for (auto it = curves_.begin(); it != curves_.end();) {
-        bool ok = !it->second.edges.empty();
+        const auto& list = it->second.edges;
+        bool ok = !list.empty();
+        // The walk starts at the first edge's end that the second edge does not
+        // share (the first edge may run against the curve's direction).
         std::optional<VertexId> last;
-        for (const EdgeId eid : it->second.edges) {
+        if (list.size() >= 2) {
+            const Edge* first = edge(list[0]);
+            const Edge* second = edge(list[1]);
+            if (first && second && (first->v0 == second->v0 || first->v0 == second->v1)) last = first->v1;
+        }
+        for (const EdgeId eid : list) {
             const Edge* e = edge(eid);
             if (!e || !e->curve || e->curve->value != it->first) {
                 ok = false;
@@ -1218,12 +1287,32 @@ Mesh meshFromProfile(const ProfileObject& o) {
     const Vec3 n = glm::normalize(glm::cross(plane.xAxis, plane.yAxis));
     const auto local = [&](const Vec2& p, double offset) { return plane.origin + plane.xAxis * p.x + plane.yAxis * p.y + n * offset; };
     const auto count = static_cast<std::uint32_t>(o.profile.boundary.size());
+    // A circle or polygon keeps its true shape beside the segments: curve 1 is
+    // the base loop (edges 1..n), curve 2 the cap loop (edges n+1..2n). A
+    // circle's side edges are soft and smooth, so a cylinder reads as one surface.
+    const bool round = o.profile.kind == ProfileKind::Circle;
+    const bool regular = round || o.profile.kind == ProfileKind::Polygon;
+    const auto curveOf = [regular](std::uint32_t id) { return regular ? std::optional<CurveId>(CurveId{id}) : std::nullopt; };
+    const auto addCurve = [&](std::uint32_t id, std::uint32_t firstEdge, double offset) {
+        if (!regular || count == 0) return;
+        Curve c;
+        c.kind = round ? CurveKind::Circle : CurveKind::Polygon;
+        c.center = plane.origin + n * offset;
+        c.normal = n;
+        c.xAxis = plane.xAxis;
+        c.radius = glm::length(o.profile.boundary[0]);
+        c.start = std::atan2(o.profile.boundary[0].y, o.profile.boundary[0].x);
+        c.sweep = 2.0 * std::numbers::pi;
+        c.segments = static_cast<int>(count);
+        for (std::uint32_t i = 0; i < count; ++i) c.edges.push_back(EdgeId{firstEdge + i});
+        m.insertCurve(CurveId{id}, c);
+    };
     for (std::uint32_t i = 0; i < count; ++i) m.insertVertex(VertexId{i + 1}, local(o.profile.boundary[i], 0.0));
-    for (std::uint32_t i = 0; i < count; ++i) m.insertEdge(EdgeId{i + 1}, Edge{VertexId{i + 1}, VertexId{(i + 1) % count + 1}, {}, false, false});
-    std::vector<VertexId> bottom;
-    for (std::uint32_t i = 0; i < count; ++i) bottom.push_back(VertexId{i + 1});
+    for (std::uint32_t i = 0; i < count; ++i) {
+        m.insertEdge(EdgeId{i + 1}, Edge{VertexId{i + 1}, VertexId{(i + 1) % count + 1}, curveOf(1), false, false});
+    }
+    addCurve(1, 1, 0.0);
     if (!o.extrusion) {
-        m.insertFace(FaceId{1}, Face{{}, n});
         Face f{{}, n};
         std::vector<EdgeUse> loop;
         for (std::uint32_t i = 0; i < count; ++i) loop.push_back(EdgeUse{EdgeId{i + 1}, false});
@@ -1234,9 +1323,12 @@ Mesh meshFromProfile(const ProfileObject& o) {
     const double h = o.extrusion->height;
     for (std::uint32_t i = 0; i < count; ++i) m.insertVertex(VertexId{count + i + 1}, local(o.profile.boundary[i], h));
     for (std::uint32_t i = 0; i < count; ++i) {
-        m.insertEdge(EdgeId{count + i + 1}, Edge{VertexId{count + i + 1}, VertexId{count + (i + 1) % count + 1}, {}, false, false});
+        m.insertEdge(EdgeId{count + i + 1}, Edge{VertexId{count + i + 1}, VertexId{count + (i + 1) % count + 1}, curveOf(2), false, false});
     }
-    for (std::uint32_t i = 0; i < count; ++i) m.insertEdge(EdgeId{2 * count + i + 1}, Edge{VertexId{i + 1}, VertexId{count + i + 1}, {}, false, false});
+    for (std::uint32_t i = 0; i < count; ++i) {
+        m.insertEdge(EdgeId{2 * count + i + 1}, Edge{VertexId{i + 1}, VertexId{count + i + 1}, {}, round, round});
+    }
+    addCurve(2, count + 1, h);
     // Base: bottom loop reversed (faces -n). Cap: top loop. Side i: i, i+1, top i+1, top i.
     Face base{{}, -n};
     Loop baseLoop;

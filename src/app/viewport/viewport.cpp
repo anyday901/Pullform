@@ -1,5 +1,6 @@
 #include "app/viewport/viewport.hpp"
 
+#include "core/geometry/circle.hpp"
 #include "core/geometry/measure.hpp"
 
 #include <glm/geometric.hpp>
@@ -33,13 +34,14 @@ constexpr glm::vec4 kErrorFill{0.90f, 0.15f, 0.12f, 0.40f};
 constexpr glm::vec4 kErrorEdge{0.85f, 0.10f, 0.08f, 1.0f};
 constexpr glm::vec4 kSnapEndpoint{0.10f, 0.65f, 0.20f, 1.0f};
 constexpr glm::vec4 kSnapMidpoint{0.05f, 0.62f, 0.80f, 1.0f};
+constexpr glm::vec4 kSnapCenter{0.10f, 0.65f, 0.20f, 1.0f}; // same green as an endpoint: a point of the curve itself
 constexpr glm::vec4 kSnapOther{0.70f, 0.20f, 0.75f, 1.0f};
 constexpr glm::vec4 kGuideFree{0.45f, 0.45f, 0.50f, 1.0f};
 constexpr glm::vec4 kGuideParallel{0.85f, 0.10f, 0.80f, 1.0f}; // magenta: parallel/perpendicular to an edge
 constexpr glm::vec4 kSnapEdge{0.85f, 0.15f, 0.15f, 1.0f};
-constexpr glm::vec4 kSnapCenter{0.10f, 0.45f, 0.85f, 1.0f};
 constexpr glm::vec4 kDimension{0.20f, 0.24f, 0.32f, 1.0f};
 constexpr glm::vec4 kMeasure{0.95f, 0.45f, 0.08f, 1.0f};
+constexpr glm::vec4 kTangent{0.0f, 0.75f, 0.85f, 1.0f}; // cyan: an arc tangent to the edge it starts from
 
 glm::vec4 dim(glm::vec4 c, float a) { return {c.r, c.g, c.b, a}; }
 
@@ -486,6 +488,19 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
             temp.transform.rotation = rect->placement->rotation;
             renderer_.drawMesh(previewMesh(buildMesh(temp)), kPreviewFill);
         }
+    } else if (const auto* circle = std::get_if<CirclePreview>(&editor.preview())) {
+        const glm::vec4 color = circle->placement ? kPreviewEdge : kErrorEdge;
+        lines.push_back({circle->center, circle->edge, color}); // the radius
+        if (circle->placement) {
+            ProfileObject temp;
+            temp.profile.kind = circle->kind;
+            temp.profile.boundary = regularBoundary(circle->placement->radius, circle->placement->segments, circle->placement->start);
+            temp.transform.translation = circle->placement->center;
+            temp.transform.rotation = circle->placement->rotation;
+            const MeshData mesh = buildMesh(temp);
+            renderer_.drawMesh(previewMesh(mesh), kPreviewFill);
+            appendEdges(lines, mesh, color);
+        }
     } else if (const auto* line = std::get_if<LinePreview>(&editor.preview())) {
         glm::vec4 color = line->axis ? axisColor(*line->axis) : kPreviewEdge;
         if (line->axis && line->locked) {
@@ -569,6 +584,11 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
         lines.push_back({rot->pivot - n * radius * 0.25, rot->pivot + n * radius * 0.25, color});
         if (rot->reference) lines.push_back({rot->pivot, rot->pivot + *rot->reference, kPreviewEdge});
         if (rot->current) lines.push_back({rot->pivot, rot->pivot + *rot->current, rot->error ? kErrorEdge : kPreviewEdge});
+    } else if (const auto* arc = std::get_if<ArcPreview>(&editor.preview())) {
+        glm::vec4 color = arc->tangent ? kTangent : kPreviewEdge;
+        if (arc->error) color = kErrorEdge;
+        for (const auto& [a, b] : arc->guides) lines.emplace_back(a, b, dim(kPreviewEdge, 0.35f));
+        for (std::size_t i = 0; i + 1 < arc->points.size(); ++i) lines.emplace_back(arc->points[i], arc->points[i + 1], color);
     } else if (const auto* sc = std::get_if<ScalePreview>(&editor.preview())) {
         drawTransformGroup(sc->group, sc->objectIds, sc->result, sc->error.has_value(), sc->objectId, doc, lines);
         if (sc->start) lines.push_back({sc->pivot, *sc->start, dim(kPreviewEdge, 0.5f)});

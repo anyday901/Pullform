@@ -202,6 +202,18 @@ SnapFeatures snapFeatures(const ProfileObject& object, std::optional<double> hei
             if (!seen && a != b) f.edges.emplace_back(a, b);
         }
     }
+    // Curve centers come from the mesh (a circle or polygon profile makes one
+    // per loop; drawn arcs keep theirs), at the previewed height if there is one.
+    const ProfileObject* source = &object;
+    ProfileObject resized;
+    if (heightOverride && !object.isMeshGroup() && object.extrusion) {
+        resized = object;
+        resized.extrusion->height = *heightOverride;
+        source = &resized;
+    }
+    if (const auto m = mesh::objectMesh(*source); !m->curves().empty()) {
+        for (const auto& [id, c] : m->curves()) f.curveCenters.push_back(localToWorld(*source, c.center));
+    }
     computeBounds(f);
     return f;
 }
