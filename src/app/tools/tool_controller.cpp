@@ -95,7 +95,10 @@ void ToolController::pointerUp(const PointerInput& input) {
         if (moved(push_->pressScreen)) pushFinish();
     } else if (move_ && move_->pressed) {
         move_->pressed = false;
-        if (moved(move_->pressScreen)) moveFinish();
+        if (moved(move_->pressScreen)) {
+            updateMovePreview(input.ray); // release position, not the last move event
+            moveFinish();
+        }
     }
 }
 
@@ -333,7 +336,10 @@ void ToolController::toggleAxisLock(MoveAxis axis) {
 
 void ToolController::moveDown(const PointerInput& input) {
     if (move_) {
-        moveFinish(); // second click of click-move-click
+        // Second click of click-move-click. The pointer may have moved in the
+        // same frame before this click, so evaluate the clicked position first.
+        updateMovePreview(input.ray);
+        moveFinish();
         return;
     }
     if (!input.pick) {
@@ -375,10 +381,22 @@ std::optional<Vec3> ToolController::moveOffset(const Ray& ray) const {
 void ToolController::updateMovePreview(const Ray& ray) {
     if (!move_) return;
     move_->lastRay = ray;
-    const auto offset = moveOffset(ray);
-    if (!offset) return;
     const auto* o = editor_.document().find(move_->objectId);
     if (!o) return;
+    auto offset = moveOffset(ray);
+    if (!offset) {
+        // The ray cannot be resolved under the current constraint (parallel to
+        // the locked axis, or no forward hit on the horizontal plane). Never keep
+        // an offset from the previous constraint: project it onto this one.
+        const auto* previous = std::get_if<MovePreview>(&editor_.preview());
+        const Vec3 last = previous ? previous->offset : Vec3{0.0};
+        if (axisLock_) {
+            const Vec3 axis = axisVector(*axisLock_);
+            offset = axis * glm::dot(last, axis);
+        } else {
+            offset = Vec3{last.x, last.y, 0.0};
+        }
+    }
     editor_.setPreview(MovePreview{move_->objectId, move_->anchor, *offset, axisLock_, checkMove(*o, *offset)});
 }
 

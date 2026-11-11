@@ -250,3 +250,43 @@ TEST_CASE("moveObject only changes the translation and keeps the solid valid") {
     CHECK_FALSE(moveObject(e->document, id, {std::nan(""), 0.0, 0.0}));
     CHECK_FALSE(moveObject(e->document, ObjectId{999}, {1.0, 0.0, 0.0}));
 }
+
+TEST_CASE("the destination click commits the clicked position, even without a move event first") {
+    Editor editor;
+    ToolController tools(editor);
+    tools.snap().enabled = true;
+    tools.snap().step = 0.1;
+    const ObjectId id = makeBox(editor, tools, "1000, 1000", nullptr);
+    tools.setTool(Tool::Move);
+    tools.pointerDown(downAt(editor, 0.5, 0.5, {100, 100}));
+    tools.pointerUp(downAt(editor, 0.5, 0.5, {100, 100}));
+    tools.pointerMove(downAt(editor, 1.5, 0.5, {150, 100}));
+    // The pointer jumps and clicks in the same frame: no pointerMove for (3.5, 2.5).
+    tools.pointerDown(downAt(editor, 3.5, 2.5, {300, 200}));
+    CHECK(translationOf(editor, id).x == doctest::Approx(3.0));
+    CHECK(translationOf(editor, id).y == doctest::Approx(2.0));
+
+    // Same for a drag released without a final move event.
+    tools.pointerDown(downAt(editor, 3.5, 2.5, {100, 100}));
+    tools.pointerMove(downAt(editor, 4.0, 2.5, {130, 100}));
+    tools.pointerUp(downAt(editor, 5.5, 2.5, {200, 100}));
+    CHECK(translationOf(editor, id).x == doctest::Approx(5.0));
+}
+
+TEST_CASE("locking an axis the pointer ray cannot resolve drops the off-axis part of the preview") {
+    Editor editor;
+    ToolController tools(editor);
+    tools.snap().enabled = false;
+    const ObjectId id = makeBox(editor, tools, "1000, 1000", nullptr);
+    tools.setTool(Tool::Move);
+    tools.pointerDown(downAt(editor, 0.5, 0.5, {100, 100}));
+    tools.pointerUp(downAt(editor, 0.5, 0.5, {100, 100}));
+    tools.pointerMove(downAt(editor, 1.7, 0.9, {150, 120})); // free offset (1.2, 0.4, 0)
+    // The last ray points straight down, parallel to Z: Z cannot be resolved from it.
+    tools.toggleAxisLock(MoveAxis::Z);
+    const auto& p = std::get<MovePreview>(editor.preview());
+    CHECK(p.axis == MoveAxis::Z);
+    CHECK(p.offset == Vec3{0.0}); // not the stale (1.2, 0.4, 0)
+    tools.pointerDown(downAt(editor, 1.7, 0.9, {150, 120}));
+    CHECK(translationOf(editor, id) == Vec3{0.0}); // zero distance: nothing committed
+}
