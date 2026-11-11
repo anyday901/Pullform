@@ -26,9 +26,29 @@ std::vector<FacePolygon> meshGroupFaces(const ProfileObject& o) {
     return faces;
 }
 
+/// Normal of `face` at `vertex`: the face normal, averaged with the faces
+/// across each smooth edge of the face that meets the vertex (a cylinder's
+/// sides), so smoothed surfaces stay smooth once a group holds a mesh.
+Vec3 shadedNormal(const mesh::Mesh& m, std::uint32_t faceId, const mesh::Face& face, mesh::VertexId vertex) {
+    Vec3 sum = face.normal;
+    for (const auto& loop : face.loops) {
+        for (const auto& use : loop) {
+            const auto* e = m.edge(use.edge);
+            if (!e || !e->smooth || (e->v0 != vertex && e->v1 != vertex)) continue;
+            for (const auto other : m.facesOfEdge(use.edge)) {
+                if (other.value == faceId) continue;
+                const Vec3 n = m.face(other)->normal;
+                sum += glm::dot(n, face.normal) < 0.0 ? -n : n;
+            }
+        }
+    }
+    return glm::normalize(sum);
+}
+
 MeshData meshGroupMesh(const ProfileObject& o) {
     const mesh::Mesh& m = *o.mesh;
     const Mat3 r = rotationMatrix(o.transform);
+    const bool anySmooth = std::ranges::any_of(m.edges(), [](const auto& entry) { return entry.second.smooth; });
     MeshData data;
     for (const auto& [id, f] : m.faces()) {
         const FaceId faceId = FaceId::meshFace(id);
@@ -42,7 +62,7 @@ MeshData meshGroupMesh(const ProfileObject& o) {
                 for (int k = 0; k < 3; ++k) {
                     const auto v = side > 0 ? t[static_cast<std::size_t>(k)] : t[static_cast<std::size_t>(2 - k)];
                     data.positions.push_back(localToWorld(o, m.vertex(v)->position));
-                    data.normals.push_back(n * side);
+                    data.normals.push_back((anySmooth ? glm::normalize(r * shadedNormal(m, id, f, v)) : n) * side);
                 }
                 data.indices.insert(data.indices.end(), {base, base + 1, base + 2});
                 data.triangleFaces.push_back(faceId);

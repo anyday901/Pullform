@@ -361,3 +361,33 @@ TEST_CASE("a circle on a wall pushed in 100 mm: a round hole-shaped recess facin
     REQUIRE(loaded);
     CHECK(sameContent(loaded->document, editor.document()));
 }
+
+TEST_CASE("a cylinder stays smooth after it becomes a mesh group") {
+    Document doc;
+    auto made = createCircle(doc, *circleFromRadius({0, 0, 0}, 1.0, 0.0, 24), ProfileKind::Circle);
+    REQUIRE(made);
+    auto cyl = extrudeProfile(made->document, *made->objectId, 1.0);
+    REQUIRE(cyl);
+    const ObjectId id = *made->objectId;
+    const auto& o = *cyl->document.find(id);
+    auto drawn = drawEdge(cyl->document, id, profileToWorld(o, o.profile.boundary[0], 1.0), profileToWorld(o, o.profile.boundary[12], 1.0));
+    REQUIRE(drawn);
+    const auto& group = *drawn->document.find(id);
+    REQUIRE(group.isMeshGroup());
+    const MeshData data = buildMesh(group);
+    // Side vertices get radial normals (horizontal, pointing away from the axis,
+    // or toward it on the back set); cap and base vertices keep their face normal.
+    int radial = 0;
+    for (std::size_t i = 0; i < data.positions.size(); ++i) {
+        const Vec3& p = data.positions[i];
+        const Vec3& n = data.normals[i];
+        if (std::abs(n.z) > 1e-9) {
+            CHECK(std::abs(std::abs(n.z) - 1.0) < 1e-9);
+            continue;
+        }
+        const Vec3 out = glm::normalize(Vec3{p.x, p.y, 0.0});
+        CHECK(std::abs(std::abs(glm::dot(n, out)) - 1.0) < 1e-9);
+        ++radial;
+    }
+    CHECK(radial == 24 * 6 * 2); // 24 side quads, 2 triangles x 3 corners, both sides
+}
