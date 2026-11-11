@@ -292,6 +292,7 @@ void Ui::properties(UiContext& ctx, float x, float y, float width, float height)
             row("Target face", faceLabel(sel->face));
             row("Position X", formatLength(b.min.x, u));
             row("Position Y", formatLength(b.min.y, u));
+            if (b.min.z != 0.0) row("Position Z", formatLength(b.min.z, u)); // shown once an object is lifted
             row("Width (X)", formatLength(b.size().x, u));
             row("Depth (Y)", formatLength(b.size().y, u));
             ImGui::EndTable();

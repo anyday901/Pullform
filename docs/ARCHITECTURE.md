@@ -114,13 +114,13 @@ same interface.
 - **Single commit path:** `Editor::commit(label, operation, selectAfter)` runs a pure
   operation, validates the *whole* resulting document, and only then makes it current with
   exactly one history entry, clearing the redo branch. On failure nothing changes and the
-  error is shown in the status bar. Drawing, push/pull, height edits, delete and unit
-  changes all use it.
+  error is shown in the status bar. Drawing, push/pull, moves, height edits, delete and
+  unit changes all use it.
 - **Previews are transient:** pointer movement only calls `Editor::setPreview`. The viewport
-  draws the preview (a push/pull preview temporarily replaces the real object's drawing),
+  draws the preview (a push/pull or move preview temporarily replaces the real object's drawing),
   but it is never in the document or history. Escape (`ToolController::cancel`) clears it.
 - **One gesture, one entry:** click-click and press-drag-release each commit once.
-  A zero-distance push/pull is a no-op. Setting the same height again is a no-op.
+  A zero-distance push/pull or move is a no-op. Setting the same height again is a no-op.
 - **Snapshot history:** entries store the previous `Document` and selection. Because
   objects are shared immutable pointers, a snapshot costs about 16 bytes per object plus
   the objects that changed. Each stack is bounded at 200 entries (oldest dropped), so
@@ -135,7 +135,7 @@ same interface.
 
 ## Tools and input
 
-`app/tools/tool_controller.*` contains the select, rectangle and push/pull state machines.
+`app/tools/tool_controller.*` contains the select, rectangle, push/pull and move state machines.
 It receives a `PointerInput` (world ray, resolved pick, screen position), so tests drive it
 with synthetic events and no window.
 
@@ -147,6 +147,13 @@ with synthetic events and no window.
   (closest point between two lines). The **total** height snaps to the grid increment when
   snap is on. Invalid heights (at or below the base) show as a red preview and cannot be
   committed; the gesture stays active.
+- Move: picks an object and drags it in the horizontal plane through the picked point, or,
+  with an axis lock (X/Y/Z keys or Right/Left/Up arrows), along the world axis through
+  that point (the same closest-point projection as push/pull). With snap on, the object's
+  corner (its translation) lands on the grid along each moving component. Every move,
+  dragged or typed, commits through `ToolController::commitMove` and the pure
+  `moveObject` operation, which changes only the translation. The lock is released after
+  a commit or a tool change. Out-of-range positions preview red and cannot be committed.
 - Input ownership (`App::handleViewportInput`): Dear ImGui owns the pointer over panels,
   menus and popups (`WantCaptureMouse`); a drag that starts in the viewport belongs to the
   viewport until its button is released. Left button = active tool (or orbit with the
