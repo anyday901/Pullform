@@ -344,17 +344,17 @@ TEST_CASE("Rotate tool: typed angles, axis keys and Escape") {
     CHECK(editor.undoDepth() == 3);
 
     // Axis X with a typed angle tips the box over about its base centre line.
-    tools.setRotateAxis(RotateAxis::X);
+    tools.setRotateAxis(MoveAxis::X);
     REQUIRE_FALSE(tools.submitRotateAngle("90").has_value());
     const auto& o = *editor.document().find(id);
     CHECK(near(glm::length(profileNormalWorld(o) - Vec3{0, -1, 0}), 0.0, 1e-12));
     CHECK(checkSolid(buildMesh(o)).ok());
 
     // Changing the axis mid-gesture keeps the centre and drops the reference.
-    tools.setRotateAxis(RotateAxis::Z);
+    tools.setRotateAxis(MoveAxis::Z);
     tools.pointerDown(groundAt(editor, 5.0, 5.0));
     tools.pointerDown(groundAt(editor, 7.0, 5.0));
-    tools.setRotateAxis(RotateAxis::Y);
+    tools.setRotateAxis(MoveAxis::Y);
     const auto* p = std::get_if<RotatePreview>(&editor.preview());
     REQUIRE(p);
     CHECK(p->axis == Vec3{0, 1, 0});
@@ -452,4 +452,21 @@ TEST_CASE("push/pull follows a rotated object's normal") {
     tools.pointerUp(drag);
     REQUIRE(editor.document().find(id)->extrusion);
     CHECK(editor.document().find(id)->extrusion->height == doctest::Approx(1.2));
+}
+
+TEST_CASE("moving a rotated object keeps its rotation and survives save/reopen") {
+    auto [doc, id] = boxDoc(2.0, 1.0, 0.5);
+    auto turned = rotateObject(doc, id, {0, 0, 0}, {0, 0, 1}, degrees(90));
+    REQUIRE(turned.ok());
+    auto moved = moveObject(turned->document, id, {1.0, 0.0, 0.25});
+    REQUIRE_MESSAGE(moved.ok(), (moved.ok() ? "" : moved.error()));
+    const auto& o = *moved->document.find(id);
+    CHECK(o.transform.rotation == turned->document.find(id)->transform.rotation);
+    const auto c = baseCorners(o);
+    CHECK(c[0] == Vec3{1, 0, 0.25});
+    CHECK(c[1] == Vec3{1, 2, 0.25});
+    CHECK_FALSE(validateDocument(moved->document).has_value());
+    const auto reopened = parseProject(serializeProject(moved->document, std::nullopt));
+    REQUIRE(reopened.ok());
+    CHECK(reopened->document.find(id)->transform == o.transform);
 }

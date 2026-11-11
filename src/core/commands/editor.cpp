@@ -11,6 +11,25 @@ std::optional<ObjectId> replacedObject(const Preview& preview) {
     return std::nullopt;
 }
 
+Vec3 axisVector(MoveAxis axis) {
+    using enum MoveAxis;
+    switch (axis) {
+    case X: return {1.0, 0.0, 0.0};
+    case Y: return {0.0, 1.0, 0.0};
+    case Z: return {0.0, 0.0, 1.0};
+    }
+    return {1.0, 0.0, 0.0};
+}
+
+const char* axisName(MoveAxis axis) {
+    using enum MoveAxis;
+    switch (axis) {
+    case X: return "X";
+    case Y: return "Y";
+    case Z: return "Z";
+    }
+    return "X";
+}
 
 Editor::Editor() = default;
 

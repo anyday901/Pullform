@@ -10,15 +10,9 @@
 
 namespace pf {
 
-enum class Tool { Select, Rectangle, PushPull, Rotate, Scale, Orbit };
+enum class Tool { Select, Rectangle, PushPull, Move, Rotate, Scale, Orbit };
 
 std::string_view toolName(Tool tool);
-
-/// World axis the Rotate tool turns about (arrow keys: Right = X, Left = Y, Up = Z).
-enum class RotateAxis { X, Y, Z };
-
-Vec3 axisVector(RotateAxis axis);
-std::string_view axisName(RotateAxis axis);
 
 /// What the viewport reports for each pointer event. The tool layer never sees
 /// windowing or GPU types, so tests can drive it with synthetic events.
@@ -54,9 +48,10 @@ public:
     [[nodiscard]] SnapSettings& snap() { return snap_; }
     [[nodiscard]] const SnapSettings& snap() const { return snap_; }
 
-    /// True while a gesture is in progress (first corner placed, push/pull started).
+    /// True while a gesture is in progress (first corner placed, push/pull, move,
+    /// rotate or scale started).
     [[nodiscard]] bool active() const {
-        return rect_.has_value() || push_.has_value() || rotate_.has_value() || scale_.has_value();
+        return rect_.has_value() || push_.has_value() || move_.has_value() || rotate_.has_value() || scale_.has_value();
     }
 
     /// Escape: cancels the active gesture. Returns whether anything was cancelled.
@@ -76,13 +71,25 @@ public:
     /// gesture, or else to the selected object.
     std::optional<std::string> submitPushDistance(std::string_view distance);
 
+    /// Move axis lock (X, Y or Z key, or the arrow keys). Locking the axis that
+    /// is already locked releases it. The lock lasts until the move is
+    /// committed or the tool changes, so it can be set before the first click.
+    void toggleAxisLock(MoveAxis axis);
+    [[nodiscard]] const std::optional<MoveAxis>& axisLock() const { return axisLock_; }
+
+    /// Exact move. A single length moves along the locked axis or, while a move
+    /// is in progress without a lock, along the current pointer direction.
+    /// "x, y, z" moves by that vector. Applies to the active gesture, or else to
+    /// the selected object.
+    std::optional<std::string> submitMoveDistance(std::string_view distance);
+
     /// Sets the total extrusion height of an object (properties panel).
     std::optional<std::string> setTotalHeight(ObjectId id, std::string_view height);
 
     /// Rotation axis for the Rotate tool. Changing it during a gesture keeps the
     /// centre and asks for a new reference direction.
-    void setRotateAxis(RotateAxis axis);
-    [[nodiscard]] RotateAxis rotateAxis() const { return rotateAxis_; }
+    void setRotateAxis(MoveAxis axis);
+    [[nodiscard]] MoveAxis rotateAxis() const { return rotateAxis_; }
 
     /// Exact rotation in degrees. Turns the active gesture's object about its
     /// centre, or else the selected object about the centre of its base. Positive
@@ -128,6 +135,14 @@ private:
         Vec3 normal{0.0, 0.0, 1.0};
         Vec3 start{0.0};
     };
+    struct MoveGesture {
+        ObjectId objectId;
+        Vec3 anchor{0.0};           ///< picked point the guide line starts from
+        Vec3 startTranslation{0.0}; ///< object translation when the gesture began
+        Vec2 pressScreen{0.0};
+        bool pressed = false;
+        std::optional<Ray> lastRay; ///< re-evaluates the preview when the axis lock changes
+    };
 
     [[nodiscard]] Vec3 snapPoint(const Vec3& p) const;
     [[nodiscard]] std::optional<Vec3> groundPoint(const PointerInput& input) const;
@@ -142,6 +157,13 @@ private:
     void pushFinish();
     void setPushPreview(double delta);
     bool commitHeight(ObjectId id, FaceKind face, double height);
+    void moveDown(const PointerInput& input);
+    void moveMove(const PointerInput& input);
+    void moveFinish();
+    void updateMovePreview(const Ray& ray);
+    [[nodiscard]] std::optional<Vec3> moveOffset(const Ray& ray) const;
+    /// Every move (mouse or typed) commits here: one undo entry.
+    bool commitMove(ObjectId id, const Vec3& offset);
     [[nodiscard]] std::string lastError(const char* fallback) const;
 
     /// Selected object for Rotate/Scale; a click on an object selects it first.
@@ -160,7 +182,9 @@ private:
     std::optional<PushGesture> push_;
     std::optional<RotateGesture> rotate_;
     std::optional<ScaleGesture> scale_;
-    RotateAxis rotateAxis_ = RotateAxis::Z;
+    MoveAxis rotateAxis_ = MoveAxis::Z; ///< world axis Rotate turns about
+    std::optional<MoveGesture> move_;
+    std::optional<MoveAxis> axisLock_;
 };
 
 /// World-space centre of an object's base (the default rotation and the scale centre).

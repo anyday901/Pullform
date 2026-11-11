@@ -352,8 +352,9 @@ void App::handleViewportInput() {
 
     // Cursor feedback.
     if (drag_ == DragMode::Orbit || drag_ == DragMode::Pan) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
-    else if (hovering && (tools_.tool() == Tool::PushPull || tools_.tool() == Tool::Rotate || tools_.tool() == Tool::Scale) &&
-             editor_.hover() && !tools_.active())
+    else if (hovering && tools_.tool() == Tool::PushPull && editor_.hover()) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    else if (hovering && tools_.tool() == Tool::Move && (editor_.hover() || tools_.active())) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
+    else if (hovering && (tools_.tool() == Tool::Rotate || tools_.tool() == Tool::Scale) && editor_.hover() && !tools_.active())
         ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
     else if (hovering && tools_.tool() == Tool::Orbit) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
 }
@@ -383,6 +384,18 @@ void App::handleShortcuts() {
 
     // Typed measurements (SketchUp-style): digits start a value; once a value is
     // being typed, every printable character goes to it instead of shortcuts.
+    // Axis lock for Move and the Rotate axis. Arrow keys work even while typing
+    // a distance or angle (they are not characters): Right = X, Left = Y, Up = Z,
+    // as in other modelers.
+    if (tools_.tool() == Tool::Move) {
+        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) tools_.toggleAxisLock(MoveAxis::X);
+        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) tools_.toggleAxisLock(MoveAxis::Y);
+        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, false)) tools_.toggleAxisLock(MoveAxis::Z);
+    } else if (tools_.tool() == Tool::Rotate) {
+        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) tools_.setRotateAxis(MoveAxis::X);
+        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) tools_.setRotateAxis(MoveAxis::Y);
+        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, false)) tools_.setRotateAxis(MoveAxis::Z);
+    }
     const bool typing = ui_.hasMeasurementText();
     for (int i = 0; i < io.InputQueueCharacters.Size; ++i) {
         const unsigned int c = io.InputQueueCharacters[i];
@@ -418,10 +431,11 @@ void App::handleShortcuts() {
     if (ImGui::IsKeyPressed(ImGuiKey_Q, false)) tools_.setTool(Tool::Rotate);
     if (ImGui::IsKeyPressed(ImGuiKey_S, false)) tools_.setTool(Tool::Scale);
     if (ImGui::IsKeyPressed(ImGuiKey_O, false)) tools_.setTool(Tool::Orbit);
-    if (tools_.tool() == Tool::Rotate) {
-        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) tools_.setRotateAxis(RotateAxis::X);
-        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) tools_.setRotateAxis(RotateAxis::Y);
-        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, false)) tools_.setRotateAxis(RotateAxis::Z);
+    if (ImGui::IsKeyPressed(ImGuiKey_M, false)) tools_.setTool(Tool::Move);
+    if (tools_.tool() == Tool::Move) {
+        if (ImGui::IsKeyPressed(ImGuiKey_X, false)) tools_.toggleAxisLock(MoveAxis::X);
+        if (ImGui::IsKeyPressed(ImGuiKey_Y, false)) tools_.toggleAxisLock(MoveAxis::Y);
+        if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) tools_.toggleAxisLock(MoveAxis::Z);
     }
     if (ImGui::IsKeyPressed(ImGuiKey_F, false)) fitView();
     if (ImGui::IsKeyPressed(ImGuiKey_G, false)) tools_.snap().enabled = !tools_.snap().enabled;

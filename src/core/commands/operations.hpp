@@ -38,6 +38,13 @@ Expected<OpResult> rotateObject(const Document& doc, ObjectId id, const Vec3& pi
 /// Factors must be positive; the z factor is ignored for a planar rectangle.
 Expected<OpResult> scaleObject(const Document& doc, ObjectId id, const Vec3& factors);
 
+/// Checks a move of `object` by `offset`: finite, and the new position stays
+/// within the +/-10 km model range. Zero is allowed here (callers decide).
+std::optional<std::string> checkMove(const ProfileObject& object, const Vec3& offset);
+/// Moves an object by `offset` (meters, world space). Only the translation
+/// changes: the ID, profile, extrusion and any other placement stay as they are.
+/// A zero offset is rejected so a no-op never becomes an undo entry.
+Expected<OpResult> moveObject(const Document& doc, ObjectId id, const Vec3& offset);
 /// Removes a whole object.
 Expected<OpResult> deleteObject(const Document& doc, ObjectId id);
 /// Changes the display unit (storage stays in meters).

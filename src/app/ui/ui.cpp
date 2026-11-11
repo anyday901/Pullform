@@ -5,6 +5,7 @@
 #include "core/document/validate.hpp"
 #include "core/geometry/solid.hpp"
 
+#include <glm/geometric.hpp>
 #include <imgui.h>
 
 #include <algorithm>
@@ -27,8 +28,8 @@ constexpr const char* kLimitsText =
     "- Side and base faces cannot be pushed yet.\n"
     "- Heights must be positive: pushing below the base, holes and cutting are not supported.\n"
     "- Touching or overlapping objects stay separate (no merging).\n"
-    "- Rotate turns objects about the X, Y or Z axis; Scale resizes them (no mirroring).\n"
-    "- No move or copy yet.";
+    "- Move, Rotate and Scale work on whole objects; Rotate turns about the X, Y or Z axis and Scale\n"
+    "  cannot mirror. No copy yet.";
 
 /// "30°" for a turn about the vertical axis, "none", or "tilted" for anything else.
 std::string rotationLabel(const Transform& t) {
@@ -113,6 +114,7 @@ std::string Ui::measurementLabel(const UiContext& ctx) const {
     switch (ctx.tools.tool()) {
     case Tool::Rectangle: return "Dimensions (width, depth)";
     case Tool::PushPull: return "Distance (incremental)";
+    case Tool::Move: return "Distance, or x, y, z";
     case Tool::Rotate: return "Angle (degrees)";
     case Tool::Scale: return "Scale (factor, or w, d, h)";
     case Tool::Select: return "Total height";
@@ -129,6 +131,12 @@ std::string Ui::measurementLive(const UiContext& ctx) const {
     }
     if (const auto* p = std::get_if<PushPullPreview>(&ctx.editor.preview())) {
         return (p->delta >= 0 ? "+" : "") + formatLength(p->delta, u) + "   (total height " + formatLength(p->height, u) + ")";
+    }
+    if (const auto* m = std::get_if<MovePreview>(&ctx.editor.preview())) {
+        std::string text = formatLength(glm::length(m->offset), u);
+        if (m->axis) text += std::string(" along ") + axisName(*m->axis);
+        return text + "   (" + formatLength(m->offset.x, u, false) + ", " + formatLength(m->offset.y, u, false) + ", " +
+               formatLength(m->offset.z, u, false) + ")";
     }
     if (const auto* r = std::get_if<RotatePreview>(&ctx.editor.preview()); r && r->reference) return formatAngle(r->angle);
     if (const auto* s = std::get_if<ScalePreview>(&ctx.editor.preview())) {
@@ -149,6 +157,7 @@ void Ui::submitMeasurement(UiContext& ctx) {
     switch (ctx.tools.tool()) {
     case Tool::Rectangle: error = ctx.tools.submitRectangleSize(text); break;
     case Tool::PushPull: error = ctx.tools.submitPushDistance(text); break;
+    case Tool::Move: error = ctx.tools.submitMoveDistance(text); break;
     case Tool::Rotate: error = ctx.tools.submitRotateAngle(text); break;
     case Tool::Scale: error = ctx.tools.submitScaleFactors(text); break;
     case Tool::Select:
@@ -213,6 +222,7 @@ void Ui::menuBar(UiContext& ctx) {
         if (ImGui::MenuItem("Select", shortcuts::kSelect, t == Tool::Select)) ctx.tools.setTool(Tool::Select);
         if (ImGui::MenuItem("Rectangle", shortcuts::kRectangle, t == Tool::Rectangle)) ctx.tools.setTool(Tool::Rectangle);
         if (ImGui::MenuItem("Push/Pull", shortcuts::kPushPull, t == Tool::PushPull)) ctx.tools.setTool(Tool::PushPull);
+        if (ImGui::MenuItem("Move", shortcuts::kMove, t == Tool::Move)) ctx.tools.setTool(Tool::Move);
         if (ImGui::MenuItem("Rotate", shortcuts::kRotate, t == Tool::Rotate)) ctx.tools.setTool(Tool::Rotate);
         if (ImGui::MenuItem("Scale", shortcuts::kScale, t == Tool::Scale)) ctx.tools.setTool(Tool::Scale);
         if (ImGui::MenuItem("Orbit", shortcuts::kOrbit, t == Tool::Orbit)) ctx.tools.setTool(Tool::Orbit);
@@ -240,6 +250,8 @@ void Ui::toolbar(UiContext& ctx, float y, float height, float width) {
     if (toolButton("Rectangle", t == Tool::Rectangle, "Rectangle (R)\nClick two corners on the ground, or type width, depth.")) ctx.tools.setTool(Tool::Rectangle);
     ImGui::SameLine();
     if (toolButton("Push/Pull", t == Tool::PushPull, "Push/Pull (P)\nClick a rectangle or a top cap and move up, or type a distance.")) ctx.tools.setTool(Tool::PushPull);
+    ImGui::SameLine();
+    if (toolButton("Move", t == Tool::Move, "Move (M)\nClick an object and move it, or type a distance.\nX, Y, Z or the arrow keys lock an axis.")) ctx.tools.setTool(Tool::Move);
     ImGui::SameLine();
     if (toolButton("Rotate", t == Tool::Rotate, "Rotate (Q)\nClick the object, then the centre, a reference direction and the angle.\nOr type degrees. Arrow keys pick the axis.")) ctx.tools.setTool(Tool::Rotate);
     ImGui::SameLine();
@@ -311,6 +323,7 @@ void Ui::properties(UiContext& ctx, float x, float y, float width, float height)
             row("Target face", faceLabel(sel->face));
             row("Position X", formatLength(b.min.x, u));
             row("Position Y", formatLength(b.min.y, u));
+            if (b.min.z != 0.0) row("Position Z", formatLength(b.min.z, u)); // shown once an object is lifted
             const auto size = rectangleSize(o->profile.boundary);
             row("Width", size ? formatLength(size->width, u) : std::string("-"));
             row("Depth", size ? formatLength(size->depth, u) : std::string("-"));
@@ -392,7 +405,8 @@ void Ui::bottomBar(UiContext& ctx, float y, float width, float height) {
     measureEditing_ = ImGui::IsItemActive();
     tooltip("Type here, or just start typing in the viewport.\nUnits: mm (default), cm, m, in or \", ft or '. "
             "Unitless values use the display unit.\nRectangle: width, depth. Push/Pull: distance from the current face. "
-            "Select: total height.\nRotate: angle in degrees. Scale: factor (2, 50%) or width, depth, height factors.");
+            "Move: distance along the locked axis or pointer direction, or x, y, z. Select: total height.\n"
+            "Rotate: angle in degrees. Scale: factor (2, 50%) or width, depth, height factors.");
     if (enter) submitMeasurement(ctx);
     if (!live.empty() && measure_[0] != '\0') {
         ImGui::SameLine();

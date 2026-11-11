@@ -29,6 +29,15 @@ constexpr glm::vec4 kErrorEdge{0.85f, 0.10f, 0.08f, 1.0f};
 
 glm::vec4 dim(glm::vec4 c, float a) { return {c.r, c.g, c.b, a}; }
 
+glm::vec4 axisColor(MoveAxis axis) {
+    switch (axis) {
+    case MoveAxis::X: return kAxisX;
+    case MoveAxis::Y: return kAxisY;
+    case MoveAxis::Z: return kAxisZ;
+    }
+    return kAxisX;
+}
+
 /// Colour of a world axis direction: red X, green Y, blue Z.
 glm::vec4 axisColor(const Vec3& axis) {
     if (axis.x != 0.0) return kAxisX;
@@ -149,18 +158,21 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
     renderer_.drawLines(lines, true);
 
     const auto* pushPreview = std::get_if<PushPullPreview>(&editor.preview());
-    const std::optional<ObjectId> hidden = replacedObject(editor.preview()); // drawn by the preview below
+    const auto* movePreview = std::get_if<MovePreview>(&editor.preview());
+    // The object a preview stands in for is drawn by the preview below.
+    std::optional<ObjectId> previewed = replacedObject(editor.preview());
+    if (!previewed && movePreview) previewed = movePreview->objectId;
     const auto& selection = editor.selection();
     const auto& hover = editor.hover();
 
     // Solid fills.
     for (const auto& [id, cached] : meshes_.entries()) {
-        if (hidden == id) continue;
+        if (previewed == id) continue; // replaced by the preview below
         renderer_.drawMesh(cached.handle, cached.mesh.closed ? kSolidFill : kSheetFill);
     }
     // Face highlights: one logical face, all of its triangles.
     for (const auto& [id, cached] : meshes_.entries()) {
-        if (hidden == id) continue;
+        if (previewed == id) continue;
         if (hover && hover->objectId == id && hover->face && !(selection && *selection == *hover)) {
             drawFaceOverlay(cached, *hover->face, kHoverFace);
         }
@@ -170,7 +182,11 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
     lines.clear();
     std::vector<LineSegment> selectedLines;
     for (const auto& [id, cached] : meshes_.entries()) {
-        if (hidden == id) continue;
+        if (previewed == id) {
+            // A moving object leaves a faint outline where it started.
+            if (movePreview) appendEdges(lines, cached.mesh, dim(kEdge, 0.25f));
+            continue;
+        }
         const bool selected = selection && selection->objectId == id;
         appendEdges(selected ? selectedLines : lines, cached.mesh, selected ? kSelectedEdge : kEdge);
     }
@@ -210,6 +226,29 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
             } else {
                 appendEdges(lines, buildMesh(*obj), kErrorEdge);
             }
+        }
+    } else if (movePreview) {
+        if (const auto* obj = doc.find(movePreview->objectId)) {
+            const bool valid = !movePreview->error.has_value();
+            ProfileObject moved = *obj;
+            moved.transform.translation += movePreview->offset;
+            const MeshData mesh = buildMesh(moved);
+            previewHandle_ = renderer_.createMesh(mesh);
+            glm::vec4 fill = mesh.closed ? kSolidFill : kSheetFill;
+            if (!valid) fill = kErrorFill;
+            renderer_.drawMesh(previewHandle_, fill);
+            appendEdges(lines, mesh, valid ? kSelectedEdge : kErrorEdge);
+            // Guide from the picked point to where it is now, in the locked axis colour.
+            glm::vec4 guide = kPreviewEdge;
+            if (movePreview->axis) {
+                guide = axisColor(*movePreview->axis);
+                // Extend the locked axis through the start point so the constraint is visible.
+                const Vec3 dir = axisVector(*movePreview->axis);
+                const double reach = std::max(camera_.distance(), 1.0);
+                lines.push_back({movePreview->from - dir * reach, movePreview->from + dir * reach, dim(guide, 0.35f)});
+            }
+            if (!valid) guide = kErrorEdge;
+            lines.push_back({movePreview->from, movePreview->from + movePreview->offset, guide});
         }
     }
     if (const auto* rot = std::get_if<RotatePreview>(&editor.preview())) {

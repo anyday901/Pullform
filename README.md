@@ -24,13 +24,14 @@ is not affiliated with SketchUp and does not read or write `.skp` files.
 
 ### Current limits
 
-- Shapes are rectangles on the ground plane (z = 0) and their straight extrusions only.
+- Shapes are rectangles and their straight extrusions only. They are drawn on the ground
+  plane (z = 0); Move and Rotate can then place them anywhere.
 - Push/pull works on a planar rectangle and on an extrusion's top cap. Side and base faces
   cannot be pushed yet. Heights must be positive: pushing below the base, holes, cutting
   through solids and merging touching geometry are not supported.
 - Objects stay independent when they touch or overlap.
-- No move, rotate, scale or copy tools yet; objects stay where they were drawn.
-- Rectangle width and depth cannot be edited after drawing (only the height).
+- Move, Rotate and Scale work on whole objects; there is no copy tool yet and no mirroring.
+- Width and depth change only with the Scale tool; the Properties panel edits the height.
 
 The same limits are listed in the app's Properties panel. See
 [docs/ROADMAP.md](docs/ROADMAP.md) for what comes next.
@@ -115,6 +116,8 @@ tree, configure with `-DFETCHCONTENT_FULLY_DISCONNECTED=ON`.
 | Select tool | Space |
 | Rectangle tool | R |
 | Push/Pull tool | P |
+| Move tool | M |
+| Lock Move to an axis (again to release) | X / Y / Z, or Right / Left / Up arrow |
 | Rotate tool | Q (arrow keys pick the axis: Right X, Left Y, Up Z) |
 | Scale tool | S |
 | Orbit tool | O |
@@ -142,6 +145,10 @@ with an explanation.
 - Rectangle tool: `width, depth` (for example `2000, 1000`). With a first corner placed,
   the rectangle is drawn from it toward the pointer; otherwise from the origin.
 - Push/Pull tool: a distance *relative to the face's current position* (incremental).
+- Move tool: a distance along the locked axis (for example press X, type `500`, Enter), or
+  along the pointer's direction while a move is in progress; or `x, y, z` to move by that
+  vector (for example `500, 0, -250`). With no move in progress it applies to the selected
+  object.
 - Rotate tool: an angle in degrees (`90`, `-45`, `22.5deg`). Click the object, then the
   centre of rotation, then a reference direction, then move and click; with grid snap the
   angle snaps to 15 degree steps. A typed angle without a centre turns the object about the

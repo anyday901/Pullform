@@ -40,6 +40,25 @@ struct PushPullPreview {
     std::optional<std::string> error; ///< why the current height cannot be committed
 };
 
+/// A world axis that a gesture is locked to (Move: the direction of travel).
+enum class MoveAxis { X, Y, Z };
+
+/// Unit vector of a world axis.
+Vec3 axisVector(MoveAxis axis);
+/// "X", "Y" or "Z".
+const char* axisName(MoveAxis axis);
+
+/// Live move preview: the object drawn at its translation plus `offset`, and
+/// a guide line from `from` (the picked point) to `from + offset`.
+struct MovePreview {
+    ObjectId objectId;
+    Vec3 from{0.0};
+    Vec3 offset{0.0};
+    std::optional<MoveAxis> axis;     ///< locked axis, if any
+    std::optional<std::string> error; ///< why the current offset cannot be committed
+};
+
+/// Transient feedback drawn by the viewport. Never part of the document or history.
 /// Live rotate preview. `reference` and `current` are offsets from `pivot` in
 /// the rotation plane (perpendicular to `axis`). `result` is the rotated object
 /// the viewport draws in place of the real one.
@@ -67,7 +86,8 @@ struct ScalePreview {
 };
 
 /// Transient feedback drawn by the viewport. Never part of the document or history.
-using Preview = std::variant<std::monostate, RectanglePreview, PushPullPreview, RotatePreview, ScalePreview>;
+using Preview =
+    std::variant<std::monostate, RectanglePreview, PushPullPreview, MovePreview, RotatePreview, ScalePreview>;
 
 /// The object a preview draws in place of the document's version (push/pull,
 /// rotate and scale), if any. The viewport hides the original while it is set.

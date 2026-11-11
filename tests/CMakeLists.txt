@@ -7,6 +7,7 @@ add_executable(pullform_tests
   geometry_tests.cpp
   history_tests.cpp
   tools_tests.cpp
+  move_tests.cpp
   project_file_tests.cpp
   transform_tests.cpp
   camera_tests.cpp

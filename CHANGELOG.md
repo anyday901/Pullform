@@ -32,6 +32,10 @@ include breaking changes, but project files will keep a migration path.
 
 ### Added
 
+- Move tool (M). Drag an object, or click it and click the destination; X, Y, Z or the
+  Right, Left and Up arrows lock the move to an axis. Type a distance to move exactly along
+  the locked axis or the pointer direction, or `x, y, z` to move by a vector. Each move is
+  one undo entry.
 - **Rotate tool** (Q): click the object, a centre, a reference direction and the angle, or
   type degrees. Arrow keys pick the axis (Right X, Left Y, Up Z); grid snap gives 15 degree
   steps. Quarter turns about grid points keep corners exact.
