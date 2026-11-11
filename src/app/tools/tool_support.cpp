@@ -13,6 +13,8 @@ std::string_view toolName(Tool tool) {
     switch (tool) {
     case Select: return "Select";
     case Rectangle: return "Rectangle";
+    case Circle: return "Circle";
+    case Polygon: return "Polygon";
     case RotatedRectangle: return "Rotated Rectangle";
     case Line: return "Line";
     case PushPull: return "Push/Pull";
@@ -78,6 +80,8 @@ std::string trimmed(std::string_view s) {
 bool isDrag(const Vec2& press, const Vec2& release) { return glm::length(release - press) > kDragThresholdPx; }
 
 Vec3 baseCenter(const ProfileObject& o) {
+    // A circle or polygon is centred on its origin exactly; averaging its corners would round.
+    if (!o.isMeshGroup() && o.profile.kind != ProfileKind::Rectangle) return profileToWorld(o, Vec2{0.0}, 0.0);
     Vec2 sum{0.0};
     for (const auto& p : o.profile.boundary) sum += p;
     const Vec2 c = o.profile.boundary.empty() ? Vec2{0.0} : sum / static_cast<double>(o.profile.boundary.size());

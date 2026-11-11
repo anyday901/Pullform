@@ -31,6 +31,14 @@ include breaking changes, but project files will keep a migration path.
   on a wall, pushed in) extrudes it behind its face; typed negative distances do the same.
   A rectangle drawn on a face is still its own object, so it overlaps the wall rather than
   cutting it (cutting comes with push/pull on any face).
+- **Circle (C) and Polygon (Shift+C) tools.** Click the center on a face or the ground (arrow keys
+  lock a plane, as for Rectangle), then a point on the circle, or type the radius. Type a count such as `48s` (before or while drawing)
+  for the number of segments (circle, default 24) or sides (polygon, default 6). Push/Pull
+  extrudes them into cylinders and prisms (either way); a cylinder's sides are smooth, without a line per
+  segment. Circles and polygons keep their true shape in the model, so their center snaps
+  (a green circle marker), also on the top of a cylinder. The properties panel shows the
+  radius and segment count. Saved in project files as profile kind `"circle"` or
+  `"polygon"` with their curves.
 
 - **Line tool (L).** Click a start point, then each next point, to draw a chain of edges
   (one undo entry per segment). Type a length to draw the next segment toward the pointer,

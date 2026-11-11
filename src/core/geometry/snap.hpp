@@ -17,6 +17,7 @@ enum class SnapKind {
     Grid,      ///< grid increment
     OnFace,    ///< a point on a face under the pointer (no edge or corner nearby)
     Inference, ///< aligned with a reference point along an axis (see SnapGuide)
+    Center,    ///< center of an arc, circle or polygon
     Midpoint,  ///< midpoint of an object edge
     Endpoint,  ///< corner (vertex) of an object
 };
@@ -31,6 +32,9 @@ const char* snapKindName(SnapKind kind);
 struct SnapFeatures {
     std::vector<Vec3> vertices;
     std::vector<std::pair<int, int>> edges;
+    /// Centers of the object's true arcs, circles and polygons (mesh curves, in
+    /// curve id order; a circle or polygon profile has them too), world space.
+    std::vector<Vec3> curveCenters;
     Vec3 center{0.0};    ///< center of the vertices' bounding box
     double radius = 0.0; ///< bounding sphere radius around `center`
 
@@ -59,7 +63,7 @@ struct SnapResult {
     /// The object snapped to (Endpoint, Midpoint, OnFace).
     std::optional<ObjectId> objectId;
     /// Endpoint: index into SnapFeatures::vertices. Midpoint: index into
-    /// SnapFeatures::edges. Otherwise -1.
+    /// SnapFeatures::edges. Center: index into SnapFeatures::curveCenters. Otherwise -1.
     int feature = -1;
     /// The feature's own position before any projection (for example the top
     /// corner of a box whose ground point the rectangle tool uses).
@@ -82,9 +86,9 @@ public:
     bool sync(const Document& document);
     void clear();
 
-    /// Nearest endpoint or midpoint to `ray`, within an angular tolerance:
+    /// Nearest endpoint, center or midpoint to `ray`, within an angular tolerance:
     /// a candidate at distance t along the ray counts when it is within
-    /// `radiusPerDistance * t` of the ray. Endpoints win over midpoints;
+    /// `radiusPerDistance * t` of the ray. Endpoints win over midpoints and centers;
     /// within a kind the angularly nearest wins. Candidates farther along the
     /// ray than `occluder` (the distance to the face under the pointer) plus
     /// the tolerance are hidden behind that face and ignored. Objects in

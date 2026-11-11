@@ -1287,12 +1287,32 @@ Mesh meshFromProfile(const ProfileObject& o) {
     const Vec3 n = glm::normalize(glm::cross(plane.xAxis, plane.yAxis));
     const auto local = [&](const Vec2& p, double offset) { return plane.origin + plane.xAxis * p.x + plane.yAxis * p.y + n * offset; };
     const auto count = static_cast<std::uint32_t>(o.profile.boundary.size());
+    // A circle or polygon keeps its true shape beside the segments: curve 1 is
+    // the base loop (edges 1..n), curve 2 the cap loop (edges n+1..2n). A
+    // circle's side edges are soft and smooth, so a cylinder reads as one surface.
+    const bool round = o.profile.kind == ProfileKind::Circle;
+    const bool regular = round || o.profile.kind == ProfileKind::Polygon;
+    const auto curveOf = [regular](std::uint32_t id) { return regular ? std::optional<CurveId>(CurveId{id}) : std::nullopt; };
+    const auto addCurve = [&](std::uint32_t id, std::uint32_t firstEdge, double offset) {
+        if (!regular || count == 0) return;
+        Curve c;
+        c.kind = round ? CurveKind::Circle : CurveKind::Polygon;
+        c.center = plane.origin + n * offset;
+        c.normal = n;
+        c.xAxis = plane.xAxis;
+        c.radius = glm::length(o.profile.boundary[0]);
+        c.start = std::atan2(o.profile.boundary[0].y, o.profile.boundary[0].x);
+        c.sweep = 2.0 * std::numbers::pi;
+        c.segments = static_cast<int>(count);
+        for (std::uint32_t i = 0; i < count; ++i) c.edges.push_back(EdgeId{firstEdge + i});
+        m.insertCurve(CurveId{id}, c);
+    };
     for (std::uint32_t i = 0; i < count; ++i) m.insertVertex(VertexId{i + 1}, local(o.profile.boundary[i], 0.0));
-    for (std::uint32_t i = 0; i < count; ++i) m.insertEdge(EdgeId{i + 1}, Edge{VertexId{i + 1}, VertexId{(i + 1) % count + 1}, {}, false, false});
-    std::vector<VertexId> bottom;
-    for (std::uint32_t i = 0; i < count; ++i) bottom.push_back(VertexId{i + 1});
+    for (std::uint32_t i = 0; i < count; ++i) {
+        m.insertEdge(EdgeId{i + 1}, Edge{VertexId{i + 1}, VertexId{(i + 1) % count + 1}, curveOf(1), false, false});
+    }
+    addCurve(1, 1, 0.0);
     if (!o.extrusion) {
-        m.insertFace(FaceId{1}, Face{{}, n});
         Face f{{}, n};
         std::vector<EdgeUse> loop;
         for (std::uint32_t i = 0; i < count; ++i) loop.push_back(EdgeUse{EdgeId{i + 1}, false});
@@ -1303,9 +1323,12 @@ Mesh meshFromProfile(const ProfileObject& o) {
     const double h = o.extrusion->height;
     for (std::uint32_t i = 0; i < count; ++i) m.insertVertex(VertexId{count + i + 1}, local(o.profile.boundary[i], h));
     for (std::uint32_t i = 0; i < count; ++i) {
-        m.insertEdge(EdgeId{count + i + 1}, Edge{VertexId{count + i + 1}, VertexId{count + (i + 1) % count + 1}, {}, false, false});
+        m.insertEdge(EdgeId{count + i + 1}, Edge{VertexId{count + i + 1}, VertexId{count + (i + 1) % count + 1}, curveOf(2), false, false});
     }
-    for (std::uint32_t i = 0; i < count; ++i) m.insertEdge(EdgeId{2 * count + i + 1}, Edge{VertexId{i + 1}, VertexId{count + i + 1}, {}, false, false});
+    for (std::uint32_t i = 0; i < count; ++i) {
+        m.insertEdge(EdgeId{2 * count + i + 1}, Edge{VertexId{i + 1}, VertexId{count + i + 1}, {}, round, round});
+    }
+    addCurve(2, count + 1, h);
     // Base: bottom loop reversed (faces -n). Cap: top loop. Side i: i, i+1, top i+1, top i.
     Face base{{}, -n};
     Loop baseLoop;
