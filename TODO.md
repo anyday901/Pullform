@@ -29,11 +29,15 @@ Merged into `main`:
 - [x] Phase 1 foundations, items 1 to 5: per-tool classes, multi-selection, the geometry
       decision in `docs/GEOMETRY.md`, the edge/face mesh with file format version 3, and
       edge/face rendering and picking (#13).
+- [x] Phase 2 drawing, items 6 to 13: Line tool with push/pull of drawn faces (#18), the
+      full inference engine (#20), drawing on any face and plane (#19), Circle and Polygon
+      (#21), Arc, 3 Point Arc and Pie (#17), Eraser (#16), construction guides and the
+      Protractor (#22), and Freehand (#15).
 
-What SketchUp has that Pullform does not, in short: a Line tool, curves, drawing on any
-face, push/pull on any face (including cutting holes), Offset and Follow Me, groups and
-components, materials, styles, scenes, shadows, section planes, and import/export. The
-edge/face mesh from Phase 1 is in place, so these now build on shared geometry.
+What SketchUp has that Pullform does not, in short: push/pull on any face (including
+cutting holes), Offset and Follow Me, groups and components, materials, styles, scenes,
+shadows, section planes, and import/export. Drawing is in place (lines, curves, guides,
+any face), so the next gap is editing that geometry, starting with item 14.
 
 ## Open items carried over
 
@@ -86,38 +90,44 @@ These are still open from the first batch.
       face plus its edges, triple-click for everything connected). *Depends on:* 4.
       *Accept:* click an edge, then a face, then triple-click; each highlights correctly.
 
-## Phase 2: Drawing
+## Phase 2: Drawing (done)
 
-- [ ] **6. Line tool (L).** Click-click chains of edges, typed length, close a loop to make
+- [x] **6. Line tool (L).** Click-click chains of edges, typed length, close a loop to make
       a face, Escape ends the chain. *Depends on:* 4, 5. *Accept:* draw an L-shaped floor
       plan by typing lengths; it becomes one face that push/pull extrudes.
-- [ ] **7. Full inference engine.** Add to today's endpoint/midpoint/axis inference: on
+- [x] **7. Full inference engine.** Add to today's endpoint/midpoint/axis inference: on
       edge, on face, intersection, center of arc, parallel and perpendicular to an edge,
       from a point along an axis, "magenta" parallel guides, Shift to lock the current
       inference, and a tooltip naming it ("On Edge", "Perpendicular to Edge"). Used by every
       tool through the shared snapper. *Depends on:* 5 (and 1 makes it cleaner).
       *Accept:* draw a line perpendicular to an existing angled edge using the inference
       alone, with no typing.
-- [ ] **8. Draw on any face and plane.** Rectangle, Line and the curve tools work on the
+- [x] **8. Draw on any face and plane.** Rectangle, Line and the curve tools work on the
       face under the pointer (tilted or vertical), with the plane locked once drawing starts;
       arrow keys pick a vertical or horizontal plane; rotated rectangles (three-click).
       *Depends on:* 4, 5. *Accept:* draw a window rectangle on a wall and push it in 100 mm.
-- [ ] **9. Circle and Polygon tools.** Center, radius, typed segment count (`24s`). Stored
+- [x] **9. Circle and Polygon tools.** Center, radius, typed segment count (`24s`). Stored
       as true circles for display and inference (center snap), with segments in the mesh.
       *Depends on:* 4, 8. *Accept:* a 600 mm circle with 48 sides extrudes to a cylinder
       whose center snaps.
-- [ ] **10. Arc tools.** Two-point arc with bulge, three-point arc, pie, and tangent arcs
+- [x] **10. Arc tools.** Two-point arc with bulge, three-point arc, pie, and tangent arcs
       when starting from an edge end (cyan tangent inference). *Depends on:* 9.
       *Accept:* a rounded rectangle drawn from lines and tangent arcs forms one face.
-- [ ] **11. Eraser (E).** Click or drag over edges to erase them (faces heal or vanish as in
+- [x] **11. Eraser (E).** Click or drag over edges to erase them (faces heal or vanish as in
       SketchUp); Shift hides, Ctrl softens. *Depends on:* 4, 5. *Accept:* erasing the edge
       between two coplanar faces leaves one face.
-- [ ] **12. Construction guides and points.** Tape Measure from an edge creates a parallel
+- [x] **12. Construction guides and points.** Tape Measure from an edge creates a parallel
       guide line, from a point creates a guide point; Ctrl toggles. Guides are snappable,
       can be hidden and deleted together (Edit > Delete Guides). Add the Protractor for
       angled guides. *Depends on:* 7. *Accept:* place a guide 450 mm in from a wall and snap
       a rectangle corner to it.
-- [ ] **13. Freehand tool** (smoothed polyline). *Depends on:* 6. Low priority.
+- [x] **13. Freehand tool** (smoothed polyline). *Depends on:* 6. Low priority.
+
+Known limits from Phase 2, all waiting on item 14 unless noted: a rectangle drawn on a
+wall pushes in as its own box instead of cutting a recess into the wall; erasing an edge
+of a box turns it into free geometry that Push/Pull cannot use yet; and a single guide
+cannot be selected or erased (only all at once with Edit > Delete Guides; this belongs
+with selection, not item 14).
 
 ## Phase 3: Editing geometry
 
@@ -126,7 +136,8 @@ These are still open from the first batch.
       starting face instead of moving the existing one, double-click to repeat the last
       distance. Replaces today's cap-only push/pull. *Depends on:* 4, 5. *Accept:* push a
       window rectangle on a 200 mm wall in by 200 mm and get a hole; Ctrl-pull a cap twice
-      to make a stepped block.
+      to make a stepped block. *Started:* #18 added push/pull of a face drawn with the
+      Line tool.
 - [ ] **15. Move, Rotate and Scale on sub-elements.** Moving a vertex, edge or face stretches
       the connected geometry (with auto-fold when faces would go non-planar); Rotate a face
       about an edge; Scale with grip handles on the bounding box, mirrored with negative
@@ -266,14 +277,15 @@ These are still open from the first batch.
 
 ## Start now
 
-Phase 1 is done, so the Phase 2 drawing items are open: **6** (Line), **7** (inference),
-**8** (any face and plane) and **11** (Eraser) have no unfinished dependency, and **9**,
-**10**, **12** and **13** follow them. Also unblocked by Phase 1: **14** (push/pull any
-face), **15** (sub-element transforms), **16** (array copies), **19** (Intersect Faces),
-**21** (edge cleanup), **22** (groups), **28** (lock and hide), **31** (materials), **33**
-(styles), **35** (shadows), **48** (large-model performance) and **51** (terrain). Still
-open from before: **29** (views and projection), **39** (STL/OBJ/glTF export), **40**
-(image export), **46** (autosave), **47** (preferences), **52** (image tests), and the
-carried-over **0c** and **0d**.
+Phases 1 and 2 are done. **14** (push/pull any face) is the most pressing: the drawing
+tools now make faces on walls and free geometry that only it can extrude or cut, and it
+also unblocks the known limits above. Also open with no unfinished dependency: **15**
+(sub-element transforms), **16** (array copies), **17** (Offset), **18** (Follow Me),
+**19** (Intersect Faces), **21** (edge cleanup), **22** (groups), **28** (lock and hide),
+**29** (views and projection), **31** (materials), **33** (styles), **35** (shadows),
+**37** (better annotations, radial dimensions now that circles exist), **39**
+(STL/OBJ/glTF export), **40** (image export), **43** (DXF), **46** (autosave), **47**
+(preferences), **48** (large-model performance), **52** (image tests),
+and the carried-over **0c** and **0d**.
 
-Item 22 (groups) is the next critical path: most of phase 4 waits on it.
+Item 22 (groups) is still the critical path for phase 4.
