@@ -5,6 +5,7 @@
 #include <glm/geometric.hpp>
 
 #include <cmath>
+#include <format>
 #include <numbers>
 
 namespace pf {
@@ -25,8 +26,7 @@ bool inRange(const Vec3& v) {
 
 /// The normal flipped so it faces +Z, or for a vertical plane +Y, then +X.
 Vec3 canonicalNormal(Vec3 n) {
-    constexpr double eps = 1e-12;
-    if (n.z < -eps || (std::abs(n.z) <= eps && (n.y < -eps || (std::abs(n.y) <= eps && n.x < 0.0)))) n = -n;
+    if (constexpr double eps = 1e-12; n.z < -eps || (std::abs(n.z) <= eps && (n.y < -eps || (std::abs(n.y) <= eps && n.x < 0.0)))) n = -n;
     return n;
 }
 
@@ -118,13 +118,13 @@ std::vector<Vec3> arcPoints(const ArcGeometry& arc, int segments) {
 
 int defaultArcSegments(double sweep) {
     const double turns = std::abs(sweep) / kTwoPi;
-    const int n = static_cast<int>(std::ceil(24.0 * turns - 1e-6));
+    const auto n = static_cast<int>(std::ceil(24.0 * turns - 1e-6));
     return std::max(2, n);
 }
 
 std::optional<std::string> checkArcSegments(int segments) {
     if (segments < 2 || segments > kMaxCurveSegments) {
-        return "The segment count must be between 2 and " + std::to_string(kMaxCurveSegments) + ".";
+        return std::format("The segment count must be between 2 and {}.", kMaxCurveSegments);
     }
     return std::nullopt;
 }

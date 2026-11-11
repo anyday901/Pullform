@@ -63,6 +63,11 @@ private:
     void updatePreview(const Vec3& cursor, const PointerInput* input);
     [[nodiscard]] int segmentsFor(const ArcGeometry& arc) const;
     bool commit(const ArcGeometry& arc);
+    std::optional<std::string> submitSegments(int count);
+    /// Typed chord length, distance to the second point, or radius.
+    std::optional<std::string> submitSecondPoint(const std::string& text);
+    /// Typed bulge (Arc) or angle (Pie), which finishes the arc.
+    std::optional<std::string> submitLast(const std::string& text);
     void reset();
 
     Mode mode_;

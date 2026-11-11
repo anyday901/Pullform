@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <array>
+#include <format>
 #include <cmath>
 #include <numbers>
 #include <string_view>
@@ -501,7 +502,7 @@ Expected<OpResult> drawArc(const Document& doc, std::optional<ObjectId> target, 
     }
     if (target) {
         const auto* o = doc.find(*target);
-        if (!o) return Error{"Object " + idString(*target) + " no longer exists."};
+        if (!o) return Error{std::format("Object {} no longer exists.", idString(*target))};
         ProfileObject changed = asMeshGroup(*o);
         mesh::Mesh m = *changed.mesh;
         if (!drawArcInto(m, changed, arc, segments, pie)) return Error{"The arc is too small to draw."};

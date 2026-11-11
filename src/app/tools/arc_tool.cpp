@@ -10,6 +10,7 @@
 
 #include <cctype>
 #include <charconv>
+#include <format>
 
 namespace pf {
 
@@ -61,14 +62,35 @@ std::optional<Vec3> tangentAt(const Document& doc, const Vec3& p, const Vec3& n)
     return std::nullopt;
 }
 
+/// Two-point arc from chord a -> b to the pointer: the tangent arc when the
+/// bulge is within `tolerance` of it, else a half circle when that close to
+/// one, else the pointer's bulge.
+Expected<ArcGeometry> twoPointArc(const Vec3& a, const Vec3& b, const Vec3& n, const std::optional<Vec3>& tangentDir,
+                                  const Vec3& cursor, double tolerance, bool* tangent, bool* half) {
+    const Vec3 chord = inPlane(b - a, n);
+    const Vec3 left = glm::normalize(glm::cross(n, chord));
+    double bulge = glm::dot(cursor - 0.5 * (a + b), left);
+    auto t = tangentDir ? tangentArc(a, *tangentDir, b, n) : Expected<ArcGeometry>(Error{""});
+    if (t && std::abs(arcBulge(*t) - bulge) <= tolerance) {
+        if (tangent) *tangent = true;
+        return t;
+    }
+    if (const double halfChord = 0.5 * glm::length(chord); std::abs(std::abs(bulge) - halfChord) <= tolerance) {
+        bulge = bulge < 0.0 ? -halfChord : halfChord;
+        if (half) *half = true;
+    }
+    return arcFromBulge(a, b, bulge, n);
+}
+
 } // namespace
 
 std::string_view ArcTool::measurementLabel() const {
     const std::size_t n = points_.size();
+    using enum Mode;
     switch (mode_) {
-    case Mode::TwoPoint: return n == 2 ? "Bulge (or 12s)" : "Length (or 12s)";
-    case Mode::ThreePoint: return n == 1 ? "Length (or 12s)" : "Segments (12s)";
-    case Mode::Pie: return n == 2 ? "Angle (or 12s)" : "Radius (or 12s)";
+    case TwoPoint: return n == 2 ? "Bulge (or 12s)" : "Length (or 12s)";
+    case ThreePoint: return n == 1 ? "Length (or 12s)" : "Segments (12s)";
+    case Pie: return n == 2 ? "Angle (or 12s)" : "Radius (or 12s)";
     }
     return "Measurements";
 }
@@ -85,8 +107,7 @@ void ArcTool::reset() {
 std::optional<Vec3> ArcTool::planePoint(const PointerInput& input) {
     const Vec3 n = plane_.normal;
     if (n == Vec3{0.0, 0.0, 1.0} && plane_.origin.z == 0.0) return ctx_.groundPoint(input, groundSkip());
-    const SnapResult s = ctx_.snapPointer(input, groundSkip());
-    if ((s.kind == SnapKind::Endpoint || s.kind == SnapKind::Midpoint) &&
+    if (const SnapResult s = ctx_.snapPointer(input, groundSkip()); (s.kind == SnapKind::Endpoint || s.kind == SnapKind::Midpoint) &&
         std::abs(glm::dot(s.point - plane_.origin, n)) <= tol::kPlanarity) {
         ctx_.indicator = s;
         return s.point;
@@ -163,28 +184,11 @@ void ArcTool::pointerMove(const PointerInput& input) {
 Expected<ArcGeometry> ArcTool::arcFor(const Vec3& cursor, const PointerInput* input, bool* tangent, bool* half) {
     const Vec3 n = plane_.normal;
     const double tolerance = input && ctx_.snapper.active(*input) ? ctx_.snapper.tolerance(*input, cursor) : 0.0;
+    using enum Mode;
     switch (mode_) {
-    case Mode::TwoPoint: {
-        const Vec3 a = points_[0];
-        const Vec3 b = points_[1];
-        const Vec3 chord = inPlane(b - a, n);
-        const Vec3 left = glm::normalize(glm::cross(n, chord));
-        double bulge = glm::dot(cursor - 0.5 * (a + b), left);
-        if (tangent_) {
-            if (auto t = tangentArc(a, *tangent_, b, n); t && std::abs(arcBulge(*t) - bulge) <= tolerance) {
-                if (tangent) *tangent = true;
-                return t;
-            }
-        }
-        const double halfChord = 0.5 * glm::length(chord);
-        if (std::abs(std::abs(bulge) - halfChord) <= tolerance) {
-            bulge = bulge < 0.0 ? -halfChord : halfChord;
-            if (half) *half = true;
-        }
-        return arcFromBulge(a, b, bulge, n);
-    }
-    case Mode::ThreePoint: return arcThroughPoints(points_[0], points_[1], cursor);
-    case Mode::Pie: {
+    case TwoPoint: return twoPointArc(points_[0], points_[1], n, tangent_, cursor, tolerance, tangent, half);
+    case ThreePoint: return arcThroughPoints(points_[0], points_[1], cursor);
+    case Pie: {
         const Vec3 c = points_[0];
         sweep_ = unwrapSweep(sweep_, signedAngle(points_[1] - c, cursor - c, n));
         return arcFromCenter(c, points_[1], sweep_, n);
@@ -218,22 +222,28 @@ void ArcTool::updatePreview(const Vec3& cursor, const PointerInput* input) {
         return;
     }
     pv.segments = segmentsFor(*arc);
-    pv.points = arcPoints(*arc, pv.segments);
+    const std::vector<Vec3> along = arcPoints(*arc, pv.segments);
     if (mode_ == Mode::Pie) {
-        pv.points.insert(pv.points.begin(), arc->center);
+        // Centre, the arc, and back to the centre.
+        pv.points.reserve(along.size() + 2);
         pv.points.push_back(arc->center);
+        pv.points.insert(pv.points.end(), along.begin(), along.end());
+        pv.points.push_back(arc->center);
+    } else {
+        pv.points = along;
     }
     pv.radius = arc->radius;
     pv.tangent = tangent;
     pv.halfCircle = half;
+    using enum ArcPreview::Value;
     switch (mode_) {
     case Mode::TwoPoint:
-        pv.value = ArcPreview::Value::Bulge;
+        pv.value = Bulge;
         pv.amount = std::abs(arcBulge(*arc));
         break;
-    case Mode::ThreePoint: pv.value = ArcPreview::Value::None; break;
+    case Mode::ThreePoint: pv.value = None; break;
     case Mode::Pie:
-        pv.value = ArcPreview::Value::Angle;
+        pv.value = Angle;
         pv.amount = arc->sweep;
         break;
     }
@@ -255,73 +265,74 @@ bool ArcTool::commit(const ArcGeometry& arc) {
 
 std::optional<std::string> ArcTool::submit(std::string_view raw) {
     const std::string text = trimmed(raw);
-    if (const auto count = segmentCount(text)) {
-        if (auto e = checkArcSegments(*count)) return e;
-        segments_ = *count;
-        if (cursor_ && !points_.empty()) updatePreview(*cursor_, nullptr);
-        editor().notify(Message{Message::Kind::Info, "Arcs now have " + std::to_string(*count) + " segments."});
-        return std::nullopt;
-    }
+    if (const auto count = segmentCount(text); count.has_value()) return submitSegments(*count);
     if (points_.empty()) {
         return std::string(mode_ == Mode::Pie ? "Click the centre first, then type the radius."
                                               : "Click the start point first, then type the length.");
     }
-    const LengthUnit unit = editor().document().displayUnit;
+    if (points_.size() == 1) return submitSecondPoint(text);
+    return submitLast(text);
+}
+
+std::optional<std::string> ArcTool::submitSegments(int count) {
+    if (auto e = checkArcSegments(count)) return e;
+    segments_ = count;
+    if (cursor_ && !points_.empty()) updatePreview(*cursor_, nullptr);
+    editor().notify(Message{Message::Kind::Info, std::format("Arcs now have {} segments.", count)});
+    return std::nullopt;
+}
+
+std::optional<std::string> ArcTool::submitSecondPoint(const std::string& text) {
+    const auto len = parseLength(text, editor().document().displayUnit);
+    if (!len) return len.error();
+    if (*len < tol::kMinDimension) return std::string("The length must be at least 0.1 mm.");
+    const Vec3 toward = cursor_ ? inPlane(*cursor_ - points_[0], plane_.normal) : Vec3{0.0};
+    if (!(glm::length(toward) > 0.0)) return std::string("Move the pointer toward the next point first, then type the length.");
+    points_.push_back(points_[0] + glm::normalize(toward) * *len);
+    sweep_ = 0.0;
+    updatePreview(*cursor_, nullptr);
+    return std::nullopt;
+}
+
+std::optional<std::string> ArcTool::submitLast(const std::string& text) {
     const Vec3 n = plane_.normal;
-    if (points_.size() == 1) {
-        const auto len = parseLength(text, unit);
-        if (!len) return len.error();
-        if (*len < tol::kMinDimension) return std::string("The length must be at least 0.1 mm.");
-        const Vec3 toward = cursor_ ? inPlane(*cursor_ - points_[0], n) : Vec3{0.0};
-        if (!(glm::length(toward) > 0.0)) return std::string("Move the pointer toward the next point first, then type the length.");
-        points_.push_back(points_[0] + glm::normalize(toward) * *len);
-        sweep_ = 0.0;
-        updatePreview(*cursor_, nullptr);
-        return std::nullopt;
-    }
-    switch (mode_) {
-    case Mode::TwoPoint: {
-        const auto bulge = parseLength(text, unit);
+    Expected<ArcGeometry> arc = Error{"Click the end point, or type a segment count such as 12s."};
+    if (mode_ == Mode::TwoPoint) {
+        const auto bulge = parseLength(text, editor().document().displayUnit);
         if (!bulge) return bulge.error();
         // The bulge goes to the side the pointer is on.
         const Vec3 a = points_[0];
         const Vec3 b = points_[1];
         const Vec3 left = glm::normalize(glm::cross(n, inPlane(b - a, n)));
         const double side = cursor_ && glm::dot(*cursor_ - 0.5 * (a + b), left) < 0.0 ? -1.0 : 1.0;
-        const auto arc = arcFromBulge(a, b, side * std::abs(*bulge), n);
-        if (!arc) return arc.error();
-        if (!commit(*arc)) return ctx_.lastError("Could not draw the arc.");
-        return std::nullopt;
-    }
-    case Mode::ThreePoint: return std::string("Click the end point, or type a segment count such as 12s.");
-    case Mode::Pie: {
+        arc = arcFromBulge(a, b, side * std::abs(*bulge), n);
+    } else if (mode_ == Mode::Pie) {
         const auto angle = parseAngle(text);
         if (!angle) return angle.error();
         const double sweep = sweep_ < 0.0 ? -std::abs(*angle) : std::abs(*angle);
-        const auto arc = arcFromCenter(points_[0], points_[1], sweep, n);
-        if (!arc) return arc.error();
-        if (!commit(*arc)) return ctx_.lastError("Could not draw the pie.");
-        return std::nullopt;
+        arc = arcFromCenter(points_[0], points_[1], sweep, n);
     }
-    }
+    if (!arc) return arc.error();
+    if (!commit(*arc)) return ctx_.lastError("Could not draw the arc.");
     return std::nullopt;
 }
 
 std::string ArcTool::hint() const {
     const std::size_t n = points_.size();
+    using enum Mode;
     switch (mode_) {
-    case Mode::TwoPoint:
+    case TwoPoint:
         if (n == 0) return "Arc: click the start point. Type 12s to set the number of segments.";
         if (n == 1) return "Arc: click the end point, or type the length.";
         if (tangent_) {
             return "Arc: move to set the bulge and click, or type it. Cyan means tangent to the edge; double-click the end for the tangent arc.";
         }
         return "Arc: move to set the bulge and click, or type it. Esc cancels.";
-    case Mode::ThreePoint:
+    case ThreePoint:
         if (n == 0) return "3 Point Arc: click the start point.";
         if (n == 1) return "3 Point Arc: click a point the arc passes through, or type the distance to it.";
         return "3 Point Arc: click the end point. Esc cancels.";
-    case Mode::Pie:
+    case Pie:
         if (n == 0) return "Pie: click the centre.";
         if (n == 1) return "Pie: click the start of the arc, or type the radius.";
         return "Pie: click the end of the arc, or type the angle in degrees. Esc cancels.";

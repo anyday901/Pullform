@@ -521,8 +521,8 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
     } else if (const auto* arc = std::get_if<ArcPreview>(&editor.preview())) {
         glm::vec4 color = arc->tangent ? kTangent : kPreviewEdge;
         if (arc->error) color = kErrorEdge;
-        for (const auto& [a, b] : arc->guides) lines.push_back({a, b, dim(kPreviewEdge, 0.35f)});
-        for (std::size_t i = 0; i + 1 < arc->points.size(); ++i) lines.push_back({arc->points[i], arc->points[i + 1], color});
+        for (const auto& [a, b] : arc->guides) lines.emplace_back(a, b, dim(kPreviewEdge, 0.35f));
+        for (std::size_t i = 0; i + 1 < arc->points.size(); ++i) lines.emplace_back(arc->points[i], arc->points[i + 1], color);
     } else if (const auto* sc = std::get_if<ScalePreview>(&editor.preview())) {
         drawTransformGroup(sc->group, sc->objectIds, sc->result, sc->error.has_value(), sc->objectId, doc, lines);
         if (sc->start) lines.push_back({sc->pivot, *sc->start, dim(kPreviewEdge, 0.5f)});

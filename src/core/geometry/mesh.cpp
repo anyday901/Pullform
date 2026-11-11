@@ -306,41 +306,47 @@ VertexId Mesh::weldVertex(const Vec3& p) {
     return appendVertex(p);
 }
 
+namespace {
+
+/// Walks the edges in `left` from `at`, one shared vertex to the next, and
+/// returns them in order; edges it cannot reach stay in `left`.
+std::vector<EdgeId> walkChain(const Mesh& m, std::optional<VertexId> at, std::set<std::uint32_t>& left) {
+    std::vector<EdgeId> chain;
+    const auto& edges = m.edges();
+    while (at.has_value() && !left.empty()) {
+        const VertexId here = *at;
+        const auto next = std::ranges::find_if(left, [&edges, here](std::uint32_t e) {
+            const auto it = edges.find(e);
+            return it != edges.end() && (it->second.v0 == here || it->second.v1 == here);
+        });
+        if (next == left.end()) break;
+        const Edge& edge = edges.at(*next);
+        at = edge.v0 == here ? edge.v1 : edge.v0;
+        chain.push_back(EdgeId{*next});
+        left.erase(next);
+    }
+    return chain;
+}
+
+} // namespace
+
 std::optional<AddEdgeResult> Mesh::addCurve(Curve curve, const std::vector<Vec3>& points, CurveId* id) {
     if (points.size() < 2) return std::nullopt;
     std::set<std::uint32_t> facesBefore;
     for (const auto& [fid, f] : faces_) facesBefore.insert(fid);
-    std::set<std::uint32_t> drawn;
+    std::set<std::uint32_t> left;
     for (std::size_t i = 0; i + 1 < points.size(); ++i) {
-        const auto r = addEdge(points[i], points[i + 1]);
-        if (!r) continue;
-        for (const EdgeId e : r->edges) drawn.insert(e.value);
+        if (const auto r = addEdge(points[i], points[i + 1])) {
+            for (const EdgeId e : r->edges) left.insert(e.value);
+        }
     }
-    if (drawn.empty()) return std::nullopt;
+    std::erase_if(left, [this](std::uint32_t e) { return !edges_.contains(e); });
+    if (left.empty()) return std::nullopt;
 
     // Walk the drawn pieces from the first point, so the curve's edges are in
     // order even when a later segment split an earlier one.
     AddEdgeResult result;
-    std::optional<VertexId> at = findVertex(points.front());
-    std::set<std::uint32_t> left;
-    for (const auto e : drawn) {
-        if (edges_.contains(e)) left.insert(e);
-    }
-    while (at && !left.empty()) {
-        std::optional<std::uint32_t> next;
-        for (const auto e : left) {
-            const Edge& edge = edges_.at(e);
-            if (edge.v0 == *at || edge.v1 == *at) {
-                next = e;
-                break;
-            }
-        }
-        if (!next) break;
-        const Edge& edge = edges_.at(*next);
-        at = edge.v0 == *at ? edge.v1 : edge.v0;
-        result.edges.push_back(EdgeId{*next});
-        left.erase(*next);
-    }
+    result.edges = walkChain(*this, findVertex(points.front()), left);
     for (const auto& [fid, f] : faces_) {
         if (!facesBefore.contains(fid)) result.createdFaces.push_back(FaceId{fid});
     }
@@ -350,10 +356,7 @@ std::optional<AddEdgeResult> Mesh::addCurve(Curve curve, const std::vector<Vec3>
 
     // Record the curve only over a clean chain of new, untagged edges (a curve
     // drawn over an existing curve leaves both as they were).
-    const bool clean = left.empty() && std::ranges::none_of(result.edges, [this](EdgeId e) {
-        return edges_.at(e.value).curve.has_value();
-    });
-    if (clean) {
+    if (left.empty() && std::ranges::none_of(result.edges, [this](EdgeId e) { return edges_.at(e.value).curve.has_value(); })) {
         const CurveId cid{nextCurve_};
         curve.edges = result.edges;
         curve.segments = static_cast<int>(result.edges.size());

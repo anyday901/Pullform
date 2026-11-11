@@ -11,6 +11,7 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <format>
 #include <cmath>
 #include <numbers>
 #include <cstdio>
@@ -179,6 +180,32 @@ void Ui::showError(const std::string& title, const std::string& text) {
 
 std::string Ui::measurementLabel(const UiContext& ctx) const { return std::string(ctx.tools.measurementLabel()); }
 
+namespace {
+
+/// Live text for an arc tool: the value being placed, then the arc's radius,
+/// segments and any inference.
+std::string arcLive(const ArcPreview& a, LengthUnit u) {
+    std::string text;
+    using enum ArcPreview::Value;
+    switch (a.value) {
+    case Length:
+    case Bulge:
+    case Radius: text = formatLength(a.amount, u); break;
+    case Angle: text = formatAngle(std::abs(a.amount)); break;
+    case None: break;
+    }
+    std::vector<std::string> details;
+    if (a.radius > 0.0) details.push_back(std::format("radius {}, {} segments", formatLength(a.radius, u), a.segments));
+    if (a.tangent) details.emplace_back("tangent");
+    if (a.halfCircle) details.emplace_back("half circle");
+    if (details.empty()) return text;
+    std::string joined = details.front();
+    for (std::size_t i = 1; i < details.size(); ++i) joined += ", " + details[i];
+    return text.empty() ? std::format("({})", joined) : std::format("{}   ({})", text, joined);
+}
+
+} // namespace
+
 std::string Ui::measurementLive(const UiContext& ctx) const {
     const LengthUnit u = ctx.editor.document().displayUnit;
     if (const auto* r = std::get_if<RectanglePreview>(&ctx.editor.preview())) {
@@ -203,22 +230,7 @@ std::string Ui::measurementLive(const UiContext& ctx) const {
                formatLength(m->offset.z, u, false) + ")";
     }
     if (const auto* r = std::get_if<RotatePreview>(&ctx.editor.preview()); r && r->reference) return formatAngle(r->angle);
-    if (const auto* a = std::get_if<ArcPreview>(&ctx.editor.preview())) {
-        std::string text;
-        switch (a->value) {
-        case ArcPreview::Value::Length:
-        case ArcPreview::Value::Bulge:
-        case ArcPreview::Value::Radius: text = formatLength(a->amount, u); break;
-        case ArcPreview::Value::Angle: text = formatAngle(std::abs(a->amount)); break;
-        case ArcPreview::Value::None: break;
-        }
-        std::string detail;
-        if (a->radius > 0.0) detail = "radius " + formatLength(a->radius, u) + ", " + std::to_string(a->segments) + " segments";
-        if (a->tangent) detail += detail.empty() ? "tangent" : ", tangent";
-        if (a->halfCircle) detail += detail.empty() ? "half circle" : ", half circle";
-        if (!detail.empty()) text += (text.empty() ? "" : "   ") + ("(" + detail + ")");
-        return text;
-    }
+    if (const auto* a = std::get_if<ArcPreview>(&ctx.editor.preview())) return arcLive(*a, u);
     if (const auto* s = std::get_if<ScalePreview>(&ctx.editor.preview())) {
         return formatLength(s->factor * 100.0, LengthUnit::Meter, false) + "%";
     }
