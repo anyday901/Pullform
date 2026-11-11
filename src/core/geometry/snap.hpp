@@ -45,9 +45,11 @@ SnapFeatures snapFeatures(const ProfileObject& object, std::optional<double> hei
 /// An inference guide: a line from a reference point to the snapped point,
 /// along a world axis (0 = X, 1 = Y, 2 = Z). Drawn by the viewport.
 struct SnapGuide {
+    SnapGuide() = default;
+    SnapGuide(const Vec3& start, const Vec3& end, int alongAxis) : from(start), to(end), axis(alongAxis) {}
     Vec3 from{0.0};
     Vec3 to{0.0};
-    int axis = 0;
+    int axis = 0; ///< 0 = X, 1 = Y, 2 = Z, -1 = not along an axis
 };
 
 /// The result of snapping a pointer.
@@ -90,6 +92,14 @@ public:
     [[nodiscard]] std::optional<SnapResult> nearest(const Ray& ray, double radiusPerDistance,
                                                     std::optional<double> occluder = std::nullopt,
                                                     std::optional<ObjectId> exclude = std::nullopt) const;
+
+    /// The corner whose height is nearest `axisPoint.z`, within `tolerance`
+    /// (meters), skipping `exclude`. Among corners at the same height the one
+    /// nearest `axisPoint` in plan wins (it draws the guide). The result is an
+    /// Inference at the corner itself (point == featurePoint); the caller
+    /// moves `point` onto its own axis.
+    [[nodiscard]] std::optional<SnapResult> nearestHeight(const Vec3& axisPoint, double tolerance,
+                                                          std::optional<ObjectId> exclude = std::nullopt) const;
 
     [[nodiscard]] const std::map<ObjectId, Entry>& entries() const { return entries_; }
     [[nodiscard]] const SnapFeatures* find(ObjectId id) const;

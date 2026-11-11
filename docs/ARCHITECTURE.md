@@ -147,7 +147,7 @@ with synthetic events and no window.
   (closest point between two lines). The **total** height snaps to the grid increment when
   snap is on. Invalid heights (at or below the base) show as a red preview and cannot be
   committed; the gesture stays active.
-- Snapping (`core/geometry/snap.*`, used by `ToolController`): a `SnapIndex` holds each
+- Snapping (`core/geometry/snap.*`, used through `app/tools/snapper.*` by `ToolController`): a `SnapIndex` holds each
   object's `snapFeatures` (unique corners in `buildFaces` order, and unique edges as
   corner index pairs), kept in step with the document like the mesh cache. Tolerances are
   in screen pixels: the viewport puts the angle of one pixel in `PointerInput::pixelAngle`,

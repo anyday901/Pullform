@@ -90,7 +90,7 @@ void Viewport::drawSnap(std::vector<LineSegment>& lines, const SnapResult& snap)
         const auto count = static_cast<int>(std::ceil(len / (2.0 * dash)));
         for (int i = 0; i < count; ++i) {
             const double s = 2.0 * dash * i;
-            lines.push_back({g.from + dir * s, g.from + dir * std::min(s + dash, len), guideColor(g.axis)});
+            lines.emplace_back(g.from + dir * s, g.from + dir * std::min(s + dash, len), guideColor(g.axis));
         }
     }
 
@@ -101,7 +101,7 @@ void Viewport::drawSnap(std::vector<LineSegment>& lines, const SnapResult& snap)
     const auto poly = [&](std::initializer_list<Vec2> corners, const glm::vec4& color) {
         std::vector<Vec3> pts;
         for (const auto& c : corners) pts.push_back(p + right * (c.x * r) + up * (c.y * r));
-        for (std::size_t i = 0; i < pts.size(); ++i) lines.push_back({pts[i], pts[(i + 1) % pts.size()], color});
+        for (std::size_t i = 0; i < pts.size(); ++i) lines.emplace_back(pts[i], pts[(i + 1) % pts.size()], color);
     };
     switch (snap.kind) {
     case SnapKind::Endpoint: poly({{-1, -1}, {1, -1}, {1, 1}, {-1, 1}}, kSnapEndpoint); break;

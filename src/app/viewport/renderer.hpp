@@ -13,6 +13,9 @@ namespace pf {
 
 /// A colored line segment in world space (double precision).
 struct LineSegment {
+    LineSegment() = default;
+    LineSegment(const Vec3& start, const Vec3& end, const glm::vec4& startColor, const glm::vec4& endColor = glm::vec4{-1.0f})
+        : a(start), b(end), color(startColor), colorB(endColor) {}
     Vec3 a{0.0};
     Vec3 b{0.0};
     glm::vec4 color{1.0f};          ///< color at `a`

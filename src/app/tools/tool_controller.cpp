@@ -13,7 +13,6 @@ namespace pf {
 
 namespace {
 
-double snapValue(double v, double step) { return std::round(v / step) * step; }
 
 std::string trimmed(std::string_view s) {
     while (!s.empty() && (s.front() == ' ' || s.front() == '\t')) s.remove_prefix(1);
@@ -38,7 +37,7 @@ void ToolController::setTool(Tool tool) {
     cancel();
     tool_ = tool;
     indicator_.reset();
-    references_.clear();
+    snapper_.clearReferences();
     editor_.setHover(std::nullopt);
     editor_.notify(std::nullopt);
 }
@@ -52,95 +51,17 @@ bool ToolController::cancel() {
     return had;
 }
 
-Vec3 ToolController::snapPoint(const Vec3& p) const {
-    if (!snap_.enabled || snap_.step <= 0.0) return p;
-    return {snapValue(p.x, snap_.step), snapValue(p.y, snap_.step), p.z};
-}
-
-double ToolController::tolerance(const PointerInput& input, const Vec3& at) const {
-    return input.pixelAngle * snap_.radiusPx * glm::length(at - input.ray.origin);
-}
-
-void ToolController::dropStaleReferences() {
-    // New / Open replace the project: points from the old one must not guide the new one.
-    if (referencesGeneration_ == editor_.projectGeneration()) return;
-    references_.clear();
-    referencesGeneration_ = editor_.projectGeneration();
-}
-
-void ToolController::remember(const Vec3& p) {
-    dropStaleReferences();
-    // Most recent first, no duplicates, at most kMaxReferences.
-    const Vec3 point = p;
-    std::erase(references_, point);
-    if (references_.size() >= SnapSettings::kMaxReferences) references_.resize(SnapSettings::kMaxReferences - 1);
-    references_.push_back(point);
-    std::rotate(references_.rbegin(), references_.rbegin() + 1, references_.rend());
-}
-
-std::optional<SnapResult> ToolController::pointSnap(const PointerInput& input, std::optional<ObjectId> exclude) {
-    if (!snap_.points || !(input.pixelAngle > 0.0)) return std::nullopt;
-    snapIndex_.sync(editor_.document());
-    // The face under the pointer hides points behind it, unless it belongs to
-    // the excluded object (the one being edited, drawn as a preview).
-    std::optional<double> occluder;
-    if (input.pick && !(exclude && input.pick->objectId == *exclude)) occluder = input.pick->distance;
-    auto hit = snapIndex_.nearest(input.ray, input.pixelAngle * snap_.radiusPx, occluder, exclude);
-    if (hit) remember(hit->featurePoint);
-    return hit;
-}
-
 std::optional<SnapResult> ToolController::snapGround(const PointerInput& input) {
-    if (auto hit = pointSnap(input)) {
-        // Rectangles are drawn on the ground: use the point straight below.
-        hit->point.z = 0.0;
-        if (std::abs(hit->featurePoint.z) > tol::kLengthEpsilon) hit->guides.push_back({hit->featurePoint, hit->point, 2});
-        return hit;
-    }
-    const auto raw = intersectHorizontalPlane(input.ray, 0.0);
-    if (!raw) return std::nullopt;
-    SnapResult res;
-    res.point = snapPoint(*raw);
-    res.kind = snap_.enabled && snap_.step > 0.0 ? SnapKind::Grid : SnapKind::None;
-    res.featurePoint = res.point;
-    if (!snap_.points || !(input.pixelAngle > 0.0)) return res;
-
-    dropStaleReferences();
-    // Inference: line up with a remembered point along X or Y. The first
-    // corner of the rectangle is no use as a reference (it would give a zero
-    // width or depth), so it is skipped.
-    const double tolerance = this->tolerance(input, *raw);
-    const Vec3* refX = nullptr; // same x as the pointer: guide runs along Y
-    const Vec3* refY = nullptr; // same y: guide runs along X
-    double bestX = tolerance, bestY = tolerance;
-    for (const auto& r : references_) {
-        if (rect_ && std::abs(r.x - rect_->start.x) <= tol::kLengthEpsilon && std::abs(r.y - rect_->start.y) <= tol::kLengthEpsilon) {
-            continue;
-        }
-        if (const double d = std::abs(raw->x - r.x); d < bestX) { bestX = d; refX = &r; }
-        if (const double d = std::abs(raw->y - r.y); d < bestY) { bestY = d; refY = &r; }
-    }
-    if (!refX && !refY) return res;
-    if (refX) res.point.x = refX->x;
-    if (refY) res.point.y = refY->y;
-    res.kind = SnapKind::Inference;
-    res.featurePoint = res.point;
-    if (refX) res.guides.push_back({{refX->x, refX->y, 0.0}, res.point, 1});
-    if (refY) res.guides.push_back({{refY->x, refY->y, 0.0}, res.point, 0});
-    return res;
+    return snapper_.ground(input, rect_ ? std::optional(rect_->start) : std::nullopt);
 }
 
 SnapResult ToolController::snapPointer(const PointerInput& input) {
-    if (auto hit = pointSnap(input)) return *hit;
+    if (auto hit = snapper_.point(input)) return *hit;
     if (input.pick) {
-        SnapResult res;
-        res.point = res.featurePoint = input.pick->point;
-        res.kind = SnapKind::OnFace;
-        res.objectId = input.pick->objectId;
-        return res;
+        const Vec3 p = input.pick->point;
+        return SnapResult{p, SnapKind::OnFace, input.pick->objectId, -1, p, {}};
     }
-    if (auto ground = snapGround(input)) return *ground;
-    return SnapResult{input.ray.origin, SnapKind::None, std::nullopt, -1, input.ray.origin, {}};
+    return snapGround(input).value_or(SnapResult{input.ray.origin, SnapKind::None, std::nullopt, -1, input.ray.origin, {}});
 }
 
 std::optional<Vec3> ToolController::groundPoint(const PointerInput& input) {
@@ -335,60 +256,28 @@ void ToolController::pushMove(const PointerInput& input) {
     // The pointer ray may be parallel to the push axis (looking straight down);
     // a corner under the pointer still gives a height then.
     const auto t = closestParameterOnAxis(push_->anchor, {0.0, 0.0, 1.0}, input.ray);
-    const auto total = snapPushHeight(input, t ? std::optional(push_->startHeight + *t) : std::nullopt);
-    if (total) setPushPreview(*total - push_->startHeight);
+    const auto total = snapPushHeight(input, t.has_value() ? std::optional(push_->startHeight + *t) : std::nullopt);
+    if (total.has_value()) setPushPreview(*total - push_->startHeight);
 }
 
 std::optional<double> ToolController::snapPushHeight(const PointerInput& input, std::optional<double> raw) {
-    const auto at = [&](double h) { return Vec3{push_->anchor.x, push_->anchor.y, push_->baseZ + h}; };
-
-    // 1. The pointer is on a corner or edge midpoint of another object: take its height.
-    if (auto hit = pointSnap(input, push_->objectId)) {
+    const auto at = [this](double h) { return Vec3{push_->anchor.x, push_->anchor.y, push_->baseZ + h}; };
+    // 1. The pointer is on a corner or edge midpoint of another object: take
+    //    its height. 2. Otherwise the height lines up with another object's
+    //    corner (for example its cap). Both draw a guide from that corner.
+    auto hit = snapper_.point(input, push_->objectId);
+    if (!hit && raw.has_value()) hit = snapper_.height(input, at(*raw), push_->objectId);
+    if (hit) {
         const double h = hit->featurePoint.z - push_->baseZ;
         hit->point = at(h);
-        hit->guides.push_back({hit->featurePoint, hit->point, -1});
+        hit->guides.emplace_back(hit->featurePoint, hit->point, -1);
         indicator_ = *hit;
         return h;
     }
-    if (!raw) return std::nullopt;
-    double total = *raw;
-    const Vec3 axisPoint = at(total);
-    // 2. The height lines up with another object's corner (for example its cap).
-    if (snap_.points && input.pixelAngle > 0.0) {
-        const double tolerance = this->tolerance(input, axisPoint);
-        // Nearest height first; among equal heights, the nearest corner draws the guide.
-        struct Best {
-            ObjectId id;
-            int vertex = 0;
-            Vec3 point{0.0};
-            double dz = 0.0;
-            double dxy = 0.0;
-        };
-        std::optional<Best> best;
-        for (const auto& [id, entry] : snapIndex_.entries()) {
-            if (id == push_->objectId) continue;
-            const auto& vertices = entry.features.vertices;
-            for (std::size_t i = 0; i < vertices.size(); ++i) {
-                const Vec3& v = vertices[i];
-                const double dz = std::abs(v.z - axisPoint.z);
-                const double dxy = glm::length(Vec2{v.x - axisPoint.x, v.y - axisPoint.y});
-                if (dz >= tolerance) continue;
-                const bool nearerHeight = !best || dz < best->dz - tol::kLengthEpsilon;
-                const bool sameHeightCloser = best && std::abs(dz - best->dz) <= tol::kLengthEpsilon && dxy < best->dxy;
-                if (nearerHeight || sameHeightCloser) best = Best{id, static_cast<int>(i), v, dz, dxy};
-            }
-        }
-        if (best) {
-            const double h = best->point.z - push_->baseZ;
-            SnapResult res{at(h), SnapKind::Inference, best->id, best->vertex, best->point, {}};
-            res.guides.push_back({best->point, res.point, -1});
-            indicator_ = res;
-            return h;
-        }
-    }
+    if (!raw.has_value()) return std::nullopt;
     // 3. Grid: snap the total height to the increment.
-    if (snap_.enabled && snap_.step > 0.0) total = snapValue(total, snap_.step);
-    indicator_ = SnapResult{at(total), snap_.enabled ? SnapKind::Grid : SnapKind::None, std::nullopt, -1, at(total), {}};
+    const double total = snap_.toGrid(*raw);
+    indicator_ = SnapResult{at(total), snap_.gridOn() ? SnapKind::Grid : SnapKind::None, std::nullopt, -1, at(total), {}};
     return total;
 }
 
