@@ -37,6 +37,8 @@ constexpr glm::vec4 kSnapOther{0.70f, 0.20f, 0.75f, 1.0f};
 constexpr glm::vec4 kGuideFree{0.45f, 0.45f, 0.50f, 1.0f};
 constexpr glm::vec4 kDimension{0.20f, 0.24f, 0.32f, 1.0f};
 constexpr glm::vec4 kMeasure{0.95f, 0.45f, 0.08f, 1.0f};
+constexpr glm::vec4 kGuide{0.22f, 0.24f, 0.30f, 1.0f};
+constexpr glm::vec4 kSnapCrossing{0.85f, 0.15f, 0.12f, 1.0f};
 
 glm::vec4 dim(glm::vec4 c, float a) { return {c.r, c.g, c.b, a}; }
 
@@ -63,6 +65,15 @@ glm::vec4 axisColor(const Vec3& axis) {
     if (axis.x != 0.0) return kAxisX;
     if (axis.y != 0.0) return kAxisY;
     return kAxisZ;
+}
+
+/// Colour of a plane by its unit normal: the axis colour when it is along an
+/// axis, otherwise the preview colour.
+glm::vec4 normalColor(const Vec3& n) {
+    if (std::abs(n.x) > 0.9999) return kAxisX;
+    if (std::abs(n.y) > 0.9999) return kAxisY;
+    if (std::abs(n.z) > 0.9999) return kAxisZ;
+    return kPreviewEdge;
 }
 
 /// A unit vector perpendicular to `n`.
@@ -150,11 +161,70 @@ void Viewport::drawSnap(std::vector<LineSegment>& lines, const SnapResult& snap)
     switch (snap.kind) {
     case SnapKind::Endpoint: poly({{-1, -1}, {1, -1}, {1, 1}, {-1, 1}}, kSnapEndpoint); break;
     case SnapKind::Midpoint: poly({{-1.1, -0.8}, {1.1, -0.8}, {0, 1.1}}, kSnapMidpoint); break;
+    case SnapKind::GuidePoint: poly({{-1, -1}, {1, -1}, {1, 1}, {-1, 1}}, kGuide); break;
+    case SnapKind::GuideCrossing:
+        lines.emplace_back(p + (right + up) * r, p - (right + up) * r, kSnapCrossing);
+        lines.emplace_back(p + (right - up) * r, p - (right - up) * r, kSnapCrossing);
+        break;
+    case SnapKind::OnGuide: poly({{0, -1.2}, {1.2, 0}, {0, 1.2}, {-1.2, 0}}, kGuide); break;
     case SnapKind::Inference:
     case SnapKind::OnFace: poly({{0, -1.2}, {1.2, 0}, {0, 1.2}, {-1.2, 0}}, kSnapOther); break;
     case SnapKind::Grid:
     case SnapKind::None: break;
     }
+}
+
+void Viewport::appendGuide(std::vector<LineSegment>& lines, const Guide& guide, const glm::vec4& color) const {
+    const Vec3 eye = camera_.position();
+    const double px = pixelAngle();
+    if (guide.kind == Guide::Kind::Point) {
+        // A small three-axis cross, a constant size on screen.
+        const double r = 5.0 * px * std::max(glm::length(guide.point - eye), 1e-6);
+        for (const Vec3& axis : {Vec3{1, 0, 0}, Vec3{0, 1, 0}, Vec3{0, 0, 1}}) {
+            lines.emplace_back(guide.point - axis * r, guide.point + axis * r, color);
+        }
+        return;
+    }
+    // An endless line: dashes that keep a constant size on screen, walking out
+    // both ways from the point nearest the eye, then one solid stretch to the end.
+    const Vec3 u = guide.direction;
+    const Vec3 foot = guide.point + u * glm::dot(eye - guide.point, u);
+    const double near = std::max(glm::length(eye - foot), 1e-3);
+    const double reach = std::max(camera_.distance() * 100.0, 1000.0);
+    constexpr int kMaxDashes = 300;
+    for (const double side : {1.0, -1.0}) {
+        double s = 0.0;
+        int i = 0;
+        for (; i < kMaxDashes && s < reach; ++i) {
+            const double dash = 5.0 * px * std::max(std::hypot(near, s), near);
+            lines.emplace_back(foot + u * (side * s), foot + u * (side * std::min(s + dash, reach)), color);
+            s += 2.0 * dash;
+        }
+        if (s < reach) lines.emplace_back(foot + u * (side * s), foot + u * (side * reach), dim(color, 0.5f));
+    }
+}
+
+void Viewport::appendProtractor(std::vector<LineSegment>& lines, const Vec3& center, const Vec3& normal,
+                                const std::optional<Vec3>& spoke, const glm::vec4& color) const {
+    double radius = spoke ? glm::length(*spoke) : 0.0;
+    if (radius < 1e-9) radius = camera_.distance() * 0.05;
+    const Vec3 n = normal;
+    const Vec3 u = spoke && glm::length(*spoke) > 1e-9 ? glm::normalize(*spoke) : perpendicular(n);
+    const Vec3 v = glm::cross(n, u);
+    constexpr int kSegments = 72;
+    for (int i = 0; i < kSegments; ++i) {
+        const double a0 = 2.0 * std::numbers::pi * i / kSegments;
+        const double a1 = 2.0 * std::numbers::pi * (i + 1) / kSegments;
+        lines.push_back({center + (u * std::cos(a0) + v * std::sin(a0)) * radius,
+                         center + (u * std::cos(a1) + v * std::sin(a1)) * radius, color});
+        // Ticks every 15 degrees, longer every 45.
+        if (i % 3 == 0) {
+            const Vec3 dir = u * std::cos(a0) + v * std::sin(a0);
+            const double tick = i % 9 == 0 ? 0.15 : 0.07;
+            lines.push_back({center + dir * radius * (1.0 - tick), center + dir * radius, color});
+        }
+    }
+    lines.push_back({center - n * radius * 0.25, center + n * radius * 0.25, color});
 }
 
 void Viewport::drawGrid(std::vector<LineSegment>& lines) {
@@ -439,6 +509,13 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
     std::vector<LineSegment> elementMarks;
     drawElements(editor, replaced, elementMarks);
 
+    // Construction guides, hidden by the model like its edges.
+    if (tools.snap().guides && !doc.guides.empty()) {
+        lines.clear();
+        for (const auto& g : doc.guides) appendGuide(lines, g, kGuide);
+        renderer_.drawLines(lines, true);
+    }
+
     // Previews: transient, never part of the document.
     releasePreviewMeshes();
     lines.clear();
@@ -499,22 +576,8 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
     }
     if (const auto* rot = std::get_if<RotatePreview>(&editor.preview())) {
         drawTransformGroup(rot->group, rot->objectIds, rot->result, rot->error.has_value(), rot->objectId, doc, lines);
-        const glm::vec4 color = axisColor(rot->axis);
         // Protractor: a circle in the rotation plane, the reference and current spokes.
-        const auto spoke = rot->reference ? rot->reference : rot->current;
-        double radius = spoke ? glm::length(*spoke) : 0.0;
-        if (radius < 1e-9) radius = camera_.distance() * 0.05;
-        const Vec3 n = rot->axis;
-        const Vec3 u = spoke && glm::length(*spoke) > 1e-9 ? glm::normalize(*spoke) : perpendicular(n);
-        const Vec3 v = glm::cross(n, u);
-        constexpr int kSegments = 72;
-        for (int i = 0; i < kSegments; ++i) {
-            const double a0 = 2.0 * std::numbers::pi * i / kSegments;
-            const double a1 = 2.0 * std::numbers::pi * (i + 1) / kSegments;
-            lines.push_back({rot->pivot + (u * std::cos(a0) + v * std::sin(a0)) * radius,
-                             rot->pivot + (u * std::cos(a1) + v * std::sin(a1)) * radius, color});
-        }
-        lines.push_back({rot->pivot - n * radius * 0.25, rot->pivot + n * radius * 0.25, color});
+        appendProtractor(lines, rot->pivot, rot->axis, rot->reference ? rot->reference : rot->current, axisColor(rot->axis));
         if (rot->reference) lines.push_back({rot->pivot, rot->pivot + *rot->reference, kPreviewEdge});
         if (rot->current) lines.push_back({rot->pivot, rot->pivot + *rot->current, rot->error ? kErrorEdge : kPreviewEdge});
     } else if (const auto* sc = std::get_if<ScalePreview>(&editor.preview())) {
@@ -536,6 +599,12 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
                 lines.push_back({*m->start, *m->end, kMeasure});
             }
         }
+    }
+    if (const auto* m = std::get_if<MeasurePreview>(&editor.preview()); m && m->guide) appendGuide(lines, *m->guide, kMeasure);
+    if (const auto* pr = std::get_if<ProtractorPreview>(&editor.preview())) {
+        appendProtractor(lines, pr->center, pr->normal, pr->reference ? pr->reference : pr->current, normalColor(pr->normal));
+        if (pr->reference) lines.push_back({pr->center, pr->center + *pr->reference, kPreviewEdge});
+        if (pr->guide) appendGuide(lines, *pr->guide, kMeasure);
     }
     if (const auto& snap = tools.snapIndicator()) drawSnap(lines, *snap);
     renderer_.drawLines(lines, false);

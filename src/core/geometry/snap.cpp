@@ -90,6 +90,9 @@ const char* snapKindName(SnapKind kind) {
     case Grid: return "Grid";
     case OnFace: return "On face";
     case Inference: return "Inference";
+    case OnGuide: return "On guide";
+    case GuideCrossing: return "Guide crossing";
+    case GuidePoint: return "Guide point";
     case Midpoint: return "Midpoint";
     case Endpoint: return "Endpoint";
     }

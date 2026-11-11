@@ -1,6 +1,7 @@
 #include "app/tools/snapper.hpp"
 
 #include "core/document/tolerance.hpp"
+#include "core/geometry/guide_snap.hpp"
 
 #include <glm/geometric.hpp>
 
@@ -41,7 +42,18 @@ std::optional<SnapResult> PointSnapper::point(const PointerInput& input, std::op
     // the excluded object (the one being edited, drawn as a preview).
     std::optional<double> occluder;
     if (input.pick && !(exclude && input.pick->objectId == *exclude)) occluder = input.pick->distance;
-    auto hit = index_.nearest(input.ray, input.pixelAngle * settings_.radiusPx, occluder, exclude);
+    const double radius = input.pixelAngle * settings_.radiusPx;
+    auto hit = index_.nearest(input.ray, radius, occluder, exclude);
+    const auto& guides = editor_.document().guides;
+    if (settings_.guides && !guides.empty()) {
+        // Guide points and crossings compete with corners and midpoints; a
+        // guide line is only used when no point is near.
+        if (auto g = nearestGuidePoint(guides, index_, input.ray, radius, occluder)) {
+            const auto score = hit ? snapScore(input.ray, *hit) : std::nullopt;
+            if (!score || g->score < *score) hit = std::move(g->snap);
+        }
+        if (!hit) return nearestOnGuide(guides, input.ray, radius, occluder);
+    }
     if (hit) remember(hit->featurePoint);
     return hit;
 }

@@ -34,6 +34,10 @@ std::optional<std::string> validateDimension(const Dimension& dimension, const D
 /// Validates a whole document: every object and dimension, unique IDs, and
 /// nextId greater than every used ID. Used for every commit and before an opened file replaces the
 /// current project.
+/// A guide: positive id, finite point within the model range, and for a line
+/// a unit direction (within 1e-6).
+std::optional<std::string> validateGuide(const Guide& guide, std::string_view path);
+
 std::optional<std::string> validateDocument(const Document& document);
 
 } // namespace pf

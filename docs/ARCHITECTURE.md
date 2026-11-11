@@ -56,6 +56,7 @@ struct Document {
     uint64_t nextId;                   // allocator for stable object and dimension IDs (saved in files)
     std::vector<ObjectPtr> objects;    // shared_ptr<const ProfileObject>
     std::vector<Dimension> dimensions; // annotations (small values)
+    std::vector<Guide> guides;         // construction guide lines and points (small values)
 };
 struct ProfileObject {
     ObjectId id;                       // stable: never reused; survives undo/redo/save/load
@@ -94,6 +95,11 @@ resolved from the object every time, so a dimension follows its object. Deleting
 deletes its dimensions in the same commit. A zero-length dimension is refused when it is
 added, but not by validation, so an edit that brings a free end onto an attached one is
 never rejected because of an annotation.
+
+A `Guide` (`guide-<n>`, also numbered from `nextId`) is an infinite line (`point`, unit
+`direction`) or a single point in world space. Guides are not geometry: they belong to no
+object, never make edges or faces, and stay put when objects move. `addGuide` and
+`deleteGuides` commit them like any other edit, so they undo and redo.
 
 Objects are immutable once in a document. Operations (`core/commands/operations.*`:
 `createRectangle`, `extrudeProfile`, `setExtrusionHeight`, `rotateObject`, `scaleObject`,
@@ -303,6 +309,14 @@ resolved pick, screen position), so tests drive it with synthetic events and no 
   viewport as a marker and dashed guides drawn on top. `snapPointer` and
   `resolveSnapFeature` let other tools (tape measure, dimensions) snap the same way and
   refer to a corner or midpoint by object and feature index.
+- Guides in snapping (`core/geometry/guide_snap.*`, used by `PointSnapper::point`, so every
+  tool sees them): a guide point and a crossing of a guide line with another guide line or
+  an object edge are point candidates that compete with endpoints and midpoints on the
+  same weighted angular score (a guide point weighs like an endpoint, a crossing between
+  an endpoint and a midpoint); only when no point is near does the pointer snap onto the
+  nearest guide line (`SnapKind::OnGuide`, not remembered as an inference reference). The
+  face under the pointer hides guide candidates behind it. `SnapSettings::guides`
+  (View > Guides) hides guides and turns their snapping off together.
 - Tape measure and dimensions (`app/tools/measure_tool.*`): `MeasureTool` snaps each
   pointer event with `ToolContext::measureSnap` (built on `snapPointer`). An endpoint or
   midpoint snap becomes an attached anchor through `anchorAt`, which matches the point
@@ -311,7 +325,15 @@ resolved pick, screen position), so tests drive it with synthetic events and no 
   pointer ray meets the plane through the measured segment that faces the viewer, and the
   offset is the part of that hit perpendicular to the segment. The viewport draws
   dimensions and the live measurement on top of the model; their labels are drawn by the
-  UI at `Camera::project` of the line's middle.
+  UI at `Camera::project` of the line's middle. With guide creation on (Ctrl or Option
+  tap), a tape started on an edge (`PointerInput::element`) or on a guide line adds a
+  parallel guide line through the second point, and one started on a point adds a guide
+  point; the live guide is in `MeasurePreview::guide`.
+- Protractor (`app/tools/protractor_tool.*`): centre, baseline, angle, like Rotate, but the
+  plane is the face under the pointer (or the ground, or the arrow-key axis lock) and the
+  result is a guide line through the centre (`ProtractorPreview`, `protractorDirection`).
+- The viewport draws guide lines as dashes of constant screen size out to a far
+  distance, and guide points as small three-axis crosses, depth-tested like edges.
 - Input ownership (`App::handleViewportInput`): Dear ImGui owns the pointer over panels,
   menus and popups (`WantCaptureMouse`); a drag that starts in the viewport belongs to the
   viewport until its button is released. Left button = active tool (or orbit with the
@@ -358,7 +380,10 @@ resolved pick, screen position), so tests drive it with synthetic events and no 
 - `document` is exactly the editable model; `view` (camera) is optional and ignored if
   invalid.
 - `document.dimensions` is optional and only written when the project has dimensions, so
-  files without annotations are unchanged. An anchor is `{"point": [x,y,z]}` or
+  files without annotations are unchanged. `document.guides` works the same way: each
+  entry is `{"id": "guide-N", "kind": "line", "point": [x,y,z], "direction": [x,y,z]}` or
+  `{"id": "guide-N", "kind": "point", "point": [x,y,z]}`. It is additive within version 3:
+  earlier readers skip the key, so they still open such a file (without its guides). An anchor is `{"point": [x,y,z]}` or
   `{"object": "obj-N", "vertices": [i]}` (a corner) / `[i, j]` (an edge midpoint). It is
   part of file format version 2 together with rotation. Version 1 files saved while
   dimensions were new can carry the key; the migration keeps it, and readers that predate

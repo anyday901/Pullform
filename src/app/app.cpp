@@ -465,6 +465,9 @@ void App::handleActions() {
         case UiAction::SelectAll: selectAllObjects(); break;
         case UiAction::FitView: fitView(); break;
         case UiAction::ResetView: viewport_->camera().reset(); onActivity(); break;
+        case UiAction::DeleteGuides:
+            if (auto e = tools_.deleteGuides()) editor_.notify(Message{Message::Kind::Error, *e});
+            break;
         }
     }
 }
@@ -601,7 +604,8 @@ void App::handleMoveCopyTap() {
     constexpr ImGuiKey left = ImGuiKey_LeftCtrl;
     constexpr ImGuiKey right = ImGuiKey_RightCtrl;
 #endif
-    if (tools_.tool() != Tool::Move) {
+    // The same tap toggles the tape measure's guide creation.
+    if (tools_.tool() != Tool::Move && tools_.tool() != Tool::TapeMeasure) {
         copyTapArmed_ = false;
         return;
     }
@@ -617,7 +621,8 @@ void App::handleMoveCopyTap() {
     }
     if (ImGui::IsKeyReleased(left) || ImGui::IsKeyReleased(right)) {
         copyTapArmed_ = false;
-        tools_.toggleMoveCopy();
+        if (tools_.tool() == Tool::Move) tools_.toggleMoveCopy();
+        else tools_.toggleTapeGuides();
         onActivity();
     }
 }

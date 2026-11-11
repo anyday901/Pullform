@@ -157,6 +157,19 @@ std::optional<std::string> validateDimension(const Dimension& d, const Document&
     return std::nullopt;
 }
 
+std::optional<std::string> validateGuide(const Guide& g, std::string_view path) {
+    if (g.id.value == 0) return join(path, ".id: must be a positive guide ID");
+    if (!finiteInRange(g.point)) return join(path, ".point: values must be finite and within +/-10 km");
+    if (g.kind == Guide::Kind::Line) {
+        const Vec3& d = g.direction;
+        if (!std::isfinite(d.x) || !std::isfinite(d.y) || !std::isfinite(d.z) ||
+            std::abs(std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z) - 1.0) > 1e-6) {
+            return join(path, ".direction: must be a unit vector");
+        }
+    }
+    return std::nullopt;
+}
+
 std::optional<std::string> validateDocument(const Document& doc) {
     if (doc.nextId < 1 || doc.nextId > (std::uint64_t{1} << 53)) return "document.nextId: must be a positive integer";
     std::set<std::uint64_t> seen;
@@ -178,6 +191,15 @@ std::optional<std::string> validateDocument(const Document& doc) {
         if (!seen.insert(d.id.value).second) return path + ".id: the number in " + idString(d.id) + " is already used";
         if (d.id.value >= doc.nextId) {
             return "document.nextId: must be greater than the number in every dimension ID (found " + idString(d.id) + ")";
+        }
+    }
+    for (std::size_t i = 0; i < doc.guides.size(); ++i) {
+        const std::string path = "document.guides[" + std::to_string(i) + "]";
+        const auto& g = doc.guides[i];
+        if (auto e = validateGuide(g, path)) return e;
+        if (!seen.insert(g.id.value).second) return path + ".id: the number in " + idString(g.id) + " is already used";
+        if (g.id.value >= doc.nextId) {
+            return "document.nextId: must be greater than the number in every guide ID (found " + idString(g.id) + ")";
         }
     }
     return std::nullopt;

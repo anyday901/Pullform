@@ -12,8 +12,8 @@ namespace pf {
 
 /// Every tool the controller can switch to. Adding a tool: a value here, a
 /// name in toolName(), and one registration line in ToolController's constructor.
-enum class Tool { Select, Rectangle, PushPull, Move, Rotate, Scale, Orbit, TapeMeasure, Dimension };
-inline constexpr int kToolCount = static_cast<int>(Tool::Dimension) + 1;
+enum class Tool { Select, Rectangle, PushPull, Move, Rotate, Scale, Orbit, TapeMeasure, Dimension, Protractor };
+inline constexpr int kToolCount = static_cast<int>(Tool::Protractor) + 1;
 
 std::string_view toolName(Tool tool);
 

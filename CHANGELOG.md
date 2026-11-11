@@ -9,6 +9,18 @@ include breaking changes, but project files will keep a migration path.
 
 ### Added
 
+- **Construction guides and the Protractor.** The Tape Measure started on an edge (or on
+  a guide line) adds a guide line parallel to it through the second click, or at a typed
+  distance on the pointer's side; started on a point it adds a guide point (not on a
+  corner or midpoint that is already there). Tapping Ctrl (Option on macOS) turns guide
+  creation off and on. The new **Protractor** tool adds an angled guide line: click the
+  centre (it lies on the face under the pointer, or the arrow keys lock its plane), a
+  point on the baseline, then the angle (15-degree steps with grid snap, or type degrees).
+  Every tool snaps to guide points, to where guides cross each other or an object edge,
+  and onto guide lines. View > Guides hides them (hidden guides do not snap) and
+  Edit > Delete Guides removes them all in one undo entry. Guides are saved in the
+  project file as an optional `document.guides` list, so files without guides are
+  unchanged.
 - **Multi-selection.** With the Select tool, Shift-click adds or removes an object,
   Ctrl-click (Cmd on macOS) adds one, clicking empty space clears, and Ctrl+A / Cmd+A
   (Edit > Select all) selects everything. Drag a box left to right to select objects

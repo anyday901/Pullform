@@ -13,6 +13,7 @@ add_library(pullform_core STATIC
   geometry/topology.cpp
   geometry/element_pick.cpp
   geometry/snap.cpp
+  geometry/guide_snap.cpp
   geometry/measure.cpp
   geometry/region_select.cpp
   commands/operations.cpp

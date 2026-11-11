@@ -17,7 +17,10 @@ enum class SnapKind {
     Grid,      ///< grid increment
     OnFace,    ///< a point on a face under the pointer (no edge or corner nearby)
     Inference, ///< aligned with a reference point along an axis (see SnapGuide)
+    OnGuide,   ///< on a construction guide line (feature = index into Document::guides)
     Midpoint,  ///< midpoint of an object edge
+    GuideCrossing, ///< where a guide line crosses another guide line or an object edge
+    GuidePoint,    ///< a construction guide point (feature = index into Document::guides)
     Endpoint,  ///< corner (vertex) of an object
 };
 
@@ -59,7 +62,8 @@ struct SnapResult {
     /// The object snapped to (Endpoint, Midpoint, OnFace).
     std::optional<ObjectId> objectId;
     /// Endpoint: index into SnapFeatures::vertices. Midpoint: index into
-    /// SnapFeatures::edges. Otherwise -1.
+    /// SnapFeatures::edges. OnGuide and GuidePoint: index into
+    /// Document::guides. Otherwise -1.
     int feature = -1;
     /// The feature's own position before any projection (for example the top
     /// corner of a box whose ground point the rectangle tool uses).
