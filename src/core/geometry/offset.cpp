@@ -266,20 +266,24 @@ Expected<std::vector<OffsetLoop>> offsetLoops(const Mesh& mesh, FaceId id, doubl
         std::vector<Vec2> poly;
         for (const Vec3& p : mesh.loopPositions(f->loops[l])) poly.push_back(frame.to2d(p));
         const double before = area2d(poly);
-        const auto moved = offsetPolygon(poly, distance);
-        const double after = moved ? area2d(moved->points) : 0.0;
-        // The loop closed up, or turned inside out (its winding flipped).
-        const bool vanished = !moved || std::abs(after) <= tol::kMinArea || (after > 0.0) != (before > 0.0);
-        if (vanished) {
+        auto moved = offsetPolygon(poly, distance);
+        if (!moved) {
             if (l == 0) return Error{"The offset is too large for this face."};
             continue; // a hole shrinking to nothing is simply gone
         }
-        if (selfCrossing(moved->points)) return Error{"The offset is too large for this face: its edges would cross."};
+        std::vector<Vec2> points = std::move(moved->points);
+        const double after = area2d(points);
+        // The loop closed up, or turned inside out (its winding flipped).
+        if (std::abs(after) <= tol::kMinArea || (after > 0.0) != (before > 0.0)) {
+            if (l == 0) return Error{"The offset is too large for this face."};
+            continue;
+        }
+        if (selfCrossing(points)) return Error{"The offset is too large for this face: its edges would cross."};
         OffsetLoop loop;
         loop.source = l;
-        for (const Vec2& p : moved->points) loop.points.push_back(frame.to3d(p));
-        loop.sourceEdges = moved->edges;
-        shapes.push_back(moved->points);
+        for (const Vec2& p : points) loop.points.push_back(frame.to3d(p));
+        loop.sourceEdges = std::move(moved->edges);
+        shapes.push_back(std::move(points));
         out.push_back(std::move(loop));
     }
     for (std::size_t a = 0; a < shapes.size(); ++a) {
