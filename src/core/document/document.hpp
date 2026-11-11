@@ -20,6 +20,10 @@
 // Coordinate convention: right-handed, Z-up, meters, double precision. The
 // ground plane and initial drawing plane is XY at z = 0.
 
+namespace pf::mesh {
+class Mesh;
+}
+
 namespace pf {
 
 using Vec2 = glm::dvec2;
@@ -82,13 +86,23 @@ Mat3 rotationMatrix(const Transform& transform);
 /// A rotation of `radians` about the unit `axis` (right-hand rule).
 Quat axisAngle(const Vec3& axis, double radians);
 
+/// An object is a group: it owns its geometry, so nothing merges across
+/// objects (docs/GEOMETRY.md). During the Phase 1 transition a group is one of:
+///  - a profile group (`mesh` empty): a rectangle or box whose profile and
+///    extrusion are the source of truth; its edge/face mesh is derived from them
+///    (mesh::objectMesh) and written to files beside them;
+///  - a mesh group (`mesh` set): free edges and faces in object-local space;
+///    `profile.boundary` is empty and there is no extrusion.
 struct ProfileObject {
     ObjectId id;
     std::string name;
     Profile profile;
     std::optional<Extrusion> extrusion; ///< empty = planar face; otherwise a closed prism
     Transform transform;
-    friend bool operator==(const ProfileObject&, const ProfileObject&) = default;
+    std::shared_ptr<const mesh::Mesh> mesh; ///< set for a mesh group; immutable and shared like objects
+    [[nodiscard]] bool isMeshGroup() const { return mesh != nullptr; }
+    /// Deep comparison (mesh contents, not pointer identity).
+    friend bool operator==(const ProfileObject& a, const ProfileObject& b);
 };
 
 /// Objects are immutable once in a document and shared between document
@@ -153,18 +167,20 @@ bool sameContent(const Document& a, const Document& b);
 ///  - Profile: the single face of an un-extruded profile
 ///  - Base / Cap: bottom and top of an extrusion
 ///  - Side i: the side generated from boundary edge i (vertex i to i+1)
-enum class FaceKind { Profile, Base, Cap, Side };
+///  - Mesh: face `side` (its mesh::FaceId value) of a mesh group
+enum class FaceKind { Profile, Base, Cap, Side, Mesh };
 
 struct FaceId {
     FaceKind kind = FaceKind::Profile;
-    int side = 0; ///< boundary edge index; only meaningful for FaceKind::Side
+    int side = 0; ///< boundary edge index for FaceKind::Side; mesh face id for FaceKind::Mesh
     friend bool operator==(const FaceId& a, const FaceId& b) {
-        return a.kind == b.kind && (a.kind != FaceKind::Side || a.side == b.side);
+        return a.kind == b.kind && ((a.kind != FaceKind::Side && a.kind != FaceKind::Mesh) || a.side == b.side);
     }
     static FaceId profile() { return {FaceKind::Profile, 0}; }
     static FaceId base() { return {FaceKind::Base, 0}; }
     static FaceId cap() { return {FaceKind::Cap, 0}; }
     static FaceId sideAt(int i) { return {FaceKind::Side, i}; }
+    static FaceId meshFace(std::uint32_t id) { return {FaceKind::Mesh, static_cast<int>(id)}; }
 };
 
 std::string faceKey(FaceId face);

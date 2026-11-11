@@ -119,6 +119,7 @@ std::string faceKey(FaceId face) {
     case FaceKind::Base: return "base";
     case FaceKind::Cap: return "cap";
     case FaceKind::Side: return "side-" + std::to_string(face.side);
+    case FaceKind::Mesh: return "face-" + std::to_string(face.side);
     }
     return "profile";
 }
@@ -130,6 +131,7 @@ std::string faceLabel(const std::optional<FaceId>& face) {
     case FaceKind::Base: return "Base";
     case FaceKind::Cap: return "Cap (top)";
     case FaceKind::Side: return "Side " + std::to_string(face->side + 1);
+    case FaceKind::Mesh: return "Face " + std::to_string(face->side);
     }
     return "Face";
 }

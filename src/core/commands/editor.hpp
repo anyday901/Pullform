@@ -4,6 +4,7 @@
 #include "core/commands/selection.hpp"
 #include "core/document/document.hpp"
 #include "core/geometry/rectangle.hpp"
+#include "core/geometry/region_select.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -68,6 +69,9 @@ struct MovePreview {
     std::optional<MoveAxis> axis;     ///< locked axis, if any
     std::optional<std::string> error; ///< why the current offset cannot be committed
     bool copy = false;                ///< committing places a copy; the original stays put
+    /// Every object that moves when several are selected (includes objectId);
+    /// empty when only objectId moves.
+    std::vector<ObjectId> objectIds;
 };
 
 /// Live rotate preview. `reference` and `current` are offsets from `pivot` in
@@ -82,6 +86,10 @@ struct RotatePreview {
     double angle = 0.0;            ///< radians, right-hand rule about `axis`
     std::optional<ProfileObject> result;
     std::optional<std::string> error;
+    /// With several objects selected: every rotated object (includes `result`).
+    std::vector<ProfileObject> group;
+    /// With several objects selected: every object turning (includes objectId).
+    std::vector<ObjectId> objectIds;
 };
 
 /// Live scale preview: uniform factor from the ratio of pointer distances to
@@ -94,15 +102,33 @@ struct ScalePreview {
     double factor = 1.0;
     std::optional<ProfileObject> result;
     std::optional<std::string> error;
+    /// With several objects selected: every scaled object (includes `result`).
+    std::vector<ProfileObject> group;
+    /// With several objects selected: every object scaling (includes objectId).
+    std::vector<ObjectId> objectIds;
+};
+
+/// Live window (left to right) or crossing (right to left) selection
+/// rectangle, in the pointer's screen coordinates (PointerInput::screen), with
+/// the objects that will be selected when it is released.
+struct SelectBoxPreview {
+    Vec2 start{0.0};
+    Vec2 end{0.0};
+    RegionMode mode = RegionMode::Window;
+    std::vector<ObjectId> found;
 };
 
 /// Transient feedback drawn by the viewport. Never part of the document or history.
 using Preview =
-    std::variant<std::monostate, RectanglePreview, PushPullPreview, MovePreview, RotatePreview, ScalePreview, MeasurePreview>;
+    std::variant<std::monostate, RectanglePreview, PushPullPreview, MovePreview, RotatePreview, ScalePreview, MeasurePreview,
+                 SelectBoxPreview>;
 
 /// The object a preview draws in place of the document's version (push/pull,
 /// rotate and scale), if any. The viewport hides the original while it is set.
 std::optional<ObjectId> replacedObject(const Preview& preview);
+/// Every object a preview draws in place of the document's version: a
+/// multi-object move (not a copy), rotate or scale hides all of them.
+std::vector<ObjectId> replacedObjects(const Preview& preview);
 
 /// The editing session: the current document, selection, transient preview and
 /// snapshot-based undo/redo.
@@ -122,13 +148,25 @@ public:
     static constexpr std::size_t kMaxHistory = 200;
 
     using Operation = std::function<Expected<OpResult>(const Document&)>;
-    using SelectAfter = std::function<std::optional<Selection>(const OpResult&)>;
+    /// The selection after a commit. A function returning one Selection (or
+    /// nothing) converts implicitly to a single-object SelectionSet.
+    using SelectAfter = std::function<SelectionSet(const OpResult&)>;
 
     Editor();
 
     [[nodiscard]] const Document& document() const { return document_; }
-    [[nodiscard]] const std::optional<Selection>& selection() const { return selection_; }
+    /// The primary selected object (the one most recently clicked, with its
+    /// face), or nothing. Single-object tools use this.
+    [[nodiscard]] const std::optional<Selection>& selection() const { return selection_.primary(); }
+    /// Every selected object (multi-selection); includes the primary.
+    [[nodiscard]] const SelectionSet& selectionSet() const { return selection_; }
+    /// The selected objects, primary last.
+    [[nodiscard]] const std::vector<ObjectId>& selectedObjects() const { return selection_.objects(); }
+    [[nodiscard]] bool isSelected(ObjectId id) const { return selection_.contains(id); }
     [[nodiscard]] const std::optional<Selection>& hover() const { return hover_; }
+    /// The vertex, edge or face under the pointer in the Select tool, if any.
+    /// Cleared whenever the document changes (ids may no longer exist).
+    [[nodiscard]] const std::optional<ElementRef>& hoverElement() const { return hoverElement_; }
     [[nodiscard]] const Preview& preview() const { return preview_; }
     [[nodiscard]] const std::optional<Message>& message() const { return message_; }
 
@@ -146,8 +184,12 @@ public:
     [[nodiscard]] std::size_t undoDepth() const { return undo_.size(); }
     [[nodiscard]] std::size_t redoDepth() const { return redo_.size(); }
 
+    /// Selects just this object (or clears the selection).
     void select(const std::optional<Selection>& selection);
+    /// Replaces the whole selection (not model history).
+    void setSelection(const SelectionSet& selection);
     void setHover(const std::optional<Selection>& hover);
+    void setHoverElement(const std::optional<ElementRef>& element);
     void setPreview(Preview preview);
     void cancelPreview();
     void notify(std::optional<Message> message);
@@ -172,7 +214,7 @@ public:
 private:
     struct Snapshot {
         Document document;
-        std::optional<Selection> selection;
+        SelectionSet selection;
         std::uint64_t stateId = 0;
         std::string label;
     };
@@ -181,8 +223,9 @@ private:
     void touch() { ++changeCount_; }
 
     Document document_;
-    std::optional<Selection> selection_;
+    SelectionSet selection_;
     std::optional<Selection> hover_;
+    std::optional<ElementRef> hoverElement_;
     Preview preview_;
     std::optional<Message> message_;
     std::deque<Snapshot> undo_;

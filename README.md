@@ -118,6 +118,7 @@ tree, configure with `-DFETCHCONTENT_FULLY_DISCONNECTED=ON`.
 | Pan | Right drag, or Shift + middle drag |
 | Zoom | Mouse wheel (toward the cursor) |
 | Select tool | Space |
+| Select: a face with its edges / everything connected | Double-click / triple-click |
 | Rectangle tool | R |
 | Push/Pull tool | P |
 | Move tool | M |

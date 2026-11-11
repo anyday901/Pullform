@@ -4,8 +4,17 @@
 # synthetic pointer events.
 add_library(pullform_app_logic STATIC
   tools/snapper.cpp
+  tools/tool_support.cpp
   tools/tool_controller.cpp
+  tools/select_tool.cpp
+  tools/rectangle_tool.cpp
+  tools/push_pull_tool.cpp
+  tools/move_tool.cpp
+  tools/rotate_tool.cpp
+  tools/scale_tool.cpp
+  tools/orbit_tool.cpp
   tools/measure_tool.cpp
+  tools/element_select.cpp
   viewport/camera.cpp
   viewport/mesh_cache.cpp)
 target_link_libraries(pullform_app_logic PUBLIC pullform_core)

@@ -12,7 +12,7 @@
 namespace pf {
 
 /// Commands the interface asks the application to perform.
-enum class UiAction { New, Open, Save, SaveAs, Quit, Undo, Redo, Delete, Duplicate, FitView, ResetView };
+enum class UiAction { New, Open, Save, SaveAs, Quit, Undo, Redo, Delete, Duplicate, SelectAll, FitView, ResetView };
 
 /// What the interface needs to know about the application each frame.
 struct UiContext {
@@ -21,6 +21,7 @@ struct UiContext {
     std::string projectName;
     bool dirty = false;
     double gridStep = 0.1;
+    bool* profileEdges = nullptr; ///< viewport "profiles" edge style toggle, if offered
 };
 
 /// Rectangle (window coordinates) left for the 3D viewport after laying out panels.
@@ -38,6 +39,10 @@ public:
 
     /// Draws dimension and measurement labels over the viewport.
     void drawLabels(const std::vector<ViewportLabel>& labels);
+    /// Draws the window/crossing selection rectangle while one is dragged:
+    /// solid blue for window (left to right), dashed green for crossing.
+    /// The box is in window coordinates (as PointerInput::screen).
+    void drawSelectBox(const Editor& editor);
 
     /// Actions requested since the last call.
     std::vector<UiAction> takeActions();

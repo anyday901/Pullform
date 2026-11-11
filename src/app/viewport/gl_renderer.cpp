@@ -7,6 +7,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+#include <algorithm>
 #include <cstdio>
 #include <stdexcept>
 #include <string>
@@ -53,6 +54,17 @@ out vec4 vColor;
 void main() {
     vColor = aColor;
     gl_Position = uMvp * vec4(aPosition, 1.0);
+}
+)";
+
+// Wide lines arrive already expanded to quads in clip space (see drawWideLines).
+constexpr const char* kWideLineVertex = R"(#version 330 core
+layout(location = 0) in vec4 aClip;
+layout(location = 1) in vec4 aColor;
+out vec4 vColor;
+void main() {
+    vColor = aColor;
+    gl_Position = aClip;
 }
 )";
 
@@ -113,11 +125,14 @@ struct LineVertex {
     float color[4];
 };
 
+struct WideLineVertex {
+    float clip[4];
+    float color[4];
+};
+
 class GlRenderer final : public Renderer {
 public:
-    GlRenderer()
-        : meshProgram_(link(kMeshVertex, kMeshFragment)), lineProgram_(link(kLineVertex, kLineFragment)),
-          lineVao_(gl::makeVertexArray()), lineVbo_(gl::makeBuffer()) {
+    GlRenderer() {
         meshMvp_ = glGetUniformLocation(meshProgram_.get(), "uMvp");
         meshColor_ = glGetUniformLocation(meshProgram_.get(), "uColor");
         meshLight_ = glGetUniformLocation(meshProgram_.get(), "uLightDir");
@@ -130,6 +145,14 @@ public:
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(LineVertex), reinterpret_cast<void*>(offsetof(LineVertex, position)));
         glEnableVertexAttribArray(1);
         glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(LineVertex), reinterpret_cast<void*>(offsetof(LineVertex, color)));
+
+        glBindVertexArray(wideVao_.get());
+        glBindBuffer(GL_ARRAY_BUFFER, wideVbo_.get());
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(WideLineVertex), reinterpret_cast<void*>(offsetof(WideLineVertex, clip)));
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(WideLineVertex),
+                              reinterpret_cast<void*>(offsetof(WideLineVertex, color)));
         glBindVertexArray(0);
     }
 
@@ -233,6 +256,70 @@ public:
         glBindVertexArray(0);
     }
 
+    void drawWideLines(const std::vector<LineSegment>& lines, float widthPixels, bool depthTest) override {
+        if (lines.empty()) return;
+        // Expanded on the CPU in double precision: each segment is clipped to the
+        // near plane in clip space, then offset sideways by half the width in
+        // pixels on both sides. Two triangles per segment.
+        const double halfW = 0.5 * static_cast<double>(widthPixels);
+        const glm::dvec2 toNdc{2.0 / std::max(frame_.width, 1), 2.0 / std::max(frame_.height, 1)};
+        constexpr double kNearW = 1e-6;
+        wideScratch_.clear();
+        wideScratch_.reserve(lines.size() * 6);
+        for (const auto& l : lines) {
+            glm::dvec4 p = viewProj_ * glm::dvec4(l.a, 1.0);
+            glm::dvec4 q = viewProj_ * glm::dvec4(l.b, 1.0);
+            glm::vec4 cp = l.color;
+            glm::vec4 cq = l.colorB.a < 0.0f ? l.color : l.colorB;
+            if (p.w < kNearW && q.w < kNearW) continue; // entirely behind the eye
+            if (p.w < kNearW || q.w < kNearW) {
+                const double t = (kNearW - p.w) / (q.w - p.w);
+                const glm::dvec4 m = p + (q - p) * t;
+                const glm::vec4 cm = cp + (cq - cp) * static_cast<float>(t);
+                if (p.w < kNearW) {
+                    p = m;
+                    cp = cm;
+                } else {
+                    q = m;
+                    cq = cm;
+                }
+            }
+            // Screen-space direction (pixels), then the perpendicular offset in NDC.
+            const glm::dvec2 sp = glm::dvec2(p) / p.w / toNdc;
+            const glm::dvec2 sq = glm::dvec2(q) / q.w / toNdc;
+            glm::dvec2 dir = sq - sp;
+            const double len = glm::length(dir);
+            dir = len > 1e-9 ? dir / len : glm::dvec2{1.0, 0.0};
+            const glm::dvec2 offset = glm::dvec2{-dir.y, dir.x} * halfW * toNdc;
+            const auto corner = [&](const glm::dvec4& c, double side, const glm::vec4& color) {
+                const glm::dvec4 v{c.x + offset.x * side * c.w, c.y + offset.y * side * c.w, c.z, c.w};
+                wideScratch_.push_back(WideLineVertex{{static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z),
+                                                       static_cast<float>(v.w)},
+                                                      {color.r, color.g, color.b, color.a}});
+            };
+            corner(p, -1.0, cp);
+            corner(q, -1.0, cq);
+            corner(q, 1.0, cq);
+            corner(p, -1.0, cp);
+            corner(q, 1.0, cq);
+            corner(p, 1.0, cp);
+        }
+        if (wideScratch_.empty()) return;
+        glUseProgram(wideProgram_.get());
+        glBindVertexArray(wideVao_.get());
+        glBindBuffer(GL_ARRAY_BUFFER, wideVbo_.get());
+        glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(wideScratch_.size() * sizeof(WideLineVertex)), wideScratch_.data(),
+                     GL_STREAM_DRAW);
+        glDisable(GL_CULL_FACE); // the quads' winding depends on the line direction
+        if (!depthTest) glDisable(GL_DEPTH_TEST);
+        glDepthMask(GL_FALSE);
+        glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(wideScratch_.size()));
+        glDepthMask(GL_TRUE);
+        glEnable(GL_DEPTH_TEST);
+        glEnable(GL_CULL_FACE);
+        glBindVertexArray(0);
+    }
+
     void endFrame() override {
         glBindVertexArray(0);
         glUseProgram(0);
@@ -254,16 +341,21 @@ private:
         glUniform1f(meshLit_, lit);
     }
 
-    gl::Program meshProgram_;
-    gl::Program lineProgram_;
-    gl::VertexArray lineVao_;
-    gl::Buffer lineVbo_;
+    // Created with the renderer, which needs a current GL context.
+    gl::Program meshProgram_ = link(kMeshVertex, kMeshFragment);
+    gl::Program lineProgram_ = link(kLineVertex, kLineFragment);
+    gl::Program wideProgram_ = link(kWideLineVertex, kLineFragment);
+    gl::VertexArray lineVao_ = gl::makeVertexArray();
+    gl::Buffer lineVbo_ = gl::makeBuffer();
+    gl::VertexArray wideVao_ = gl::makeVertexArray();
+    gl::Buffer wideVbo_ = gl::makeBuffer();
     GLint meshMvp_ = -1, meshColor_ = -1, meshLight_ = -1, meshLit_ = -1, lineMvp_ = -1;
     std::unordered_map<MeshHandle, GpuMesh> meshes_;
     MeshHandle nextHandle_ = 1;
     FrameSetup frame_;
     glm::dmat4 viewProj_{1.0};
     std::vector<LineVertex> lineScratch_;
+    std::vector<WideLineVertex> wideScratch_;
 };
 
 } // namespace

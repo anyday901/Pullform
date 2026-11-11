@@ -1,5 +1,7 @@
 #include "core/geometry/solid.hpp"
 
+#include "core/geometry/mesh.hpp"
+
 #include <glm/geometric.hpp>
 
 #include <algorithm>
@@ -9,7 +11,56 @@
 
 namespace pf {
 
+namespace {
+
+/// Faces of a mesh group: each face's outer loop in world space (holes are in
+/// the mesh; buildMesh triangulates them).
+std::vector<FacePolygon> meshGroupFaces(const ProfileObject& o) {
+    std::vector<FacePolygon> faces;
+    const Mat3 r = rotationMatrix(o.transform);
+    for (const auto& [id, f] : o.mesh->faces()) {
+        FacePolygon poly{FaceId::meshFace(id), {}, glm::normalize(r * f.normal)};
+        for (const auto& p : o.mesh->loopPositions(f.loops[0])) poly.loop.push_back(localToWorld(o, p));
+        faces.push_back(std::move(poly));
+    }
+    return faces;
+}
+
+MeshData meshGroupMesh(const ProfileObject& o) {
+    const mesh::Mesh& m = *o.mesh;
+    const Mat3 r = rotationMatrix(o.transform);
+    MeshData data;
+    for (const auto& [id, f] : m.faces()) {
+        const FaceId faceId = FaceId::meshFace(id);
+        const Vec3 n = glm::normalize(r * f.normal);
+        const auto tris = mesh::triangulateFace(m, mesh::FaceId{id});
+        const auto first = static_cast<std::uint32_t>(data.indices.size());
+        // Two-sided like a planar profile: front set, then the reversed back set.
+        for (const double side : {1.0, -1.0}) {
+            for (const auto& t : tris) {
+                const auto base = static_cast<std::uint32_t>(data.positions.size());
+                for (int k = 0; k < 3; ++k) {
+                    const auto v = side > 0 ? t[static_cast<std::size_t>(k)] : t[static_cast<std::size_t>(2 - k)];
+                    data.positions.push_back(localToWorld(o, m.vertex(v)->position));
+                    data.normals.push_back(n * side);
+                }
+                data.indices.insert(data.indices.end(), {base, base + 1, base + 2});
+                data.triangleFaces.push_back(faceId);
+            }
+        }
+        data.faces.push_back({faceId, first, static_cast<std::uint32_t>(data.indices.size()) - first});
+    }
+    for (const auto& [id, e] : m.edges()) {
+        data.edges.push_back(localToWorld(o, m.vertex(e.v0)->position));
+        data.edges.push_back(localToWorld(o, m.vertex(e.v1)->position));
+    }
+    return data;
+}
+
+} // namespace
+
 std::vector<FacePolygon> buildFaces(const ProfileObject& o, std::optional<double> heightOverride) {
+    if (o.mesh) return meshGroupFaces(o);
     const auto& boundary = o.profile.boundary;
     const Vec3 n = profileNormalWorld(o);
     std::optional<double> height = heightOverride;
@@ -37,6 +88,7 @@ std::vector<FacePolygon> buildFaces(const ProfileObject& o, std::optional<double
 }
 
 MeshData buildMesh(const ProfileObject& o, std::optional<double> heightOverride) {
+    if (o.mesh) return meshGroupMesh(o);
     const auto faces = buildFaces(o, heightOverride);
     MeshData mesh;
     mesh.closed = faces.size() > 1;
@@ -143,6 +195,10 @@ void Bounds::extend(const Bounds& b) {
 
 Bounds objectBounds(const ProfileObject& o) {
     Bounds b;
+    if (o.mesh) {
+        for (const auto& [id, v] : o.mesh->vertices()) b.extend(localToWorld(o, v.position));
+        return b;
+    }
     for (const auto& face : buildFaces(o)) {
         for (const auto& p : face.loop) b.extend(p);
     }

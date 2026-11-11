@@ -1,12 +1,14 @@
 #pragma once
 
-#include "app/tools/measure_tool.hpp"
+#include "app/tools/snapper.hpp"
+#include "app/tools/tool.hpp"
+#include "app/tools/tool_support.hpp"
 #include "core/commands/editor.hpp"
 #include "core/geometry/pick.hpp"
-#include "app/tools/snapper.hpp"
 #include "core/geometry/snap.hpp"
 
-#include <numbers>
+#include <array>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -14,11 +16,15 @@
 
 namespace pf {
 
-enum class Tool { Select, Rectangle, PushPull, Move, Rotate, Scale, Orbit, TapeMeasure, Dimension };
+class MoveTool;
+class PushPullTool;
+class RectangleTool;
+class RotateTool;
+class ScaleTool;
+class MeasureTool;
 
-std::string_view toolName(Tool tool);
-
-/// Interaction state machines for the modeling tools.
+/// Owns the modeling tools (one class per tool, see tool.hpp) and routes
+/// pointer events, keys and typed values to the current one.
 ///
 /// Pointer movement only updates the editor's transient preview; a completed
 /// gesture commits exactly one operation through Editor::commit. Click-click
@@ -27,11 +33,10 @@ std::string_view toolName(Tool tool);
 /// entry calls the same operations as the mouse.
 class ToolController {
 public:
-    static constexpr double kDragThresholdPx = 5.0;
-    static constexpr double kRotateSnapRadians = std::numbers::pi / 12.0; ///< 15 degrees with grid snap on
-    static constexpr double kScaleSnapStep = 0.1;                                ///< factor steps with grid snap on
-
-    explicit ToolController(Editor& editor) : editor_(editor), snapper_(editor, snap_), measure_(editor) {}
+    explicit ToolController(Editor& editor);
+    ~ToolController();
+    ToolController(const ToolController&) = delete;
+    ToolController& operator=(const ToolController&) = delete;
 
     [[nodiscard]] Tool tool() const { return tool_; }
     void setTool(Tool tool);
@@ -41,10 +46,7 @@ public:
 
     /// True while a gesture is in progress (first corner placed, push/pull, move,
     /// rotate, scale or a measurement started).
-    [[nodiscard]] bool active() const {
-        return rect_.has_value() || push_.has_value() || move_.has_value() || rotate_.has_value() || scale_.has_value() ||
-               measure_.active();
-    }
+    [[nodiscard]] bool active() const;
 
     /// Escape: cancels the active gesture. Returns whether anything was cancelled.
     bool cancel();
@@ -52,6 +54,15 @@ public:
     void pointerDown(const PointerInput& input);
     void pointerMove(const PointerInput& input);
     void pointerUp(const PointerInput& input);
+
+    /// A key for the current tool (axis locks and the Rotate axis). Returns
+    /// whether the tool used it.
+    bool key(ToolKey key);
+
+    /// Typed value for the current tool. Returns an error message, or nothing on success.
+    std::optional<std::string> submit(std::string_view text);
+    /// Label of the measurements box for the current tool.
+    [[nodiscard]] std::string_view measurementLabel() const;
 
     /// Exact rectangle size. `depth` empty means `width` holds "w, d". With a
     /// first corner placed, the size is drawn from it toward the pointer;
@@ -67,7 +78,7 @@ public:
     /// is already locked releases it. The lock lasts until the move is
     /// committed or the tool changes, so it can be set before the first click.
     void toggleAxisLock(MoveAxis axis);
-    [[nodiscard]] const std::optional<MoveAxis>& axisLock() const { return axisLock_; }
+    [[nodiscard]] const std::optional<MoveAxis>& axisLock() const;
 
     /// Move copy mode (tap Ctrl, or Option on macOS). While on, committing a
     /// move places a duplicate at the destination and leaves the original where
@@ -75,7 +86,7 @@ public:
     /// lock, it can be set before the first click and lasts until the move is
     /// committed or the tool changes.
     void toggleMoveCopy();
-    [[nodiscard]] bool moveCopy() const { return moveCopy_; }
+    [[nodiscard]] bool moveCopy() const;
 
     /// Exact move. A single length moves along the locked axis or, while a move
     /// is in progress without a lock, along the current pointer direction.
@@ -89,7 +100,7 @@ public:
     /// Rotation axis for the Rotate tool. Changing it during a gesture keeps the
     /// centre and asks for a new reference direction.
     void setRotateAxis(MoveAxis axis);
-    [[nodiscard]] MoveAxis rotateAxis() const { return rotateAxis_; }
+    [[nodiscard]] MoveAxis rotateAxis() const;
 
     /// Exact rotation in degrees. Turns the active gesture's object about its
     /// centre, or else the selected object about the centre of its base. Positive
@@ -107,9 +118,7 @@ public:
     std::optional<std::string> duplicateSelection();
 
     /// Typed value for the tape measure or dimension tool (the dimension line offset).
-    std::optional<std::string> submitMeasure(std::string_view text) { return measure_.submit(text); }
-
-    [[nodiscard]] MeasureTool& measureTool() { return measure_; }
+    std::optional<std::string> submitMeasure(std::string_view text);
 
     /// Explanation when a face cannot be push/pulled in this milestone.
     static std::optional<std::string> pushableReason(const FaceId& face);
@@ -128,7 +137,7 @@ public:
 
     /// The snap shown in the viewport for the last pointer event (marker and
     /// inference guides), if any.
-    [[nodiscard]] const std::optional<SnapResult>& snapIndicator() const { return indicator_; }
+    [[nodiscard]] const std::optional<SnapResult>& snapIndicator() const { return ctx_.indicator; }
 
     /// Points recently snapped to; inference guides align with these.
     [[nodiscard]] const std::vector<Vec3>& inferenceReferences() const { return snapper_.references(); }
@@ -137,96 +146,24 @@ public:
     [[nodiscard]] std::string hint() const;
 
 private:
-    struct RectGesture {
-        Vec3 start{0.0};
-        Vec2 pressScreen{0.0};
-        bool pressed = false;
-    };
-    struct PushGesture {
-        ObjectId objectId;
-        FaceKind face = FaceKind::Profile;
-        Vec3 anchor{0.0};
-        double startHeight = 0.0;
-        double baseZ = 0.0; ///< world height of the profile plane
-        Vec2 pressScreen{0.0};
-        bool pressed = false;
-    };
-
-    struct RotateGesture {
-        ObjectId objectId;
-        Vec3 pivot{0.0};
-        Vec3 axis{0.0, 0.0, 1.0};
-        std::optional<Vec3> reference;
-    };
-    struct ScaleGesture {
-        ObjectId objectId;
-        Vec3 pivot{0.0};
-        Vec3 normal{0.0, 0.0, 1.0};
-        Vec3 start{0.0};
-    };
-    struct MoveGesture {
-        ObjectId objectId;
-        Vec3 anchor{0.0};           ///< picked point the guide line starts from
-        Vec3 startTranslation{0.0}; ///< object translation when the gesture began
-        Vec2 pressScreen{0.0};
-        bool pressed = false;
-        std::optional<Ray> lastRay; ///< re-evaluates the preview when the axis lock changes
-    };
-
-    [[nodiscard]] std::string toolHint() const;
-    [[nodiscard]] std::optional<Vec3> groundPoint(const PointerInput& input);
-    std::optional<double> snapPushHeight(const PointerInput& input, std::optional<double> raw);
-
-    /// Snaps for the tape measure and dimension tools and shows the marker.
-    /// Empty when the pointer reaches neither the model nor the ground (an
-    /// unsnapped ground point, with grid snap off, is still a point).
-    std::optional<SnapResult> measureSnap(const PointerInput& input);
-
-    void selectDown(const PointerInput& input);
-    void rectDown(const PointerInput& input);
-    void rectMove(const PointerInput& input);
-    void rectFinish(const PointerInput& input);
-    bool commitRectangle(const RectanglePlacement& placement);
-    void pushDown(const PointerInput& input);
-    void pushMove(const PointerInput& input);
-    void pushFinish();
-    void setPushPreview(double delta);
-    bool commitHeight(ObjectId id, FaceKind face, double height);
-    void moveDown(const PointerInput& input);
-    void moveMove(const PointerInput& input);
-    void moveFinish();
-    void updateMovePreview(const Ray& ray);
-    [[nodiscard]] std::optional<Vec3> moveOffset(const Ray& ray) const;
-    /// Every move (mouse or typed) commits here: one undo entry.
-    bool commitMove(ObjectId id, const Vec3& offset);
-    [[nodiscard]] std::string lastError(const char* fallback) const;
-
-    /// Selected object for Rotate/Scale; a click on an object selects it first.
-    const ProfileObject* transformTarget(const PointerInput& input);
-    void rotateDown(const PointerInput& input);
-    void rotateMove(const PointerInput& input);
-    bool commitRotation(ObjectId id, const Vec3& pivot, const Vec3& axis, double angle);
-    void scaleDown(const PointerInput& input);
-    void scaleMove(const PointerInput& input);
-    bool commitScale(ObjectId id, const Vec3& factors);
+    /// Registers `T` as the tool for `id`. Returns it for wiring.
+    template <class T, class... Args>
+    T& add(Tool id, Args&&... args);
+    [[nodiscard]] ToolBase& current() const { return *tools_[static_cast<std::size_t>(tool_)]; }
 
     Editor& editor_;
     Tool tool_ = Tool::Select;
+    Tool lastMeasure_ = Tool::TapeMeasure; ///< target of submitMeasure()
     SnapSettings snap_;
-    std::optional<RectGesture> rect_;
-    std::optional<PushGesture> push_;
-    std::optional<RotateGesture> rotate_;
-    std::optional<ScaleGesture> scale_;
-    MoveAxis rotateAxis_ = MoveAxis::Z; ///< world axis Rotate turns about
-    std::optional<MoveGesture> move_;
-    std::optional<MoveAxis> axisLock_;
-    bool moveCopy_ = false;
     PointSnapper snapper_; // after snap_, which it refers to
-    std::optional<SnapResult> indicator_;
-    MeasureTool measure_;
+    ToolContext ctx_;      // after snapper_
+    std::array<std::unique_ptr<ToolBase>, kToolCount> tools_;
+    // Typed views of registered tools, for their tool-specific entry points.
+    RectangleTool* rectangle_ = nullptr;
+    PushPullTool* pushPull_ = nullptr;
+    MoveTool* move_ = nullptr;
+    RotateTool* rotate_ = nullptr;
+    ScaleTool* scale_ = nullptr;
 };
-
-/// World-space centre of an object's base (the default rotation and the scale centre).
-Vec3 baseCenter(const ProfileObject& object);
 
 } // namespace pf

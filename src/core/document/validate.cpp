@@ -2,6 +2,7 @@
 
 #include "core/document/tolerance.hpp"
 #include "core/geometry/measure.hpp"
+#include "core/geometry/mesh.hpp"
 
 #include <cmath>
 #include <set>
@@ -37,6 +38,13 @@ std::optional<std::string> validatePlacement(const ProfileObject& o, std::string
     if (const double len = std::sqrt(q.w * q.w + q.x * q.x + q.y * q.y + q.z * q.z);
         std::abs(len - 1.0) > tol::kRotationLengthTolerance) {
         return join(path, ".transform.rotation: must be a unit quaternion [x, y, z, w]");
+    }
+    if (o.mesh) {
+        for (const auto& [id, v] : o.mesh->vertices()) {
+            if (!finiteInRange(localToWorld(o, v.position))) {
+                return join(path, ": the object extends beyond the supported range of +/-10 km");
+            }
+        }
     }
     const double h = o.extrusion ? o.extrusion->height : 0.0;
     for (const auto& p : o.profile.boundary) {
@@ -79,6 +87,16 @@ std::optional<std::string> validateObject(const ProfileObject& o, std::string_vi
     if (o.id.value == 0) return join(path, ".id: must be a positive object ID");
     if (o.name.size() > 200) return join(path, ".name: must be at most 200 characters");
     if (o.profile.kind != ProfileKind::Rectangle) return join(path, ".profile.kind: unsupported profile kind");
+    if (o.mesh) {
+        // A mesh group: its edges and faces are the geometry; no profile.
+        if (!o.profile.boundary.empty() || o.extrusion) return join(path, ": a mesh group has no profile or extrusion");
+        if (o.mesh->empty()) return join(path, ".mesh: a group must contain geometry");
+        if (auto e = mesh::validateMesh(*o.mesh, join(path, ".mesh"))) return e;
+        if (!finiteInRange(o.transform.translation)) {
+            return join(path, ".transform.translation: values must be finite and within +/-10 km");
+        }
+        return validatePlacement(o, path);
+    }
     const auto& pl = o.profile.plane;
     if (!finiteInRange(pl.origin) || !finiteInRange(pl.xAxis) || !finiteInRange(pl.yAxis)) {
         return join(path, ".profile.plane: values must be finite and in range");
@@ -117,7 +135,7 @@ std::optional<std::string> validateAnchor(const DimensionAnchor& anchor, const D
         return join(path, ".vertices: must list one corner, or the two corners of an edge");
     }
     for (int v : anchor.vertices) {
-        if (v < 0 || v >= vertexCount(*o)) {
+        if (v < 0 || v >= vertexCount(*o) || !objectVertex(*o, v)) {
             return join(path, ".vertices: corner " + std::to_string(v) + " does not exist on " + idString(o->id));
         }
     }

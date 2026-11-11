@@ -184,10 +184,10 @@ TEST_CASE("roadmap check: a rotated object saves, reopens and picks correctly") 
     const auto r = rotateObject(doc, id, {0, 0, 0}, {0, 0, 1}, degrees(30));
     REQUIRE(r.ok());
     const std::string text = serializeProject(r->document, std::nullopt);
-    CHECK(text.find("\"version\": 2") != std::string::npos);
+    CHECK(text.find("\"version\": 3") != std::string::npos);
     const auto loaded = parseProject(text);
     REQUIRE_MESSAGE(loaded.ok(), (loaded.ok() ? "" : loaded.error()));
-    CHECK(loaded->fileVersion == 2);
+    CHECK(loaded->fileVersion == kProjectVersion);
     CHECK(sameContent(loaded->document, r->document)); // bit-exact round trip
     const auto& o = *loaded->document.find(id);
 
@@ -234,10 +234,10 @@ TEST_CASE("version 1 files migrate to version 2 and save as version 2") {
     CHECK(c[2] == Vec3{3, 3, 0});
 
     const auto saved = serializeProject(r->document, std::nullopt);
-    CHECK(saved.find("\"version\": 2") != std::string::npos);
+    CHECK(saved.find("\"version\": 3") != std::string::npos);
     const auto again = parseProject(saved);
     REQUIRE(again.ok());
-    CHECK(again->fileVersion == 2);
+    CHECK(again->fileVersion == kProjectVersion);
     CHECK(sameContent(again->document, r->document));
 
     // A version 1 file that is broken in other ways is still rejected after migration.
@@ -491,7 +491,7 @@ TEST_CASE("dimension anchors follow a rotated object and survive version 2 save/
 
     const auto loaded = parseProject(serializeProject(d, std::nullopt));
     REQUIRE_MESSAGE(loaded.ok(), (loaded.ok() ? "" : loaded.error()));
-    CHECK(loaded->fileVersion == 2);
+    CHECK(loaded->fileVersion == kProjectVersion);
     REQUIRE(loaded->document.dimensions.size() == 1);
     CHECK(loaded->document.dimensions[0] == d.dimensions[0]);
     CHECK(*resolveAnchor(loaded->document, loaded->document.dimensions[0].b) == Vec3{0, 2, 0});
@@ -514,6 +514,6 @@ TEST_CASE("a version 1 file with dimensions migrates and keeps them") {
     REQUIRE(r->document.dimensions.size() == 1);
     CHECK(*resolveAnchor(r->document, r->document.dimensions[0].b) == Vec3{3, 0, 0});
     const auto saved = serializeProject(r->document, std::nullopt);
-    CHECK(saved.find("\"version\": 2") != std::string::npos);
+    CHECK(saved.find("\"version\": 3") != std::string::npos);
     CHECK(saved.find("\"dimensions\"") != std::string::npos);
 }

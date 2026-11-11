@@ -59,6 +59,10 @@ public:
                                  const glm::vec4& color) = 0;
     /// Draws line segments. With `depthTest` false they draw on top (previews).
     virtual void drawLines(const std::vector<LineSegment>& lines, bool depthTest) = 0;
+    /// Draws line segments `widthPixels` wide on screen (profile edges,
+    /// highlighted edges). Core-profile OpenGL has no reliable wide lines, so
+    /// implementations draw each segment as a screen-aligned quad.
+    virtual void drawWideLines(const std::vector<LineSegment>& lines, float widthPixels, bool depthTest) = 0;
 
     virtual void endFrame() = 0;
 };

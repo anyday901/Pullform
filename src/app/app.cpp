@@ -252,7 +252,7 @@ void App::frame() {
 
     // A key that closes a popup this frame must not also act as a shortcut.
     const bool popupWasOpen = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
-    UiContext ctx{editor_, tools_, projectName(), editor_.isDirty(), viewport_->gridStep()};
+    UiContext ctx{editor_, tools_, projectName(), editor_.isDirty(), viewport_->gridStep(), &viewport_->profileEdges()};
     const UiRect rect = ui_.draw(ctx);
     const ImGuiIO& io = ImGui::GetIO();
     int fbw = 0, fbh = 0, ww = 0, wh = 0;
@@ -290,6 +290,7 @@ void App::frame() {
     updateTitle();
     // Labels after input, so they match this frame's preview and document.
     ui_.drawLabels(viewport_->labels(editor_));
+    ui_.drawSelectBox(editor_);
 
     ImGui::Render();
     glViewport(0, 0, fbw, fbh);
@@ -321,7 +322,9 @@ void App::handleViewportInput() {
                 drag_ = DragMode::Orbit;
             } else {
                 drag_ = DragMode::Tool;
-                tools_.pointerDown(viewport_->pointerAt(mouse, editor_.document()));
+                PointerInput press = pointerInput(mouse);
+                press.clicks = clicks_.click(ImGui::GetTime(), mouse); // double/triple click in the Select tool
+                tools_.pointerDown(press);
             }
         } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Middle)) {
             dragButton_ = ImGuiMouseButton_Middle;
@@ -336,16 +339,16 @@ void App::handleViewportInput() {
         switch (drag_) {
         case DragMode::Orbit: viewport_->camera().orbit(delta); onActivity(); break;
         case DragMode::Pan: viewport_->camera().pan(delta, viewport_->size()); onActivity(); break;
-        case DragMode::Tool: tools_.pointerMove(viewport_->pointerAt(mouse, editor_.document())); break;
+        case DragMode::Tool: tools_.pointerMove(pointerInput(mouse)); break;
         case DragMode::None:
-            if (hovering) tools_.pointerMove(viewport_->pointerAt(mouse, editor_.document()));
+            if (hovering) tools_.pointerMove(pointerInput(mouse));
             break;
         }
     }
     if (drag_ == DragMode::None && !hovering && !tools_.active()) editor_.setHover(std::nullopt);
 
     if (drag_ != DragMode::None && !ImGui::IsMouseDown(dragButton_)) {
-        if (drag_ == DragMode::Tool) tools_.pointerUp(viewport_->pointerAt(mouse, editor_.document()));
+        if (drag_ == DragMode::Tool) tools_.pointerUp(pointerInput(mouse));
         drag_ = DragMode::None;
         dragButton_ = -1;
     }
@@ -386,6 +389,7 @@ void App::handleShortcuts() {
     if (chord(ImGuiMod_Ctrl | ImGuiKey_S)) return void(save());
     if (chord(ImGuiMod_Ctrl | ImGuiKey_Q)) return requestPending(Pending::Quit);
     if (chord(ImGuiMod_Ctrl | ImGuiKey_D)) return duplicateSelection();
+    if (chord(ImGuiMod_Ctrl | ImGuiKey_A)) return selectAllObjects();
     if (io.KeyCtrl || io.KeySuper || io.KeyAlt) return;
 
     // Typed measurements (SketchUp-style): digits start a value; once a value is
@@ -393,15 +397,9 @@ void App::handleShortcuts() {
     // Axis lock for Move and the Rotate axis. Arrow keys work even while typing
     // a distance or angle (they are not characters): Right = X, Left = Y, Up = Z,
     // as in other modelers.
-    if (tools_.tool() == Tool::Move) {
-        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) tools_.toggleAxisLock(MoveAxis::X);
-        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) tools_.toggleAxisLock(MoveAxis::Y);
-        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, false)) tools_.toggleAxisLock(MoveAxis::Z);
-    } else if (tools_.tool() == Tool::Rotate) {
-        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) tools_.setRotateAxis(MoveAxis::X);
-        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) tools_.setRotateAxis(MoveAxis::Y);
-        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, false)) tools_.setRotateAxis(MoveAxis::Z);
-    }
+    if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) tools_.key(ToolKey::ArrowRight);
+    if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) tools_.key(ToolKey::ArrowLeft);
+    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, false)) tools_.key(ToolKey::ArrowUp);
     const bool typing = ui_.hasMeasurementText();
     for (int i = 0; i < io.InputQueueCharacters.Size; ++i) {
         const unsigned int c = io.InputQueueCharacters[i];
@@ -415,7 +413,7 @@ void App::handleShortcuts() {
     if (ui_.hasMeasurementText()) {
         backspaceGuard_.noteTyping(ImGui::GetTime());
         if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter)) {
-            UiContext ctx{editor_, tools_, projectName(), editor_.isDirty(), viewport_->gridStep()};
+            UiContext ctx{editor_, tools_, projectName(), editor_.isDirty(), viewport_->gridStep(), &viewport_->profileEdges()};
             ui_.submitMeasurement(ctx);
         } else if (ImGui::IsKeyPressed(ImGuiKey_Backspace)) {
             ui_.eraseMeasurementChar();
@@ -438,11 +436,9 @@ void App::handleShortcuts() {
     if (ImGui::IsKeyPressed(ImGuiKey_S, false)) tools_.setTool(Tool::Scale);
     if (ImGui::IsKeyPressed(ImGuiKey_O, false)) tools_.setTool(Tool::Orbit);
     if (ImGui::IsKeyPressed(ImGuiKey_M, false)) tools_.setTool(Tool::Move);
-    if (tools_.tool() == Tool::Move) {
-        if (ImGui::IsKeyPressed(ImGuiKey_X, false)) tools_.toggleAxisLock(MoveAxis::X);
-        if (ImGui::IsKeyPressed(ImGuiKey_Y, false)) tools_.toggleAxisLock(MoveAxis::Y);
-        if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) tools_.toggleAxisLock(MoveAxis::Z);
-    }
+    if (ImGui::IsKeyPressed(ImGuiKey_X, false)) tools_.key(ToolKey::X);
+    if (ImGui::IsKeyPressed(ImGuiKey_Y, false)) tools_.key(ToolKey::Y);
+    if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) tools_.key(ToolKey::Z);
     if (ImGui::IsKeyPressed(ImGuiKey_T, false)) tools_.setTool(Tool::TapeMeasure);
     if (ImGui::IsKeyPressed(ImGuiKey_D, false)) tools_.setTool(Tool::Dimension);
     if (ImGui::IsKeyPressed(ImGuiKey_F, false)) fitView();
@@ -466,6 +462,7 @@ void App::handleActions() {
         case UiAction::Redo: tools_.cancel(); editor_.redo(); break;
         case UiAction::Delete: deleteSelection(); break;
         case UiAction::Duplicate: duplicateSelection(); break;
+        case UiAction::SelectAll: selectAllObjects(); break;
         case UiAction::FitView: fitView(); break;
         case UiAction::ResetView: viewport_->camera().reset(); onActivity(); break;
         }
@@ -570,12 +567,26 @@ bool App::writeTo(const std::filesystem::path& path) {
     return true;
 }
 
+PointerInput App::pointerInput(const Vec2& mouse) {
+    PointerInput in = viewport_->pointerAt(mouse, editor_.document());
+    const ImGuiIO& io = ImGui::GetIO();
+    in.shift = io.KeyShift;
+    in.ctrl = io.KeyCtrl;
+    return in;
+}
+
 void App::deleteSelection() {
-    const auto sel = editor_.selection();
-    if (!sel) return;
+    const std::vector<ObjectId> ids = editor_.selectedObjects();
+    if (ids.empty()) return;
     tools_.cancel();
-    const ObjectId id = sel->objectId;
-    editor_.commit("Delete " + idString(id), [id](const Document& d) { return deleteObject(d, id); });
+    const std::string label = ids.size() == 1 ? "Delete " + idString(ids.front()) : "Delete " + std::to_string(ids.size()) + " objects";
+    editor_.commit(label, [ids](const Document& d) { return deleteObjects(d, ids); });
+}
+
+void App::selectAllObjects() {
+    tools_.cancel();
+    editor_.setSelection(selectAll(editor_.document()));
+    onActivity();
 }
 
 // Move copy mode: tapping the copy modifier on its own (Ctrl, or Option on

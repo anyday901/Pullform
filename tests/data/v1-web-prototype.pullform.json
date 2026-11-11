@@ -1,0 +1,10 @@
+{
+  "format": "pullform-project", "version": 1, "generator": "Pullform 0.1.0",
+  "document": { "lengthUnit": "m", "displayUnit": "mm", "nextId": 3, "objects": [
+    { "id": "obj-2", "type": "profile", "name": "Box 2",
+      "profile": { "kind": "rectangle",
+        "plane": { "origin": [0,0,0], "xAxis": [1,0,0], "yAxis": [0,1,0] },
+        "boundary": [[0,0],[2,0],[2,1],[0,1]] },
+      "extrusion": { "height": 0.75 }, "transform": { "translation": [1, -1, 0] } } ] },
+  "view": { "position": [6, -6, 5], "target": [0, 0, 0] }
+}

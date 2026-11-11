@@ -1,7 +1,9 @@
 #pragma once
 
 #include "core/commands/editor.hpp"
+#include "core/geometry/element_pick.hpp"
 #include "core/geometry/pick.hpp"
+#include "core/geometry/region_select.hpp"
 #include "core/geometry/snap.hpp"
 
 #include <cstddef>
@@ -22,6 +24,17 @@ struct PointerInput {
     /// it from the camera; 0 turns endpoint, midpoint and inference snapping
     /// off for this event (grid snap still applies).
     double pixelAngle = 0.0;
+    bool shift = false; ///< Shift held (Select: add or remove the clicked object)
+    bool ctrl = false;  ///< Ctrl (Cmd on macOS) held (Select: add the clicked object)
+    /// Projects a world point to the same screen coordinates as `screen`, for
+    /// window and crossing selection. Empty in most tests (no projection).
+    ScreenProjector project;
+    /// Vertex, edge or face under the cursor (pixel tolerances, occlusion), if
+    /// the viewport resolved it; tools fall back to `pick` when it is empty.
+    std::optional<ElementHit> element;
+    /// Position of this press in a rapid series at one spot: 1 single, 2
+    /// double, 3 triple click. Only meaningful on pointerDown.
+    int clicks = 1;
 };
 
 struct SnapSettings {

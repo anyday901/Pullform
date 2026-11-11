@@ -27,6 +27,7 @@ inline constexpr const char* kRedo = "Ctrl+Y";
 #endif
 inline constexpr const char* kDelete = "Delete";
 inline constexpr const char* kDuplicate = PF_MOD "D";
+inline constexpr const char* kSelectAll = PF_MOD "A";
 inline constexpr const char* kFit = "F";
 inline constexpr const char* kSelect = "Space";
 inline constexpr const char* kRectangle = "R";
@@ -39,13 +40,17 @@ inline constexpr const char* kTape = "T";
 inline constexpr const char* kDimension = "D";
 inline constexpr const char* kSnap = "G";
 
-inline constexpr std::array<std::pair<const char*, const char*>, 27> kTable = {{
+inline constexpr std::array<std::pair<const char*, const char*>, 31> kTable = {{
     {"Left button", "Use the active tool"},
     {"Middle drag", "Orbit"},
     {"Shift + middle drag", "Pan"},
     {"Right drag", "Pan"},
     {"Mouse wheel", "Zoom toward the cursor"},
     {"Space", "Select tool"},
+    {"Shift + click", "Select: add or remove an object"},
+    {PF_MOD "click", "Select: add an object"},
+    {"Drag right / left", "Select: window (inside) / crossing (touching)"},
+    {PF_MOD "A", "Select all"},
     {"R", "Rectangle tool"},
     {"P", "Push/Pull tool"},
     {"M", "Move tool"},
@@ -65,8 +70,8 @@ inline constexpr std::array<std::pair<const char*, const char*>, 27> kTable = {{
     {"G", "Toggle grid snap"},
     {"Type digits, Enter", "Exact size or distance for the active tool"},
     {"Esc", "Cancel the operation, or clear the selection"},
-    {"Delete / Backspace", "Delete the selected object"},
-    {PF_MOD "D", "Duplicate the selected object"},
+    {"Delete / Backspace", "Delete the selected objects"},
+    {PF_MOD "D", "Duplicate the selected objects"},
     {PF_MOD "Z", "Undo"},
 #ifdef __APPLE__
     {"Cmd+Shift+Z", "Redo"},

@@ -1,5 +1,7 @@
 #include "core/geometry/measure.hpp"
 
+#include "core/geometry/mesh.hpp"
+
 #include <glm/geometric.hpp>
 
 #include <cmath>
@@ -8,6 +10,7 @@ namespace pf {
 
 
 int vertexCount(const ProfileObject& o) {
+    if (o.mesh) return static_cast<int>(o.mesh->nextVertexId()) - 1; // corner i is vertex id i + 1 (some may be gone)
     const auto n = static_cast<int>(o.profile.boundary.size());
     return o.extrusion ? 2 * n : n;
 }
@@ -17,6 +20,11 @@ int vertexCount(const ProfileObject& o) {
 std::optional<Vec3> objectVertex(const ProfileObject& o, int index) {
     const auto n = static_cast<int>(o.profile.boundary.size());
     if (index < 0 || index >= vertexCount(o)) return std::nullopt;
+    if (o.mesh) {
+        const auto* v = o.mesh->vertex(mesh::VertexId{static_cast<std::uint32_t>(index + 1)});
+        if (!v) return std::nullopt;
+        return localToWorld(o, v->position);
+    }
     if (index < n) return profileToWorld(o, o.profile.boundary[static_cast<std::size_t>(index)], 0.0);
     return profileToWorld(o, o.profile.boundary[static_cast<std::size_t>(index - n)], o.extrusion->height);
 }
@@ -24,6 +32,10 @@ std::optional<Vec3> objectVertex(const ProfileObject& o, int index) {
 std::vector<std::pair<int, int>> objectEdges(const ProfileObject& o) {
     const auto n = static_cast<int>(o.profile.boundary.size());
     std::vector<std::pair<int, int>> edges;
+    if (o.mesh) {
+        for (const auto& [id, e] : o.mesh->edges()) edges.emplace_back(static_cast<int>(e.v0.value) - 1, static_cast<int>(e.v1.value) - 1);
+        return edges;
+    }
     for (int i = 0; i < n; ++i) edges.emplace_back(i, (i + 1) % n);
     if (o.extrusion) {
         for (int i = 0; i < n; ++i) edges.emplace_back(n + i, n + (i + 1) % n);
@@ -55,7 +67,9 @@ DimensionAnchor anchorAt(const Document& doc, const Vec3& point, std::optional<O
                 found = DimensionAnchor{Vec3{0.0}, o.id, std::move(vertices)};
             }
         };
-        for (int i = 0; i < vertexCount(o); ++i) consider(*objectVertex(o, i), {i});
+        for (int i = 0; i < vertexCount(o); ++i) {
+            if (const auto p = objectVertex(o, i)) consider(*p, {i});
+        }
         for (const auto& [i, j] : objectEdges(o)) consider((*objectVertex(o, i) + *objectVertex(o, j)) * 0.5, {i, j});
         return found;
     };
