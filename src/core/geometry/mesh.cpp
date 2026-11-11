@@ -882,9 +882,11 @@ std::optional<PushPullResult> Mesh::pushPull(FaceId id, double distance) {
                       });
 
     if (!free) {
-        // Stretch: the face is the end of a prism. Every other edge at its
-        // vertices runs along the normal and every other face there contains the
-        // normal, so moving the face keeps all of them planar.
+        // Stretch: the face is the end of a prism. Every edge of the face is
+        // shared with a wall, every other edge at its vertices runs along the
+        // normal and every other face there contains the normal, so moving the
+        // face keeps all of them planar. Anything else attached is refused.
+        if (!std::ranges::all_of(own, [this](EdgeId e) { return facesOfEdge(e).size() >= 2; })) return std::nullopt;
         for (const VertexId v : ring) {
             const Vec3 p = vertices_.at(v.value).position;
             for (const EdgeId e : edgesOfVertex(v)) {

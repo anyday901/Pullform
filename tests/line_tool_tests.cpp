@@ -307,3 +307,43 @@ TEST_CASE("mesh push/pull: a free face extrudes either way; a prism end stretche
         CHECK_FALSE(validateMesh(m, "longer").has_value());
     }
 }
+
+TEST_CASE("mesh push/pull: a face with a loose edge attached is refused, not stretched") {
+    mesh::Mesh m;
+    m.addEdge({0, 0, 0}, {2, 0, 0});
+    m.addEdge({2, 0, 0}, {2, 1, 0});
+    m.addEdge({2, 1, 0}, {0, 1, 0});
+    m.addEdge({0, 1, 0}, {0, 0, 0});
+    m.addEdge({0, 0, 0}, {0, 0, 2}); // a loose line standing on a corner, along the normal
+    REQUIRE(m.faces().size() == 1);
+    const mesh::Mesh before = m;
+    CHECK_FALSE(m.pushPull(mesh::FaceId{m.faces().begin()->first}, 1.0));
+    CHECK(m == before);
+}
+
+TEST_CASE("Line: a line between two edge midpoints of a drawn face splits it") {
+    Editor editor;
+    const auto line = [&](Vec3 p, Vec3 q) {
+        REQUIRE(editor.commit("Line", [=](const Document& doc) { return drawEdge(doc, std::nullopt, p, q); }));
+    };
+    line({0, 0, 0}, {2, 0, 0});
+    line({2, 0, 0}, {2, 2, 0});
+    line({2, 2, 0}, {0, 2, 0});
+    line({0, 2, 0}, {0, 0, 0});
+    REQUIRE(onlyMesh(editor).faces().size() == 1);
+
+    ToolController tools(editor);
+    tools.setTool(Tool::Line);
+    const auto click = [&](double x, double y) {
+        PointerInput in = downAt(editor, x, y, {100, 100});
+        in.pixelAngle = 0.0005; // 0.3 m at 50 m
+        tools.pointerDown(in);
+        tools.pointerUp(in);
+    };
+    click(1.05, 0.05);  // snaps to the midpoint (1, 0)
+    click(0.95, 1.95);  // and (1, 2)
+    CHECK_FALSE(tools.active()); // the split made a face and ended the chain
+    const mesh::Mesh& m = onlyMesh(editor);
+    CHECK(m.faces().size() == 2);
+    for (const auto& [id, f] : m.faces()) CHECK(faceArea(m, id) == doctest::Approx(2.0));
+}

@@ -147,7 +147,14 @@ void LineTool::pointerDown(const PointerInput& input) {
             editor().notify(Message{Message::Kind::Error, "Pick a start point closer to the model."});
             return;
         }
-        chain_ = Chain{p, p, std::nullopt, input.screen, true, 0};
+        // Starting on a drawn group (a vertex, an edge midpoint or a face) draws
+        // into it, so a line between two edge midpoints splits that face.
+        std::optional<ObjectId> group;
+        if (ctx_.indicator && ctx_.indicator->objectId) {
+            const auto* o = editor().document().find(*ctx_.indicator->objectId);
+            if (o && o->isMeshGroup()) group = o->id;
+        }
+        chain_ = Chain{p, p, group, input.screen, true, 0};
         editor().notify(std::nullopt);
         showPreview(*target);
         return;
