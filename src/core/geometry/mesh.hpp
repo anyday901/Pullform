@@ -72,9 +72,12 @@ struct Face {
     friend bool operator==(const Face&, const Face&) = default;
 };
 
-enum class CurveKind { Arc, Circle };
+/// Arc and Circle are true curves approximated by their segments; Polygon is a
+/// regular polygon (its segments are the sides, its vertices on `radius`), kept
+/// so its center can be found and it can be re-made with another side count.
+enum class CurveKind { Arc, Circle, Polygon };
 
-/// A true arc or circle, kept beside the segments that approximate it. The
+/// A true arc, circle or regular polygon, kept beside the segments that approximate it. The
 /// topology only ever sees the segment edges; a curve whose edges no longer
 /// form a chain is dropped by validation-on-edit (Mesh::pruneCurves).
 struct Curve {

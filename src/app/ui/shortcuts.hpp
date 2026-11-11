@@ -32,6 +32,8 @@ inline constexpr const char* kFit = "F";
 inline constexpr const char* kSelect = "Space";
 inline constexpr const char* kRectangle = "R";
 inline constexpr const char* kLine = "L";
+inline constexpr const char* kCircle = "C";
+inline constexpr const char* kPolygon = "Shift+C";
 inline constexpr const char* kPushPull = "P";
 inline constexpr const char* kMove = "M";
 inline constexpr const char* kRotate = "Q";
@@ -41,7 +43,7 @@ inline constexpr const char* kTape = "T";
 inline constexpr const char* kDimension = "D";
 inline constexpr const char* kSnap = "G";
 
-inline constexpr std::array<std::pair<const char*, const char*>, 33> kTable = {{
+inline constexpr std::array<std::pair<const char*, const char*>, 36> kTable = {{
     {"Left button", "Use the active tool"},
     {"Middle drag", "Orbit"},
     {"Shift + middle drag", "Pan"},
@@ -53,6 +55,9 @@ inline constexpr std::array<std::pair<const char*, const char*>, 33> kTable = {{
     {"Drag right / left", "Select: window (inside) / crossing (touching)"},
     {PF_MOD "A", "Select all"},
     {"R", "Rectangle tool"},
+    {"C", "Circle tool"},
+    {"Shift+C", "Polygon tool"},
+    {"Type 24s, Enter", "Circle / Polygon: number of segments or sides"},
     {"Arrow keys (Rectangle)", "Lock the drawing plane: Right red, Left green, Up horizontal, Down the hovered face"},
     {"L", "Line tool (Esc ends the line)"},
     {"P", "Push/Pull tool"},
