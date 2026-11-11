@@ -24,6 +24,13 @@ RotatePreview rotatePreview(ObjectId id, const Vec3& pivot, const Vec3& axis,
     return p;
 }
 
+/// The selected objects as they are in `doc`, for a group preview.
+std::vector<ProfileObject> groupResult(const Document& doc, const std::vector<ObjectId>& ids) {
+    std::vector<ProfileObject> objects;
+    for (const ObjectId id : ids) objects.push_back(*doc.find(id));
+    return objects;
+}
+
 } // namespace
 
 bool RotateTool::key(ToolKey key) {
@@ -99,9 +106,7 @@ void RotateTool::pointerMove(const PointerInput& input) {
         preview.angle = angle;
         if (auto result = rotateObjects(editor().document(), gesture_->ids, gesture_->pivot, gesture_->axis, angle); result) {
             if (const auto* o = result->document.find(gesture_->objectId)) preview.result = *o;
-            if (gesture_->ids.size() > 1) {
-                for (const ObjectId id : gesture_->ids) preview.group.push_back(*result->document.find(id));
-            }
+            if (gesture_->ids.size() > 1) preview.group = groupResult(result->document, gesture_->ids);
         } else {
             preview.error = result.error();
         }

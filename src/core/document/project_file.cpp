@@ -133,8 +133,7 @@ ProfileObject readProfileObjectV2(const json& v, const std::string& path) {
     if (!v.is_object()) fail(path, "must be an object");
     ProfileObject o;
     readObjectHeader(v, path, o);
-    const auto& type = *member(v, "type", path);
-    if (!type.is_string() || type.get<std::string>() != "profile") fail(path + ".type", "unsupported object type " + type.dump());
+    if (const auto& type = *member(v, "type", path); !type.is_string() || type.get<std::string>() != "profile") fail(path + ".type", "unsupported object type " + type.dump());
     readProfileFields(v, path, o);
     return o;
 }
@@ -269,7 +268,7 @@ mesh::Mesh readMesh(const json& v, const std::string& path) {
             const mesh::CurveId id{elementId(*member(c, "id", p), p + ".id")};
             mesh::Curve curve;
             const auto& kind = *member(c, "kind", p);
-            if (!kind.is_string() || (kind.get<std::string>() != "arc" && kind.get<std::string>() != "circle")) fail(p + ".kind", "must be \"arc\" or \"circle\"");
+            if (!kind.is_string() || (kind.get<std::string>() != "arc" && kind.get<std::string>() != "circle")) fail(p + ".kind", R"(must be "arc" or "circle")");
             curve.kind = kind.get<std::string>() == "circle" ? mesh::CurveKind::Circle : mesh::CurveKind::Arc;
             curve.center = vec3(*member(c, "center", p), p + ".center");
             curve.normal = vec3(*member(c, "normal", p), p + ".normal");
@@ -312,11 +311,10 @@ bool sameMesh(const mesh::Mesh& a, const mesh::Mesh& b) {
         const auto* other = b.vertex(mesh::VertexId{id});
         if (!other || glm::length(other->position - v.position) > tol::kWeldDistance) return false;
     }
-    for (const auto& [id, f] : a.faces()) {
-        const auto* other = b.face(mesh::FaceId{id});
-        if (!other || other->loops != f.loops) return false;
-    }
-    return true;
+    return std::ranges::all_of(a.faces(), [&b](const auto& entry) {
+        const auto* other = b.face(mesh::FaceId{entry.first});
+        return other && other->loops == entry.second.loops;
+    });
 }
 
 /// A version 3 object: "type": "group" with a mesh, plus "profile" and

@@ -23,15 +23,19 @@ struct Candidate {
 /// Whether the ray passes within `margin` of the box (slab test on the inflated box).
 bool rayNearBox(const Ray& ray, const Bounds& b, double margin, double limit) {
     if (!b.valid) return false;
-    double t0 = 0.0, t1 = limit;
+    double t0 = 0.0;
+    double t1 = limit;
     for (int axis = 0; axis < 3; ++axis) {
-        const double lo = b.min[axis] - margin, hi = b.max[axis] + margin;
-        const double o = ray.origin[axis], d = ray.direction[axis];
+        const double lo = b.min[axis] - margin;
+        const double hi = b.max[axis] + margin;
+        const double o = ray.origin[axis];
+        const double d = ray.direction[axis];
         if (std::abs(d) < 1e-15) {
             if (o < lo || o > hi) return false;
             continue;
         }
-        double a = (lo - o) / d, c = (hi - o) / d;
+        double a = (lo - o) / d;
+        double c = (hi - o) / d;
         if (a > c) std::swap(a, c);
         t0 = std::max(t0, a);
         t1 = std::min(t1, c);
@@ -62,7 +66,7 @@ std::optional<std::pair<std::size_t, double>> castFaces(const Ray& ray, std::spa
             const auto& face = topo.faces[tri.face];
             const auto t = intersectTriangle(ray, topo.vertices[tri.v[0]].position, topo.vertices[tri.v[1]].position,
                                              topo.vertices[tri.v[2]].position, /*cullBack=*/!face.twoSided);
-            if (t && *t < limit && (!best || *t < best->second)) {
+            if (t.has_value() && *t < limit && (!best || *t < best->second)) {
                 best = std::make_pair(ti, *t);
                 if (faceOut) *faceOut = tri.face;
             }
@@ -74,12 +78,60 @@ std::optional<std::pair<std::size_t, double>> castFaces(const Ray& ray, std::spa
 /// Whether face index `face` contains the element at `index`.
 bool touches(const ElementTopology& topo, ElementKind kind, std::uint32_t index, std::uint32_t face) {
     const auto& f = topo.faces[face];
+    using enum ElementKind;
     switch (kind) {
-    case ElementKind::Vertex: return std::find(f.loop.begin(), f.loop.end(), index) != f.loop.end();
-    case ElementKind::Edge: return std::find(f.edges.begin(), f.edges.end(), index) != f.edges.end();
-    case ElementKind::Face: return face == index;
+    case Vertex: return std::ranges::find(f.loop, index) != f.loop.end();
+    case Edge: return std::ranges::find(f.edges, index) != f.edges.end();
+    case Face: return face == index;
     }
     return false;
+}
+
+/// The point of edge a-b nearest the ray.
+Vec3 closestOnEdge(const Vec3& a, const Vec3& b, const Ray& ray) {
+    const Vec3 ab = b - a;
+    if (const auto u = closestParameterOnAxis(a, ab, ray)) return a + ab * std::clamp(*u, 0.0, 1.0);
+    // Parallel to the ray: either end is as close as any point.
+    return glm::dot(a - ray.origin, ray.direction) <= glm::dot(b - ray.origin, ray.direction) ? a : b;
+}
+
+/// Distance along the ray and screen distance (pixels) from it to `p`; empty behind the eye.
+std::optional<std::pair<double, double>> rayDistance(const Ray& ray, const Vec3& p, double pixelAngle) {
+    const double t = glm::dot(p - ray.origin, ray.direction);
+    if (t <= 0.0) return std::nullopt;
+    return std::make_pair(t, glm::length(p - (ray.origin + ray.direction * t)) / (t * pixelAngle));
+}
+
+/// Vertices and edges of target `ti` within the pick radius of the ray.
+void collectCandidates(const Ray& ray, const PickTarget& target, std::size_t ti, const ElementPickOptions& options,
+                       double pixelAngle, std::vector<Candidate>& out) {
+    const auto& topo = *target.topology;
+    for (std::uint32_t v = 0; v < topo.vertices.size(); ++v) {
+        const Vec3 p = topo.vertices[v].position;
+        if (const auto d = rayDistance(ray, p, pixelAngle); d && d->second <= options.vertexPixels) {
+            out.push_back(Candidate{ElementKind::Vertex, v, ti, p, d->first, d->second});
+        }
+    }
+    for (std::uint32_t e = 0; e < topo.edges.size(); ++e) {
+        if (topo.edges[e].soft) continue;
+        const Vec3 q = closestOnEdge(topo.vertices[topo.edges[e].a].position, topo.vertices[topo.edges[e].b].position, ray);
+        if (const auto d = rayDistance(ray, q, pixelAngle); d && d->second <= options.edgePixels) {
+            out.push_back(Candidate{ElementKind::Edge, e, ti, q, d->first, d->second});
+        }
+    }
+}
+
+/// Whether nothing but faces it lies on is between the eye and candidate `c`.
+bool visible(const Ray& ray, std::span<const PickTarget> targets, const Candidate& c) {
+    const Vec3 toPoint = c.point - ray.origin;
+    const double length = glm::length(toPoint);
+    if (length <= 0.0) return false;
+    const Ray sight{ray.origin, toPoint / length};
+    const double limit = length * (1.0 - 1e-7) - 1e-9;
+    const auto ownFace = [&targets, &c](std::size_t ti, std::uint32_t face) {
+        return ti == c.target && touches(*targets[ti].topology, c.kind, c.index, face);
+    };
+    return !castFaces(sight, targets, limit, ownFace, nullptr).has_value();
 }
 
 } // namespace
@@ -87,39 +139,12 @@ bool touches(const ElementTopology& topo, ElementKind kind, std::uint32_t index,
 std::optional<ElementHit> pickElement(const Ray& ray, std::span<const PickTarget> targets, const ElementPickOptions& options) {
     const double pixelAngle = options.pixelAngle > 0.0 ? options.pixelAngle : 1e-3;
     std::vector<Candidate> candidates;
-
     for (std::size_t ti = 0; ti < targets.size(); ++ti) {
         if (!targets[ti].topology) continue;
-        const auto& topo = *targets[ti].topology;
-        const double reach = std::max(options.vertexPixels, options.edgePixels);
-        if (!rayNearBox(ray, topo.bounds, pickMargin(ray, topo.bounds, reach, pixelAngle),
-                        std::numeric_limits<double>::infinity())) {
-            continue;
-        }
-        for (std::uint32_t v = 0; v < topo.vertices.size(); ++v) {
-            const Vec3 p = topo.vertices[v].position;
-            const double t = glm::dot(p - ray.origin, ray.direction);
-            if (t <= 0.0) continue;
-            const double px = glm::length(p - (ray.origin + ray.direction * t)) / (t * pixelAngle);
-            if (px <= options.vertexPixels) candidates.push_back({ElementKind::Vertex, v, ti, p, t, px});
-        }
-        for (std::uint32_t e = 0; e < topo.edges.size(); ++e) {
-            if (topo.edges[e].soft) continue;
-            const Vec3 a = topo.vertices[topo.edges[e].a].position;
-            const Vec3 b = topo.vertices[topo.edges[e].b].position;
-            const Vec3 ab = b - a;
-            double s = 0.0;
-            if (const auto u = closestParameterOnAxis(a, ab, ray)) {
-                s = std::clamp(*u, 0.0, 1.0);
-            } else {
-                // Parallel to the ray: either end is as close as any point.
-                s = glm::dot(a - ray.origin, ray.direction) <= glm::dot(b - ray.origin, ray.direction) ? 0.0 : 1.0;
-            }
-            const Vec3 q = a + ab * s;
-            const double t = glm::dot(q - ray.origin, ray.direction);
-            if (t <= 0.0) continue;
-            const double px = glm::length(q - (ray.origin + ray.direction * t)) / (t * pixelAngle);
-            if (px <= options.edgePixels) candidates.push_back({ElementKind::Edge, e, ti, q, t, px});
+        const auto& bounds = targets[ti].topology->bounds;
+        if (const double reach = std::max(options.vertexPixels, options.edgePixels);
+            rayNearBox(ray, bounds, pickMargin(ray, bounds, reach, pixelAngle), std::numeric_limits<double>::infinity())) {
+            collectCandidates(ray, targets[ti], ti, options, pixelAngle, candidates);
         }
     }
 
@@ -127,23 +152,13 @@ std::optional<ElementHit> pickElement(const Ray& ray, std::span<const PickTarget
     // so near-ties go to the one nearer the eye), then nearer to the eye. The
     // steps keep the ordering strict and weak, as std::sort requires.
     const auto step = [](double pixels) { return std::floor(pixels * 2.0); };
-    std::sort(candidates.begin(), candidates.end(), [&](const Candidate& x, const Candidate& y) {
+    std::ranges::sort(candidates, [&step](const Candidate& x, const Candidate& y) {
         if (x.kind != y.kind) return x.kind < y.kind;
         if (step(x.pixels) != step(y.pixels)) return step(x.pixels) < step(y.pixels);
         return x.distance < y.distance;
     });
     for (const auto& c : candidates) {
-        // Visible when no face, other than the ones it lies on, is between the eye and it.
-        const Vec3 toPoint = c.point - ray.origin;
-        const double length = glm::length(toPoint);
-        if (length <= 0.0) continue;
-        const Ray sight{ray.origin, toPoint / length};
-        const double limit = length * (1.0 - 1e-7) - 1e-9;
-        const auto blocker = castFaces(
-            sight, targets, limit,
-            [&](std::size_t ti, std::uint32_t face) { return ti == c.target && touches(*targets[ti].topology, c.kind, c.index, face); },
-            nullptr);
-        if (!blocker) {
+        if (visible(ray, targets, c)) {
             const auto& topo = *targets[c.target].topology;
             return ElementHit{{targets[c.target].object, c.kind, topo.idAt(c.kind, c.index)}, c.point, c.distance};
         }

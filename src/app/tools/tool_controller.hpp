@@ -33,8 +33,6 @@ class MeasureTool;
 /// entry calls the same operations as the mouse.
 class ToolController {
 public:
-    static constexpr double kDragThresholdPx = pf::kDragThresholdPx;
-
     explicit ToolController(Editor& editor);
     ~ToolController();
     ToolController(const ToolController&) = delete;

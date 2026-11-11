@@ -1,6 +1,8 @@
 // Sub-object elements: topology of today's objects, vertex/edge/face picking
 // with pixel tolerances and occlusion, profile edges, and click expansion.
 #include "fake_renderer.hpp"
+#include "helpers.hpp"
+#include "app/tools/tool_controller.hpp"
 
 #include "app/tools/click_counter.hpp"
 #include "core/geometry/element_pick.hpp"
@@ -39,7 +41,7 @@ std::optional<std::uint32_t> edgeBetween(const ElementTopology& topo, const Vec3
 }
 
 std::size_t countKind(const std::vector<ElementRef>& refs, ElementKind kind) {
-    return static_cast<std::size_t>(std::count_if(refs.begin(), refs.end(), [&](const ElementRef& r) { return r.kind == kind; }));
+    return static_cast<std::size_t>(std::ranges::count_if(refs, [kind](const ElementRef& r) { return r.kind == kind; }));
 }
 
 } // namespace
@@ -171,9 +173,6 @@ TEST_CASE("clicks at one spot in quick succession count up to three") {
 }
 
 // ---- Select tool: the acceptance sequence -----------------------------------
-
-#include "app/tools/tool_controller.hpp"
-#include "helpers.hpp"
 
 namespace {
 

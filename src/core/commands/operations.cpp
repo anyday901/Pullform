@@ -369,7 +369,7 @@ Expected<OpResult> eraseEdge(const Document& doc, ObjectId id, mesh::EdgeId edge
     // Dimensions on corners that disappeared go with them.
     OpResult partial{doc, id, {}};
     const ProfileObject& probe = changed;
-    std::erase_if(partial.document.dimensions, [&](const Dimension& d) {
+    std::erase_if(partial.document.dimensions, [id, &probe](const Dimension& d) {
         for (const auto* anchor : {&d.a, &d.b}) {
             if (anchor->object != id) continue;
             for (int v : anchor->vertices) {
@@ -389,19 +389,21 @@ Expected<Vec3> selectionBaseCenter(const Document& doc, const std::vector<Object
 }
 
 Expected<OpResult> moveObjects(const Document& doc, const std::vector<ObjectId>& ids, const Vec3& offset) {
-    return forEachObject(doc, ids, [&](const Document& d, ObjectId id) { return moveObject(d, id, offset); });
+    return forEachObject(doc, ids, [&offset](const Document& d, ObjectId id) { return moveObject(d, id, offset); });
 }
 
 Expected<OpResult> rotateObjects(const Document& doc, const std::vector<ObjectId>& ids, const Vec3& pivot, const Vec3& axis,
                                  double radians) {
-    return forEachObject(doc, ids, [&](const Document& d, ObjectId id) { return rotateObject(d, id, pivot, axis, radians); });
+    return forEachObject(doc, ids, [&pivot, &axis, radians](const Document& d, ObjectId id) {
+        return rotateObject(d, id, pivot, axis, radians);
+    });
 }
 
 Expected<OpResult> scaleObjects(const Document& doc, const std::vector<ObjectId>& ids, const Vec3& factors, const Vec3& pivot) {
     if (!std::isfinite(pivot.x) || !std::isfinite(pivot.y) || !std::isfinite(pivot.z)) {
         return Error{"The scale centre is not valid."};
     }
-    return forEachObject(doc, ids, [&](const Document& d, ObjectId id) -> Expected<OpResult> {
+    return forEachObject(doc, ids, [&factors, &pivot](const Document& d, ObjectId id) -> Expected<OpResult> {
         const ProfileObject& before = *d.find(id);
         const Vec3 centre = objectBaseCenter(before);
         auto scaled = scaleObject(d, id, factors); // keeps `centre` fixed

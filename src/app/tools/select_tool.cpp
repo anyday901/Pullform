@@ -7,9 +7,10 @@
 namespace pf {
 
 SelectModifier selectModifier(const PointerInput& input) {
-    if (input.shift) return SelectModifier::Toggle;
-    if (input.ctrl) return SelectModifier::Add;
-    return SelectModifier::Replace;
+    using enum SelectModifier;
+    if (input.shift) return Toggle;
+    if (input.ctrl) return Add;
+    return Replace;
 }
 
 void SelectTool::pointerDown(const PointerInput& input) {

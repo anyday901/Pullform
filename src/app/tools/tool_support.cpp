@@ -9,16 +9,17 @@
 namespace pf {
 
 std::string_view toolName(Tool tool) {
+    using enum Tool;
     switch (tool) {
-    case Tool::Select: return "Select";
-    case Tool::Rectangle: return "Rectangle";
-    case Tool::PushPull: return "Push/Pull";
-    case Tool::Rotate: return "Rotate";
-    case Tool::Scale: return "Scale";
-    case Tool::Move: return "Move";
-    case Tool::Orbit: return "Orbit";
-    case Tool::TapeMeasure: return "Tape Measure";
-    case Tool::Dimension: return "Dimension";
+    case Select: return "Select";
+    case Rectangle: return "Rectangle";
+    case PushPull: return "Push/Pull";
+    case Rotate: return "Rotate";
+    case Scale: return "Scale";
+    case Move: return "Move";
+    case Orbit: return "Orbit";
+    case TapeMeasure: return "Tape Measure";
+    case Dimension: return "Dimension";
     }
     return "Select";
 }
@@ -34,20 +35,22 @@ const char* axisColorName(MoveAxis axis) {
 }
 
 std::optional<MoveAxis> singleAxis(const Vec3& offset) {
+    using enum MoveAxis;
     const bool x = offset.x != 0.0;
     const bool y = offset.y != 0.0;
     const bool z = offset.z != 0.0;
-    if (x && !y && !z) return MoveAxis::X;
-    if (y && !x && !z) return MoveAxis::Y;
-    if (z && !x && !y) return MoveAxis::Z;
+    if (x && !y && !z) return X;
+    if (y && !x && !z) return Y;
+    if (z && !x && !y) return Z;
     return std::nullopt;
 }
 
 std::optional<MoveAxis> arrowAxis(ToolKey key) {
+    using enum MoveAxis;
     switch (key) {
-    case ToolKey::ArrowRight: return MoveAxis::X;
-    case ToolKey::ArrowLeft: return MoveAxis::Y;
-    case ToolKey::ArrowUp: return MoveAxis::Z;
+    case ToolKey::ArrowRight: return X;
+    case ToolKey::ArrowLeft: return Y;
+    case ToolKey::ArrowUp: return Z;
     default: return std::nullopt;
     }
 }
@@ -78,11 +81,11 @@ Vec3 baseCenter(const ProfileObject& o) {
 
 // ---- ToolContext ------------------------------------------------------------
 
-std::optional<SnapResult> ToolContext::snapGround(const PointerInput& input, std::optional<Vec3> skip) {
+std::optional<SnapResult> ToolContext::snapGround(const PointerInput& input, const std::optional<Vec3>& skip) {
     return snapper.ground(input, skip);
 }
 
-SnapResult ToolContext::snapPointer(const PointerInput& input, std::optional<Vec3> skip) {
+SnapResult ToolContext::snapPointer(const PointerInput& input, const std::optional<Vec3>& skip) {
     if (auto hit = snapper.point(input)) return *hit;
     if (input.pick) {
         const Vec3 p = input.pick->point;
@@ -91,7 +94,7 @@ SnapResult ToolContext::snapPointer(const PointerInput& input, std::optional<Vec
     return snapGround(input, skip).value_or(SnapResult{input.ray.origin, SnapKind::None, std::nullopt, -1, input.ray.origin, {}});
 }
 
-std::optional<Vec3> ToolContext::groundPoint(const PointerInput& input, std::optional<Vec3> skip) {
+std::optional<Vec3> ToolContext::groundPoint(const PointerInput& input, const std::optional<Vec3>& skip) {
     auto res = snapGround(input, skip);
     indicator = res;
     if (!res) return std::nullopt;

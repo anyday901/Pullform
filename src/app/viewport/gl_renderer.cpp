@@ -132,10 +132,7 @@ struct WideLineVertex {
 
 class GlRenderer final : public Renderer {
 public:
-    GlRenderer()
-        : meshProgram_(link(kMeshVertex, kMeshFragment)), lineProgram_(link(kLineVertex, kLineFragment)),
-          wideProgram_(link(kWideLineVertex, kLineFragment)), lineVao_(gl::makeVertexArray()), lineVbo_(gl::makeBuffer()),
-          wideVao_(gl::makeVertexArray()), wideVbo_(gl::makeBuffer()) {
+    GlRenderer() {
         meshMvp_ = glGetUniformLocation(meshProgram_.get(), "uMvp");
         meshColor_ = glGetUniformLocation(meshProgram_.get(), "uColor");
         meshLight_ = glGetUniformLocation(meshProgram_.get(), "uLightDir");
@@ -344,13 +341,14 @@ private:
         glUniform1f(meshLit_, lit);
     }
 
-    gl::Program meshProgram_;
-    gl::Program lineProgram_;
-    gl::Program wideProgram_;
-    gl::VertexArray lineVao_;
-    gl::Buffer lineVbo_;
-    gl::VertexArray wideVao_;
-    gl::Buffer wideVbo_;
+    // Created with the renderer, which needs a current GL context.
+    gl::Program meshProgram_ = link(kMeshVertex, kMeshFragment);
+    gl::Program lineProgram_ = link(kLineVertex, kLineFragment);
+    gl::Program wideProgram_ = link(kWideLineVertex, kLineFragment);
+    gl::VertexArray lineVao_ = gl::makeVertexArray();
+    gl::Buffer lineVbo_ = gl::makeBuffer();
+    gl::VertexArray wideVao_ = gl::makeVertexArray();
+    gl::Buffer wideVbo_ = gl::makeBuffer();
     GLint meshMvp_ = -1, meshColor_ = -1, meshLight_ = -1, meshLit_ = -1, lineMvp_ = -1;
     std::unordered_map<MeshHandle, GpuMesh> meshes_;
     MeshHandle nextHandle_ = 1;

@@ -39,11 +39,11 @@ public:
 
     /// Ground snap (see ToolController::snapGround). `skip` is a point not to
     /// infer from (the rectangle's own first corner).
-    std::optional<SnapResult> snapGround(const PointerInput& input, std::optional<Vec3> skip = std::nullopt);
+    std::optional<SnapResult> snapGround(const PointerInput& input, const std::optional<Vec3>& skip = std::nullopt);
     /// Point snap for any tool (see ToolController::snapPointer).
-    SnapResult snapPointer(const PointerInput& input, std::optional<Vec3> skip = std::nullopt);
+    SnapResult snapPointer(const PointerInput& input, const std::optional<Vec3>& skip = std::nullopt);
     /// Ground snap that also shows the marker; nothing when the ray misses the ground.
-    std::optional<Vec3> groundPoint(const PointerInput& input, std::optional<Vec3> skip = std::nullopt);
+    std::optional<Vec3> groundPoint(const PointerInput& input, const std::optional<Vec3>& skip = std::nullopt);
     /// Snaps for the tape measure and dimension tools and shows the marker.
     /// Empty when the pointer reaches neither the model nor the ground (an
     /// unsnapped ground point, with grid snap off, is still a point).
@@ -71,14 +71,14 @@ public:
     ToolBase& operator=(const ToolBase&) = delete;
 
     /// The tool became the current tool.
-    virtual void activate() {}
+    virtual void activate() { /* most tools keep no state across activations */ }
     /// The current tool changed (called on every tool, so per-tool modifiers
     /// such as the move axis lock reset whichever tool was current).
-    virtual void toolChanged() {}
+    virtual void toolChanged() { /* only tools with per-tool modifiers reset anything */ }
 
-    virtual void pointerDown(const PointerInput& /*input*/) {}
-    virtual void pointerMove(const PointerInput& /*input*/) {}
-    virtual void pointerUp(const PointerInput& /*input*/) {}
+    virtual void pointerDown(const PointerInput& /*input*/) { /* ignored by default */ }
+    virtual void pointerMove(const PointerInput& /*input*/) { /* ignored by default */ }
+    virtual void pointerUp(const PointerInput& /*input*/) { /* ignored by default */ }
     /// Returns whether the tool used the key.
     virtual bool key(ToolKey /*key*/) { return false; }
 
@@ -91,7 +91,7 @@ public:
     /// True while a gesture is in progress.
     [[nodiscard]] virtual bool active() const { return false; }
     /// Drops the gesture (Escape, or a tool change).
-    virtual void cancel() {}
+    virtual void cancel() { /* a tool without gestures has nothing to drop */ }
 
     /// Status bar hint for the current gesture state.
     [[nodiscard]] virtual std::string hint() const = 0;

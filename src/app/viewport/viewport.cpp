@@ -5,6 +5,7 @@
 #include <glm/geometric.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <numbers>
 #include <initializer_list>
@@ -250,8 +251,8 @@ void Viewport::appendVertexMarker(std::vector<LineSegment>& lines, const Vec3& p
     right = glm::length(right) > 1e-9 ? glm::normalize(right) : Vec3{1.0, 0.0, 0.0};
     const Vec3 up = glm::cross(right, f);
     const double r = pixels * camera_.worldPerPixel(p, size_);
-    const Vec3 c[4] = {p + (-right - up) * r, p + (right - up) * r, p + (right + up) * r, p + (-right + up) * r};
-    for (int i = 0; i < 4; ++i) lines.push_back({c[i], c[(i + 1) % 4], color});
+    const std::array<Vec3, 4> c = {p + (-right - up) * r, p + (right - up) * r, p + (right + up) * r, p + (-right + up) * r};
+    for (std::size_t i = 0; i < c.size(); ++i) lines.emplace_back(c[i], c[(i + 1) % c.size()], color);
 }
 
 namespace {
@@ -283,32 +284,29 @@ void Viewport::drawElements(const Editor& editor, const std::vector<ObjectId>& p
     MeshData hoverFaces;
     std::vector<LineSegment> selectedEdges;
     std::vector<LineSegment> hoverEdges;
-    const auto edgeSegment = [](const ElementTopology& topo, std::uint32_t index, const glm::vec4& color) {
-        const auto& e = topo.edges[index];
-        return LineSegment{topo.vertices[e.a].position, topo.vertices[e.b].position, color};
-    };
-    for (const auto& ref : set.elements()) {
-        if (isPreviewed(ref.object)) continue;
+    // Adds one element's highlight: face triangles, an edge line or a vertex marker.
+    const auto append = [this, &isPreviewed, &onTop](const ElementRef& ref, MeshData& faces, std::vector<LineSegment>& edges,
+                                                     double markerPixels, const glm::vec4& color) {
+        if (isPreviewed(ref.object)) return;
         const auto* cached = meshes_.find(ref.object);
-        if (!cached) continue;
-        const auto index = cached->topology.indexOf(ref.kind, ref.id);
-        if (!index) continue;
+        if (!cached) return;
+        const auto& topo = cached->topology;
+        const auto index = topo.indexOf(ref.kind, ref.id);
+        if (!index.has_value()) return;
+        using enum ElementKind;
         switch (ref.kind) {
-        case ElementKind::Face: appendFaceTriangles(selectedFaces, cached->topology, *index); break;
-        case ElementKind::Edge: selectedEdges.push_back(edgeSegment(cached->topology, *index, kSelectedEdge)); break;
-        case ElementKind::Vertex: appendVertexMarker(onTop, cached->topology.vertices[*index].position, 4.0, kSelectedEdge); break;
+        case Face: appendFaceTriangles(faces, topo, *index); break;
+        case Edge: {
+            const auto& e = topo.edges[*index];
+            edges.emplace_back(topo.vertices[e.a].position, topo.vertices[e.b].position, color);
+            break;
         }
-    }
-    if (const auto& hover = editor.hoverElement(); hover && !isPreviewed(hover->object) && !set.containsElement(*hover)) {
-        if (const auto* cached = meshes_.find(hover->object)) {
-            if (const auto index = cached->topology.indexOf(hover->kind, hover->id)) {
-                switch (hover->kind) {
-                case ElementKind::Face: appendFaceTriangles(hoverFaces, cached->topology, *index); break;
-                case ElementKind::Edge: hoverEdges.push_back(edgeSegment(cached->topology, *index, kHoverEdge)); break;
-                case ElementKind::Vertex: appendVertexMarker(onTop, cached->topology.vertices[*index].position, 5.0, kHoverEdge); break;
-                }
-            }
+        case Vertex: appendVertexMarker(onTop, topo.vertices[*index].position, markerPixels, color); break;
         }
+    };
+    for (const auto& ref : set.elements()) append(ref, selectedFaces, selectedEdges, 4.0, kSelectedEdge);
+    if (const auto& hover = editor.hoverElement(); hover.has_value() && !set.containsElement(*hover)) {
+        append(*hover, hoverFaces, hoverEdges, 5.0, kHoverEdge);
     }
     // Face overlays from the topology's own triangles, uploaded for this frame
     // only (a handful of faces), so they work for any mesh.
@@ -422,15 +420,15 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
         for (const auto& e : cached.topology.edges) {
             if (e.soft) continue;
             (selected ? selectedLines : lines)
-                .push_back({cached.topology.vertices[e.a].position, cached.topology.vertices[e.b].position,
-                            selected ? kSelectedEdge : kEdge});
+                .emplace_back(cached.topology.vertices[e.a].position, cached.topology.vertices[e.b].position,
+                              selected ? kSelectedEdge : kEdge);
         }
         if (profileEdges_) {
             const auto& topo = cached.topology;
             for (const auto e : pf::profileEdges(topo, eye)) {
                 (selected ? selectedProfileLines : profileLines)
-                    .push_back({topo.vertices[topo.edges[e].a].position, topo.vertices[topo.edges[e].b].position,
-                                selected ? kSelectedEdge : kEdge});
+                    .emplace_back(topo.vertices[topo.edges[e].a].position, topo.vertices[topo.edges[e].b].position,
+                                  selected ? kSelectedEdge : kEdge);
             }
         }
     }

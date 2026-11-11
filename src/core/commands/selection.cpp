@@ -34,7 +34,7 @@ bool SelectionSet::contains(ObjectId id) const { return std::ranges::find(object
 
 void SelectionSet::add(const Selection& entry) {
     if (!contains(entry.objectId)) objects_.push_back(entry.objectId);
-    else std::erase_if(elements_, [&](const ElementRef& e) { return e.object == entry.objectId; }); // now whole
+    else std::erase_if(elements_, [&entry](const ElementRef& e) { return e.object == entry.objectId; }); // now whole
     primary_ = entry;
 }
 
@@ -72,12 +72,12 @@ void SelectionSet::removeElements(const std::vector<ElementRef>& elements) {
 void SelectionSet::toggleElements(const std::vector<ElementRef>& elements, const std::optional<FaceId>& face) {
     // Elements of an object selected whole (by a box or Select All) are implied,
     // so toggling them removes that object.
-    const auto selectedWhole = [&](const ElementRef& e) { return contains(e.object) && !hasElements(e.object); };
-    if (!elements.empty() && std::ranges::all_of(elements, selectedWhole)) {
+    if (const auto selectedWhole = [this](const ElementRef& e) { return contains(e.object) && !hasElements(e.object); };
+        !elements.empty() && std::ranges::all_of(elements, selectedWhole)) {
         for (const auto& e : elements) remove(e.object);
         return;
     }
-    const bool all = !elements.empty() && std::ranges::all_of(elements, [&](const ElementRef& e) { return containsElement(e); });
+    const bool all = !elements.empty() && std::ranges::all_of(elements, [this](const ElementRef& e) { return containsElement(e); });
     if (all) removeElements(elements);
     else addElements(elements, face);
 }
@@ -86,7 +86,7 @@ bool SelectionSet::remove(ObjectId id) {
     const auto it = std::ranges::find(objects_, id);
     if (it == objects_.end()) return false;
     objects_.erase(it);
-    std::erase_if(elements_, [&](const ElementRef& e) { return e.object == id; });
+    std::erase_if(elements_, [id](const ElementRef& e) { return e.object == id; });
     if (primary_ && primary_->objectId == id) {
         primary_.reset();
         if (!objects_.empty()) primary_ = Selection{objects_.back(), std::nullopt};
@@ -122,7 +122,7 @@ SelectionSet sanitizeSelection(const Document& doc, const SelectionSet& sel) {
             topo = buildTopology(*o);
             builtFor = e.object;
         }
-        if (topo.indexOf(e.kind, e.id)) kept.push_back(e);
+        if (topo.indexOf(e.kind, e.id).has_value()) kept.push_back(e);
     }
     out.elements_.clear();
     for (const auto& e : kept) out.elements_.push_back(e);
@@ -146,18 +146,20 @@ SelectionSet selectAll(const Document& doc) {
 }
 
 SelectionSet applyClick(const SelectionSet& current, const std::optional<Selection>& hit, SelectModifier modifier) {
-    if (!hit) return modifier == SelectModifier::Replace ? SelectionSet{} : current;
-    SelectionSet next = modifier == SelectModifier::Replace ? SelectionSet{} : current;
-    if (modifier == SelectModifier::Toggle) next.toggle(*hit);
+    using enum SelectModifier;
+    if (!hit) return modifier == Replace ? SelectionSet{} : current;
+    SelectionSet next = modifier == Replace ? SelectionSet{} : current;
+    if (modifier == Toggle) next.toggle(*hit);
     else next.add(*hit);
     return next;
 }
 
 SelectionSet applyElementClick(const SelectionSet& current, const std::vector<ElementRef>& hit,
                                const std::optional<FaceId>& face, SelectModifier modifier) {
-    if (hit.empty()) return modifier == SelectModifier::Replace ? SelectionSet{} : current;
-    SelectionSet next = modifier == SelectModifier::Replace ? SelectionSet{} : current;
-    if (modifier == SelectModifier::Toggle) next.toggleElements(hit, face);
+    using enum SelectModifier;
+    if (hit.empty()) return modifier == Replace ? SelectionSet{} : current;
+    SelectionSet next = modifier == Replace ? SelectionSet{} : current;
+    if (modifier == Toggle) next.toggleElements(hit, face);
     else next.addElements(hit, face);
     return next;
 }

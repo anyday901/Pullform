@@ -5,6 +5,7 @@
 #include "core/geometry/mesh.hpp"
 #include "core/geometry/solid.hpp"
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <vector>
@@ -28,7 +29,8 @@ struct ElementTopology {
     };
     struct Edge {
         std::uint32_t id = 0;
-        std::uint32_t a = 0, b = 0;       ///< vertex indices
+        std::uint32_t a = 0;              ///< vertex index of one end
+        std::uint32_t b = 0;              ///< vertex index of the other end
         std::vector<std::uint32_t> faces; ///< faces bordered by this edge (0, 1 or 2 for a manifold)
         bool soft = false;                ///< hidden: not drawn and not picked
     };
@@ -43,7 +45,7 @@ struct ElementTopology {
     };
     struct Triangle {
         std::uint32_t face = 0;
-        std::uint32_t v[3] = {0, 0, 0};
+        std::array<std::uint32_t, 3> v{0, 0, 0};
     };
 
     std::vector<Vertex> vertices;

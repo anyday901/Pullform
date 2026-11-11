@@ -52,7 +52,7 @@ void RectangleTool::finish(const PointerInput& input) {
 
 bool RectangleTool::commit(const RectanglePlacement& placement) {
     const bool ok = editor().commit(
-        "Draw rectangle", [&](const Document& doc) { return createRectangle(doc, placement); },
+        "Draw rectangle", [&placement](const Document& doc) { return createRectangle(doc, placement); },
         [](const OpResult& res) -> std::optional<Selection> {
             if (!res.objectId) return std::nullopt;
             return Selection{*res.objectId, FaceId::profile()};
@@ -67,7 +67,8 @@ bool RectangleTool::commit(const RectanglePlacement& placement) {
 
 std::optional<std::string> RectangleTool::submitSize(std::string_view widthText, std::string_view depthText) {
     const LengthUnit unit = editor().document().displayUnit;
-    double w = 0.0, d = 0.0;
+    double w = 0.0;
+    double d = 0.0;
     if (trimmed(depthText).empty()) {
         const auto list = parseLengthList(widthText, 2, unit);
         if (!list) return list.error();
@@ -83,7 +84,8 @@ std::optional<std::string> RectangleTool::submitSize(std::string_view widthText,
     }
     if (w < 0 || d < 0) return std::string("Width and depth must be positive; the drawing direction follows the pointer.");
     Vec3 start{0.0};
-    double sx = 1.0, sy = 1.0;
+    double sx = 1.0;
+    double sy = 1.0;
     if (gesture_) {
         start = gesture_->start;
         if (const auto* preview = std::get_if<RectanglePreview>(&editor().preview())) {

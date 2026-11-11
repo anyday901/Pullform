@@ -3,6 +3,7 @@
 #include <glm/geometric.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <map>
 #include <utility>
@@ -42,6 +43,49 @@ std::uint32_t ElementTopology::idAt(ElementKind kind, std::uint32_t index) const
     return 0;
 }
 
+namespace {
+
+/// A polygon's corners as merged vertex indices, without repeats (consecutive
+/// or closing).
+template <typename VertexFor>
+std::vector<std::uint32_t> mergedLoop(const std::vector<Vec3>& corners, VertexFor&& vertexFor) {
+    std::vector<std::uint32_t> loop;
+    for (const auto& p : corners) {
+        const auto v = vertexFor(p);
+        if (loop.empty() || loop.back() != v) loop.push_back(v);
+    }
+    if (loop.size() > 1 && loop.front() == loop.back()) loop.pop_back();
+    return loop;
+}
+
+/// Topology edge indices of every loop of a mesh face.
+std::vector<std::uint32_t> faceEdgeIndices(const mesh::Face& f, const std::map<std::uint32_t, std::uint32_t>& edgeIndex) {
+    std::vector<std::uint32_t> out;
+    for (const auto& loop : f.loops) {
+        for (const auto& use : loop) {
+            if (const auto it = edgeIndex.find(use.edge.value); it != edgeIndex.end()) out.push_back(it->second);
+        }
+    }
+    return out;
+}
+
+/// The face's triangles in topology vertex indices (a triangle with an unknown vertex is skipped).
+void appendTriangles(const mesh::Mesh& m, mesh::FaceId id, std::uint32_t faceIndex,
+                     const std::map<std::uint32_t, std::uint32_t>& vertexIndex, std::vector<ElementTopology::Triangle>& out) {
+    for (const auto& tri : mesh::triangulateFace(m, id)) {
+        ElementTopology::Triangle t{faceIndex, {0, 0, 0}};
+        const bool ok = std::ranges::all_of(std::array{0, 1, 2}, [&](int k) {
+            const auto it = vertexIndex.find(tri[k].value);
+            if (it == vertexIndex.end()) return false;
+            t.v[k] = it->second;
+            return true;
+        });
+        if (ok) out.push_back(t);
+    }
+}
+
+} // namespace
+
 ElementTopology buildTopology(const std::vector<FacePolygon>& polygons, double tolerance) {
     ElementTopology topo;
     const bool sheet = polygons.size() == 1; // an un-extruded profile is one two-sided face
@@ -75,11 +119,7 @@ ElementTopology buildTopology(const std::vector<FacePolygon>& polygons, double t
         face.logical = poly.id;
         face.normal = poly.normal;
         face.twoSided = sheet;
-        for (const auto& p : poly.loop) {
-            const auto v = vertexFor(p);
-            if (face.loop.empty() || face.loop.back() != v) face.loop.push_back(v);
-        }
-        if (face.loop.size() > 1 && face.loop.front() == face.loop.back()) face.loop.pop_back();
+        face.loop = mergedLoop(poly.loop, vertexFor);
         if (face.loop.size() < 3) continue;
         for (std::size_t i = 0; i < face.loop.size(); ++i) {
             const auto e = edgeFor(face.loop[i], face.loop[(i + 1) % face.loop.size()]);
@@ -131,28 +171,13 @@ ElementTopology buildTopology(const mesh::Mesh& m, const ProfileObject& object) 
         face.normal = glm::normalize(rotation * f.normal);
         face.loop = loopIndices(f.loops[0]);
         for (std::size_t h = 1; h < f.loops.size(); ++h) face.holes.push_back(loopIndices(f.loops[h]));
-        for (const auto& loop : f.loops) {
-            for (const auto& use : loop) {
-                const auto it = edgeIndex.find(use.edge.value);
-                if (it == edgeIndex.end()) continue;
-                face.edges.push_back(it->second);
-                topo.edges[it->second].faces.push_back(index);
-            }
-        }
-        for (const auto& tri : mesh::triangulateFace(m, mesh::FaceId{id})) {
-            ElementTopology::Triangle t{index, {0, 0, 0}};
-            bool ok = true;
-            for (int k = 0; k < 3; ++k) {
-                const auto it = vertexIndex.find(tri[k].value);
-                if (it == vertexIndex.end()) ok = false;
-                else t.v[k] = it->second;
-            }
-            if (ok) topo.triangles.push_back(t);
-        }
+        face.edges = faceEdgeIndices(f, edgeIndex);
+        for (const auto e : face.edges) topo.edges[e].faces.push_back(index);
+        appendTriangles(m, mesh::FaceId{id}, index, vertexIndex, topo.triangles);
         topo.faces.push_back(std::move(face));
     }
     for (auto& face : topo.faces) {
-        face.twoSided = std::ranges::any_of(face.edges, [&](std::uint32_t e) { return topo.edges[e].faces.size() != 2; });
+        face.twoSided = std::ranges::any_of(face.edges, [&topo](std::uint32_t e) { return topo.edges[e].faces.size() != 2; });
     }
     for (const auto& v : topo.vertices) topo.bounds.extend(v.position);
     return topo;
@@ -184,7 +209,7 @@ std::vector<std::uint32_t> profileEdges(const ElementTopology& topo, const Vec3&
 namespace {
 
 void addUnique(std::vector<ElementRef>& out, const ElementRef& ref) {
-    if (std::find(out.begin(), out.end(), ref) == out.end()) out.push_back(ref);
+    if (std::ranges::find(out, ref) == out.end()) out.push_back(ref);
 }
 
 } // namespace
@@ -192,19 +217,20 @@ void addUnique(std::vector<ElementRef>& out, const ElementRef& ref) {
 std::vector<ElementRef> expandBounded(ObjectId object, const ElementTopology& topo, ElementKind kind, std::uint32_t elementId) {
     std::vector<ElementRef> out;
     const auto index = topo.indexOf(kind, elementId);
-    if (!index) return out;
+    if (!index.has_value()) return out;
     const std::uint32_t id = *index;
+    using enum ElementKind;
     switch (kind) {
-    case ElementKind::Face:
-        out.push_back({object, ElementKind::Face, elementId});
-        for (const auto e : topo.faces[id].edges) addUnique(out, {object, ElementKind::Edge, topo.edges[e].id});
+    case Face:
+        out.push_back({object, Face, elementId});
+        for (const auto e : topo.faces[id].edges) addUnique(out, {object, Edge, topo.edges[e].id});
         break;
-    case ElementKind::Edge:
-        out.push_back({object, ElementKind::Edge, elementId});
-        for (const auto f : topo.edges[id].faces) addUnique(out, {object, ElementKind::Face, topo.faces[f].id});
+    case Edge:
+        out.push_back({object, Edge, elementId});
+        for (const auto f : topo.edges[id].faces) addUnique(out, {object, Face, topo.faces[f].id});
         break;
-    case ElementKind::Vertex:
-        for (const auto e : topo.vertices[id].edges) addUnique(out, {object, ElementKind::Edge, topo.edges[e].id});
+    case Vertex:
+        for (const auto e : topo.vertices[id].edges) addUnique(out, {object, Edge, topo.edges[e].id});
         break;
     }
     return out;
@@ -212,7 +238,7 @@ std::vector<ElementRef> expandBounded(ObjectId object, const ElementTopology& to
 
 std::vector<ElementRef> expandConnected(ObjectId object, const ElementTopology& topo, ElementKind kind, std::uint32_t elementId) {
     const auto index = topo.indexOf(kind, elementId);
-    if (!index) return {};
+    if (!index.has_value()) return {};
     const std::uint32_t id = *index;
     // Flood over vertices: two elements are connected when they share a vertex.
     std::vector<bool> seenVertex(topo.vertices.size(), false);

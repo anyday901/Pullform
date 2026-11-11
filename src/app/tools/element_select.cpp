@@ -5,7 +5,7 @@
 namespace pf {
 
 std::optional<ElementRef> elementUnder(const Document& document, const PointerInput& input) {
-    if (input.element) return document.find(input.element->element.object) ? std::optional(input.element->element) : std::nullopt;
+    if (input.element.has_value()) return document.find(input.element->element.object) ? std::optional(input.element->element) : std::nullopt;
     if (!input.pick) return std::nullopt;
     const auto* object = document.find(input.pick->objectId);
     if (!object) return std::nullopt;

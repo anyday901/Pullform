@@ -12,6 +12,7 @@
 #include "core/geometry/solid.hpp"
 
 #include <algorithm>
+#include <algorithm>
 #include <cassert>
 
 namespace pf {
@@ -43,7 +44,7 @@ ToolController::~ToolController() = default;
 void ToolController::setTool(Tool tool) {
     if (tool == tool_) return;
     cancel();
-    for (auto& t : tools_) t->toolChanged();
+    for (const auto& t : tools_) t->toolChanged();
     tool_ = tool;
     ctx_.indicator.reset();
     snapper_.clearReferences();
@@ -55,15 +56,12 @@ void ToolController::setTool(Tool tool) {
 }
 
 bool ToolController::active() const {
-    for (const auto& t : tools_) {
-        if (t->active()) return true;
-    }
-    return false;
+    return std::ranges::any_of(tools_, [](const auto& t) { return t->active(); });
 }
 
 bool ToolController::cancel() {
     const bool had = active() || !std::holds_alternative<std::monostate>(editor_.preview());
-    for (auto& t : tools_) t->cancel();
+    for (const auto& t : tools_) t->cancel();
     ctx_.indicator.reset();
     editor_.cancelPreview();
     return had;

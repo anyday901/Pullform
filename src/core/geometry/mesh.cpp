@@ -283,7 +283,7 @@ void Mesh::splitEdge(EdgeId id, VertexId at) {
     if (second.curve) {
         if (auto it = curves_.find(second.curve->value); it != curves_.end()) {
             auto& list = it->second.edges;
-            const auto pos = std::find(list.begin(), list.end(), id);
+            const auto pos = std::ranges::find(list, id);
             if (pos != list.end()) list.insert(pos + 1, secondId);
             ++it->second.segments;
         }
@@ -341,7 +341,11 @@ std::optional<AddEdgeResult> Mesh::addEdge(const Vec3& a, const Vec3& b) {
         const Vec3 u = dir;
         const Vec3 w = d - c;
         const Vec3 r = pa - c;
-        const double A = glm::dot(u, u), B = glm::dot(u, w), C = glm::dot(w, w), D = glm::dot(u, r), E = glm::dot(w, r);
+        const double A = glm::dot(u, u);
+        const double B = glm::dot(u, w);
+        const double C = glm::dot(w, w);
+        const double D = glm::dot(u, r);
+        const double E = glm::dot(w, r);
         const double den = A * C - B * B;
         if (den <= 1e-12 * A * C) continue; // parallel: overlaps are handled by the vertex stops
         const double s = (B * E - C * D) / den;
@@ -360,7 +364,7 @@ std::optional<AddEdgeResult> Mesh::addEdge(const Vec3& a, const Vec3& b) {
         splitEdge(c.edge, v);
         stops.emplace_back(c.t, v);
     }
-    std::sort(stops.begin(), stops.end(), [](const auto& x, const auto& y) { return x.first < y.first; });
+    std::ranges::sort(stops, [](const auto& x, const auto& y) { return x.first < y.first; });
 
     std::vector<VertexId> chain{va};
     for (const auto& [t, v] : stops) {
@@ -507,7 +511,9 @@ std::optional<Vec3> interiorPoint(const Mesh& m, const Face& f) {
         const Vertex* vb = tmp.vertex(t[1]);
         const Vertex* vc = tmp.vertex(t[2]);
         if (!va || !vb || !vc) continue;
-        const Vec3 a = va->position, b = vb->position, c = vc->position;
+        const Vec3 a = va->position;
+        const Vec3 b = vb->position;
+        const Vec3 c = vc->position;
         const double area = glm::length(glm::cross(b - a, c - a));
         if (area > best) {
             best = area;
@@ -533,7 +539,8 @@ Loop reversedLoop(const Loop& loop) {
 
 bool sameEdgeSet(const Loop& a, const Loop& b) {
     if (a.size() != b.size()) return false;
-    std::set<std::uint32_t> sa, sb;
+    std::set<std::uint32_t> sa;
+    std::set<std::uint32_t> sb;
     for (const auto& u : a) sa.insert(u.edge.value);
     for (const auto& u : b) sb.insert(u.edge.value);
     return sa == sb;
@@ -543,7 +550,7 @@ bool loopTouches(const Mesh& m, const Loop& a, const Loop& b) {
     const auto va = m.loopVertices(a);
     const auto vb = m.loopVertices(b);
     const std::set<VertexId> sb(vb.begin(), vb.end());
-    return std::any_of(va.begin(), va.end(), [&](VertexId v) { return sb.count(v) > 0; });
+    return std::ranges::any_of(va, [&](VertexId v) { return sb.contains(v); });
 }
 
 /// True when every vertex of `inner` is strictly inside the outer loop `outer`
@@ -587,7 +594,7 @@ void Mesh::faceEdge(EdgeId id, AddEdgeResult& result) {
             allowed.push_back(EdgeId{eid});
         }
         allowed = pruneDangling(*this, allowed);
-        if (std::find(allowed.begin(), allowed.end(), id) == allowed.end()) return; // dangling: no new face
+        if (std::ranges::find(allowed, id) == allowed.end()) return; // dangling: no new face
 
         const Vec3 origin = loopPositions(f.loops[0]).front();
         std::vector<Loop> cycles;
@@ -657,7 +664,7 @@ void Mesh::faceEdge(EdgeId id, AddEdgeResult& result) {
             // Prefer +Z (then +Y, +X) so horizontal faces face up.
             const Vec3 pref{1e-3, 1e-2, 1.0};
             if (glm::dot(n, pref) < 0.0) n = -n;
-            if (std::none_of(normals.begin(), normals.end(), [&](const Vec3& m) { return std::abs(glm::dot(m, n)) >= 1.0 - tol::kCoplanarNormal; })) {
+            if (std::ranges::none_of(normals, [&](const Vec3& m) { return std::abs(glm::dot(m, n)) >= 1.0 - tol::kCoplanarNormal; })) {
                 normals.push_back(n);
             }
         }
@@ -673,13 +680,13 @@ void Mesh::faceEdge(EdgeId id, AddEdgeResult& result) {
             }
         }
         allowed = pruneDangling(*this, allowed);
-        if (std::find(allowed.begin(), allowed.end(), id) == allowed.end()) continue;
+        if (std::ranges::find(allowed, id) == allowed.end()) continue;
         for (const EdgeUse& start : {forward, backward}) {
             auto c = traceLeft(start, n, pa, allowed);
             if (!c || !simpleLoop(*this, *c)) continue;
             if (signedArea(loopPositions(*c), n) <= tol::kMinArea * 0.5) continue;
-            const bool exists = std::any_of(faces_.begin(), faces_.end(), [&](const auto& kv) {
-                return std::any_of(kv.second.loops.begin(), kv.second.loops.end(), [&](const Loop& l) { return sameEdgeSet(l, *c); });
+            const bool exists = std::ranges::any_of(faces_, [&](const auto& kv) {
+                return std::ranges::any_of(kv.second.loops, [&](const Loop& l) { return sameEdgeSet(l, *c); });
             });
             if (exists) continue;
 
@@ -694,7 +701,7 @@ void Mesh::faceEdge(EdgeId id, AddEdgeResult& result) {
             }
             for (const FaceId inner : enclosed) {
                 const Face& of = faces_.at(inner.value);
-                const bool nested = std::any_of(enclosed.begin(), enclosed.end(), [&](FaceId other) {
+                const bool nested = std::ranges::any_of(enclosed, [&](FaceId other) {
                     return other != inner && loopInside(*this, of.loops[0], faces_.at(other.value).loops[0], of.normal);
                 });
                 if (nested) continue;
@@ -705,7 +712,7 @@ void Mesh::faceEdge(EdgeId id, AddEdgeResult& result) {
             // The new face must not cover an existing coplanar face.
             const auto sample = interiorPoint(*this, candidate);
             if (!sample) continue;
-            const bool covered = std::any_of(faces_.begin(), faces_.end(), [&](const auto& kv) {
+            const bool covered = std::ranges::any_of(faces_, [&](const auto& kv) {
                 return std::abs(glm::dot(kv.second.normal, n)) >= 1.0 - tol::kCoplanarNormal &&
                        classify(*this, kv.second, *sample) != Where::Outside;
             });
@@ -744,7 +751,7 @@ std::optional<EraseEdgeResult> Mesh::eraseEdge(EdgeId id) {
             // Splice the outer loops at the edge, then drop back-and-forth spurs
             // left by any other shared edges.
             const auto withoutEdge = [&](const Loop& loop) {
-                const auto pos = std::find_if(loop.begin(), loop.end(), [&](const EdgeUse& u) { return u.edge == id; });
+                const auto pos = std::ranges::find_if(loop, [&](const EdgeUse& u) { return u.edge == id; });
                 Loop out(pos + 1, loop.end());
                 out.insert(out.end(), loop.begin(), pos);
                 return out;
@@ -954,12 +961,14 @@ std::vector<std::array<VertexId, 3>> triangulateFace(const Mesh& m, FaceId fid) 
     std::vector<std::vector<Pt>> holes;
     for (std::size_t l = 1; l < f->loops.size(); ++l) holes.push_back(loop2d(f->loops[l]));
     const auto rightmost = [](const std::vector<Pt>& h) {
-        return static_cast<std::size_t>(std::max_element(h.begin(), h.end(), [](const Pt& a, const Pt& b) { return a.p.x < b.p.x; }) - h.begin());
+        return static_cast<std::size_t>(std::ranges::max_element(h, [](const Pt& a, const Pt& b) { return a.p.x < b.p.x; }) - h.begin());
     };
-    std::sort(holes.begin(), holes.end(), [&](const auto& a, const auto& b) { return a[rightmost(a)].p.x > b[rightmost(b)].p.x; });
+    std::ranges::sort(holes, [&](const auto& a, const auto& b) { return a[rightmost(a)].p.x > b[rightmost(b)].p.x; });
     const auto segmentsCross = [](const Vec2& a, const Vec2& b, const Vec2& c, const Vec2& d) {
-        const double d1 = cross2(b - a, c - a), d2 = cross2(b - a, d - a);
-        const double d3 = cross2(d - c, a - c), d4 = cross2(d - c, b - c);
+        const double d1 = cross2(b - a, c - a);
+        const double d2 = cross2(b - a, d - a);
+        const double d3 = cross2(d - c, a - c);
+        const double d4 = cross2(d - c, b - c);
         return ((d1 > 0) != (d2 > 0)) && ((d3 > 0) != (d4 > 0)) && d1 != 0 && d2 != 0 && d3 != 0 && d4 != 0;
     };
     for (std::size_t h = 0; h < holes.size(); ++h) {
@@ -975,7 +984,8 @@ std::vector<std::array<VertexId, 3>> triangulateFace(const Mesh& m, FaceId fid) 
             bool blocked = false;
             const auto checkLoop = [&](const std::vector<Pt>& lp) {
                 for (std::size_t k = 0; k < lp.size() && !blocked; ++k) {
-                    const Vec2 a = lp[k].p, b = lp[(k + 1) % lp.size()].p;
+                    const Vec2 a = lp[k].p;
+                    const Vec2 b = lp[(k + 1) % lp.size()].p;
                     if (segmentsCross(mp, pp, a, b)) blocked = true;
                 }
             };
@@ -997,7 +1007,7 @@ std::vector<std::array<VertexId, 3>> triangulateFace(const Mesh& m, FaceId fid) 
                 bestDist = d;
             }
         }
-        if (!best) continue; // cannot bridge; the hole is left out of the triangulation
+        if (!best.has_value()) continue; // cannot bridge; the hole is left out of the triangulation
         std::vector<Pt> merged(poly.begin(), poly.begin() + static_cast<std::ptrdiff_t>(*best) + 1);
         for (std::size_t k = 0; k <= hole.size(); ++k) merged.push_back(hole[(mi + k) % hole.size()]);
         merged.push_back(poly[*best]);
@@ -1017,8 +1027,12 @@ std::vector<std::array<VertexId, 3>> triangulateFace(const Mesh& m, FaceId fid) 
         ++guard;
         bool clipped = false;
         for (std::size_t i = 0; i < idx.size(); ++i) {
-            const std::size_t ia = idx[(i + idx.size() - 1) % idx.size()], ib = idx[i], ic = idx[(i + 1) % idx.size()];
-            const Vec2 a = poly[ia].p, b = poly[ib].p, c = poly[ic].p;
+            const std::size_t ia = idx[(i + idx.size() - 1) % idx.size()];
+            const std::size_t ib = idx[i];
+            const std::size_t ic = idx[(i + 1) % idx.size()];
+            const Vec2 a = poly[ia].p;
+            const Vec2 b = poly[ib].p;
+            const Vec2 c = poly[ic].p;
             const double cr = cross2(b - a, c - b);
             if (cr <= 0.0) {
                 // Collinear (zero-area) corner: drop it without a triangle.
@@ -1050,7 +1064,9 @@ std::vector<std::array<VertexId, 3>> triangulateFace(const Mesh& m, FaceId fid) 
         if (!clipped) break;
     }
     if (idx.size() == 3) {
-        const Vec2 a = poly[idx[0]].p, b = poly[idx[1]].p, c = poly[idx[2]].p;
+        const Vec2 a = poly[idx[0]].p;
+        const Vec2 b = poly[idx[1]].p;
+        const Vec2 c = poly[idx[2]].p;
         if (cross2(b - a, c - b) > 0.0) out.push_back({poly[idx[0]].id, poly[idx[1]].id, poly[idx[2]].id});
     }
     return out;
@@ -1093,7 +1109,7 @@ Connected connectedElements(const Mesh& m, VertexId start) {
     out.vertices.assign(seen.begin(), seen.end());
     out.edges.assign(edges.begin(), edges.end());
     for (const auto& [fid, f] : m.faces()) {
-        if (!f.loops.empty() && edges.count(f.loops[0].front().edge)) out.faces.push_back(FaceId{fid});
+        if (!f.loops.empty() && edges.contains(f.loops[0].front().edge)) out.faces.push_back(FaceId{fid});
     }
     return out;
 }

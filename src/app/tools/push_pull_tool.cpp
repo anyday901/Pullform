@@ -9,14 +9,15 @@
 namespace pf {
 
 std::optional<std::string> PushPullTool::pushableReason(const FaceId& face) {
+    using enum FaceKind;
     switch (face.kind) {
-    case FaceKind::Profile:
-    case FaceKind::Cap: return std::nullopt;
-    case FaceKind::Base:
+    case Profile:
+    case Cap: return std::nullopt;
+    case Base:
         return std::string("Push/pull of the base face is not supported yet. Pick the top cap to change the height.");
-    case FaceKind::Side:
+    case Side:
         return "Push/pull of side faces (" + faceLabel(face) + ") is not supported yet. Pick the top cap to change the height.";
-    case FaceKind::Mesh: return std::string("Push/pull of drawn faces is not supported yet.");
+    case Mesh: return std::string("Push/pull of drawn faces is not supported yet.");
     }
     return std::nullopt;
 }
@@ -58,8 +59,7 @@ void PushPullTool::setPreview(double delta) {
 
 void PushPullTool::pointerMove(const PointerInput& input) {
     if (!gesture_) {
-        const auto& pick = input.pick;
-        if (pick && !pushableReason(pick->faceId)) editor().setHover(Selection{pick->objectId, pick->faceId});
+        if (const auto& pick = input.pick; pick && !pushableReason(pick->faceId)) editor().setHover(Selection{pick->objectId, pick->faceId});
         else editor().setHover(std::nullopt);
         return;
     }
@@ -125,7 +125,7 @@ bool PushPullTool::commitHeight(ObjectId id, FaceKind face, double height) {
     const std::string label = (face == FaceKind::Profile ? "Push/pull to " : "Set height to ") + formatLength(height, unit);
     const bool ok = editor().commit(
         label,
-        [&](const Document& doc) {
+        [id, face, height](const Document& doc) {
             return face == FaceKind::Profile ? extrudeProfile(doc, id, height) : setExtrusionHeight(doc, id, height);
         },
         [id](const OpResult&) -> std::optional<Selection> { return Selection{id, FaceId::cap()}; });

@@ -25,11 +25,11 @@ public:
         ++destroyed;
         live.erase(handle);
     }
-    void drawMesh(MeshHandle, const glm::vec4&) override {}
-    void drawMeshOverlay(MeshHandle, std::uint32_t, std::uint32_t, const glm::vec4&) override {}
-    void drawLines(const std::vector<LineSegment>&, bool) override {}
-    void drawWideLines(const std::vector<LineSegment>&, float, bool) override {}
-    void endFrame() override {}
+    void drawMesh(MeshHandle, const glm::vec4&) override { /* records nothing */ }
+    void drawMeshOverlay(MeshHandle, std::uint32_t, std::uint32_t, const glm::vec4&) override { /* records nothing */ }
+    void drawLines(const std::vector<LineSegment>&, bool) override { /* records nothing */ }
+    void drawWideLines(const std::vector<LineSegment>&, float, bool) override { /* records nothing */ }
+    void endFrame() override { /* records nothing */ }
 
     std::size_t created = 0;
     std::size_t destroyed = 0;

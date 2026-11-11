@@ -281,7 +281,10 @@ void drag(ToolController& tools, const PointerInput& from, const PointerInput& t
 struct ThreeBoxes {
     Editor editor;
     ToolController tools{editor};
-    ObjectId a, b, c, far;
+    ObjectId a;
+    ObjectId b;
+    ObjectId c;
+    ObjectId far;
     ThreeBoxes() {
         a = addBox(editor, 0, 0);
         b = addBox(editor, 2, 0);

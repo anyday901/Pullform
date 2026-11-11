@@ -20,6 +20,16 @@ namespace pf {
 
 namespace {
 
+/// What kind of object the properties panel is showing.
+const char* objectTypeLabel(const ProfileObject& o) {
+    if (o.isMeshGroup()) return "Group (edges and faces)";
+    return o.extrusion ? "Rectangular extrusion" : "Rectangle (planar face)";
+}
+
+} // namespace
+
+namespace {
+
 const ImVec4 kErrorColor{0.78f, 0.12f, 0.10f, 1.0f};
 const ImVec4 kMutedColor{0.40f, 0.43f, 0.48f, 1.0f};
 const ImVec4 kAccent{0.16f, 0.45f, 0.85f, 1.0f};
@@ -207,10 +217,9 @@ std::string Ui::measurementLive(const UiContext& ctx) const {
 void Ui::submitMeasurement(UiContext& ctx) {
     const std::string text(measure_.data());
     if (text.empty()) return;
-    const std::optional<std::string> error = ctx.tools.submit(text);
     // Clear the box either way: the error stays in the status bar, and a stale
     // value would otherwise keep capturing the single-key shortcuts.
-    if (error) ctx.editor.notify(Message{Message::Kind::Error, "\"" + text + "\": " + *error});
+    if (const auto error = ctx.tools.submit(text)) ctx.editor.notify(Message{Message::Kind::Error, "\"" + text + "\": " + *error});
     clearMeasurement();
 }
 
@@ -368,8 +377,7 @@ void Ui::properties(UiContext& ctx, float x, float y, float width, float height)
     const auto& sel = ctx.editor.selection();
     const ProfileObject* o = sel ? doc.find(sel->objectId) : nullptr;
 
-    const auto& selected = ctx.editor.selectedObjects();
-    if (selected.size() > 1) {
+    if (const auto& selected = ctx.editor.selectedObjects(); selected.size() > 1) {
         Bounds b;
         for (const ObjectId id : selected) {
             if (const auto* each = doc.find(id)) b.extend(objectBounds(*each));
@@ -420,7 +428,7 @@ void Ui::properties(UiContext& ctx, float x, float y, float width, float height)
             };
             row("Name", o->name);
             row("ID", idString(o->id));
-            row("Type", o->isMeshGroup() ? "Group (edges and faces)" : o->extrusion ? "Rectangular extrusion" : "Rectangle (planar face)");
+            row("Type", objectTypeLabel(*o));
             row("Target face", faceLabel(sel->face));
             row("Position X", formatLength(b.min.x, u));
             row("Position Y", formatLength(b.min.y, u));

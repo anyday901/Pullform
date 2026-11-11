@@ -12,7 +12,10 @@ namespace pf::mesh {
 namespace {
 
 void drawSquare(Mesh& m, double x0, double y0, double size, double z = 0.0) {
-    const Vec3 a{x0, y0, z}, b{x0 + size, y0, z}, c{x0 + size, y0 + size, z}, d{x0, y0 + size, z};
+    const Vec3 a{x0, y0, z};
+    const Vec3 b{x0 + size, y0, z};
+    const Vec3 c{x0 + size, y0 + size, z};
+    const Vec3 d{x0, y0 + size, z};
     REQUIRE(m.addEdge(a, b));
     REQUIRE(m.addEdge(b, c));
     REQUIRE(m.addEdge(c, d));
@@ -28,7 +31,9 @@ double faceArea(const Mesh& m, const Face& f) {
 double totalTriangleArea(const Mesh& m, FaceId id) {
     double area = 0.0;
     for (const auto& t : triangulateFace(m, id)) {
-        const Vec3 a = m.vertex(t[0])->position, b = m.vertex(t[1])->position, c = m.vertex(t[2])->position;
+        const Vec3 a = m.vertex(t[0])->position;
+        const Vec3 b = m.vertex(t[1])->position;
+        const Vec3 c = m.vertex(t[2])->position;
         area += 0.5 * glm::dot(glm::cross(b - a, c - a), m.face(id)->normal);
     }
     return area;
