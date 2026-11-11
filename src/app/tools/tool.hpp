@@ -14,9 +14,9 @@ namespace pf {
 /// name in toolName(), and one registration line in ToolController's constructor.
 enum class Tool {
     Select, Rectangle, RotatedRectangle, Line, Circle, Polygon, PushPull, Move, Rotate, Scale, Orbit, TapeMeasure, Dimension,
-    Arc, ThreePointArc, Pie, Protractor
+    Arc, ThreePointArc, Pie, Protractor, Eraser
 };
-inline constexpr int kToolCount = static_cast<int>(Tool::Protractor) + 1;
+inline constexpr int kToolCount = static_cast<int>(Tool::Eraser) + 1;
 
 std::string_view toolName(Tool tool);
 

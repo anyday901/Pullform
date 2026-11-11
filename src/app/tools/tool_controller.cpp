@@ -1,5 +1,6 @@
 #include "app/tools/tool_controller.hpp"
 
+#include "app/tools/eraser_tool.hpp"
 #include "app/tools/arc_tool.hpp"
 #include "app/tools/line_tool.hpp"
 #include "app/tools/circle_tool.hpp"
@@ -43,6 +44,7 @@ ToolController::ToolController(Editor& editor) : editor_(editor), snapper_(edito
     add<OrbitTool>(Tool::Orbit);
     tape_ = &add<MeasureTool>(Tool::TapeMeasure, MeasureTool::Mode::Tape);
     add<MeasureTool>(Tool::Dimension, MeasureTool::Mode::Dimension);
+    add<EraserTool>(Tool::Eraser);
     add<ArcTool>(Tool::Arc, ArcTool::Mode::TwoPoint);
     add<ArcTool>(Tool::ThreePointArc, ArcTool::Mode::ThreePoint);
     add<ArcTool>(Tool::Pie, ArcTool::Mode::Pie);

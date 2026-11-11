@@ -398,6 +398,10 @@ void Viewport::drawElements(const Editor& editor, const std::vector<ObjectId>& p
         }
     };
     for (const auto& ref : set.elements()) append(ref, selectedFaces, selectedEdges, 4.0, kSelectedEdge);
+    // The Eraser's stroke: every edge the release will erase.
+    if (const auto* erase = std::get_if<ErasePreview>(&editor.preview())) {
+        for (const auto& ref : erase->edges) append(ref, hoverFaces, hoverEdges, 5.0, kHoverEdge);
+    }
     if (const auto& hover = editor.hoverElement(); hover.has_value() && !set.containsElement(*hover)) {
         append(*hover, hoverFaces, hoverEdges, 5.0, kHoverEdge);
     }
