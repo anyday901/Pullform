@@ -72,7 +72,7 @@ those can be added without changing what existing files mean. Validation
 (`core/document/validate.*`) enforces the current restrictions explicitly.
 
 Objects are immutable once in a document. Operations (`core/commands/operations.*`:
-`createRectangle`, `extrudeProfile`, `setExtrusionHeight`, `deleteObject`,
+`createRectangle`, `extrudeProfile`, `setExtrusionHeight`, `duplicateObject`, `deleteObject`,
 `setDisplayUnit`) are pure functions that return a new document sharing unchanged objects,
 or an `Error` with a user-facing message.
 
@@ -114,8 +114,8 @@ same interface.
 - **Single commit path:** `Editor::commit(label, operation, selectAfter)` runs a pure
   operation, validates the *whole* resulting document, and only then makes it current with
   exactly one history entry, clearing the redo branch. On failure nothing changes and the
-  error is shown in the status bar. Drawing, push/pull, moves, height edits, delete and
-  unit changes all use it.
+  error is shown in the status bar. Drawing, push/pull, moves, duplicates, height edits,
+  delete and unit changes all use it.
 - **Previews are transient:** pointer movement only calls `Editor::setPreview`. The viewport
   draws the preview (a push/pull or move preview temporarily replaces the real object's drawing),
   but it is never in the document or history. Escape (`ToolController::cancel`) clears it.

@@ -33,6 +33,13 @@ std::optional<std::string> checkMove(const ProfileObject& object, const Vec3& of
 /// changes: the ID, profile, extrusion and any other placement stay as they are.
 /// A zero offset is rejected so a no-op never becomes an undo entry.
 Expected<OpResult> moveObject(const Document& doc, ObjectId id, const Vec3& offset);
+/// Copies an object to a new object with a new stable ID, placed at the
+/// original's position plus `offset`. The copy shares nothing mutable with the
+/// original, so later edits to either leave the other unchanged. Default names
+/// ("Rectangle 3", "Box 3") follow the new ID; other names get " copy".
+Expected<OpResult> duplicateObject(const Document& doc, ObjectId id, const Vec3& offset);
+/// Name for a copy of `name` that receives ID `newId`.
+std::string duplicateName(const std::string& name, ObjectId newId);
 /// Removes a whole object.
 Expected<OpResult> deleteObject(const Document& doc, ObjectId id);
 /// Changes the display unit (storage stays in meters).

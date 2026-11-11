@@ -123,6 +123,7 @@ tree, configure with `-DFETCHCONTENT_FULLY_DISCONNECTED=ON`.
 | Type an exact value | Start typing digits, then Enter (goes to the Measurements box) |
 | Cancel the current operation, or clear the selection | Esc |
 | Delete the selected object | Delete or Backspace |
+| Duplicate the selected object | Ctrl+D (Cmd+D on macOS) |
 | Undo | Ctrl+Z (Cmd+Z on macOS) |
 | Redo | Ctrl+Y or Ctrl+Shift+Z (Cmd+Shift+Z on macOS) |
 | New / Open / Save / Save As | Ctrl+N / Ctrl+O / Ctrl+S / Ctrl+Shift+S |
