@@ -48,6 +48,17 @@ std::vector<ObjectId> transformGroup(const Editor& editor, ObjectId primary);
 /// one, the base centre of the group's bounding box for several.
 Vec3 groupBaseCenter(const Document& doc, const std::vector<ObjectId>& ids);
 
+/// The objects that own the selection's vertices, edges and faces, in
+/// selection order (empty when none is selected).
+std::vector<ObjectId> elementOwners(const SelectionSet& selection);
+
+/// Base centre (lowest z, centre in x and y) of the world bounding box of the
+/// elements' vertices: the default rotation and scale centre for elements.
+Vec3 elementsBaseCenter(const Document& doc, const std::vector<ElementRef>& elements);
+
+/// "edge", "3 faces", "4 elements": what an element transform's undo label names.
+std::string elementsLabel(const std::vector<ElementRef>& elements);
+
 /// " (3 objects)" for a group, empty for one object: appended to undo labels.
 std::string groupSuffix(std::size_t count);
 

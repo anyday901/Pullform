@@ -2,10 +2,12 @@
 
 #include "app/tools/tool_support.hpp"
 #include "core/commands/operations.hpp"
+#include "core/geometry/mesh.hpp"
 #include "core/geometry/pick.hpp"
 #include "core/geometry/solid.hpp"
 
 #include <glm/geometric.hpp>
+#include <glm/matrix.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -14,43 +16,250 @@ namespace pf {
 
 namespace {
 
-ScalePreview scalePreview(ObjectId id, const Vec3& pivot, const Vec3& start, const Vec3& current) {
-    ScalePreview p;
-    p.objectId = id;
-    p.pivot = pivot;
-    p.start = start;
-    p.current = current;
-    return p;
+/// Below this (meters) a box side is flat: no grips move along that axis.
+constexpr double kFlat = 1e-7;
+
+bool uniform(const Vec3& f) { return f.x == f.y && f.y == f.z; }
+
+/// Factor snapped to the grid step, never to zero (that would flatten).
+double snapFactor(double f) {
+    const double s = snapValue(f, ScaleTool::kSnapStep);
+    if (s != 0.0) return s;
+    return f < 0.0 ? -ScaleTool::kSnapStep : ScaleTool::kSnapStep;
 }
 
 } // namespace
 
+Vec3 ScaleTool::Box::world(const Vec3& side) const {
+    const Vec3 c = (lo + hi) * 0.5;
+    const Vec3 h = (hi - lo) * 0.5;
+    return frame * (c + side * h);
+}
+
+std::optional<ScaleTool::Targets> ScaleTool::targets() const {
+    const SelectionSet& set = editor().selectionSet();
+    const auto& primary = set.primary();
+    if (!primary || !editor().document().find(primary->objectId)) return std::nullopt;
+    Targets t;
+    if (!set.elements().empty()) {
+        t.elements = set.elements();
+        t.ids = elementOwners(set);
+        t.primary = set.hasElements(primary->objectId) ? primary->objectId : t.ids.front();
+    } else {
+        t.primary = primary->objectId;
+        t.ids = transformGroup(editor(), t.primary);
+    }
+    return t;
+}
+
+std::optional<ScaleTool::Box> ScaleTool::selectionBox() const {
+    const auto t = targets();
+    if (!t) return std::nullopt;
+    const Document& doc = editor().document();
+    Box box;
+    std::vector<Vec3> points;
+    if (!t->elements.empty()) {
+        points = elementPoints(doc, t->elements);
+    } else if (t->ids.size() == 1) {
+        // One object: a box along its own axes, so it hugs a turned object.
+        const ProfileObject& o = *doc.find(t->ids.front());
+        box.frame = objectAxes(o);
+        const mesh::MeshPtr m = mesh::objectMesh(o);
+        for (const auto& [vid, v] : m->vertices()) points.push_back(localToWorld(o, v.position));
+    } else {
+        for (const ObjectId id : t->ids) {
+            const Bounds b = objectBounds(*doc.find(id));
+            points.push_back(b.min);
+            points.push_back(b.max);
+        }
+    }
+    if (points.empty()) return std::nullopt;
+    const Mat3 inverse = glm::transpose(box.frame);
+    box.lo = box.hi = inverse * points.front();
+    for (const Vec3& p : points) {
+        const Vec3 q = inverse * p;
+        box.lo = glm::min(box.lo, q);
+        box.hi = glm::max(box.hi, q);
+    }
+    const Vec3 size = box.hi - box.lo;
+    for (int x = -1; x <= 1; ++x) {
+        for (int y = -1; y <= 1; ++y) {
+            for (int z = -1; z <= 1; ++z) {
+                const Vec3 side{static_cast<double>(x), static_cast<double>(y), static_cast<double>(z)};
+                if (side == Vec3{0.0}) continue;
+                bool usable = true;
+                for (int i = 0; i < 3; ++i) {
+                    if (side[i] != 0.0 && size[i] < kFlat) usable = false;
+                }
+                if (usable) box.grips.emplace_back(side, box.world(side));
+            }
+        }
+    }
+    if (box.grips.empty()) return std::nullopt; // a single point
+    return box;
+}
+
+std::optional<std::size_t> ScaleTool::gripAt(const Box& box, const PointerInput& input) const {
+    if (input.pixelAngle <= 0.0) return std::nullopt;
+    std::optional<std::size_t> best;
+    double bestPx = kGripPx;
+    for (std::size_t i = 0; i < box.grips.size(); ++i) {
+        const Vec3 d = box.grips[i].second - input.ray.origin;
+        const double along = glm::dot(d, input.ray.direction);
+        if (along <= 0.0) continue;
+        const double px = glm::length(glm::cross(d, input.ray.direction)) / (along * input.pixelAngle);
+        if (px <= bestPx) {
+            bestPx = px;
+            best = i;
+        }
+    }
+    return best;
+}
+
+void ScaleTool::showGrips(std::optional<std::size_t> hot) {
+    const auto box = selectionBox();
+    if (!box) {
+        if (std::holds_alternative<ScalePreview>(editor().preview())) editor().cancelPreview();
+        return;
+    }
+    ScalePreview p;
+    p.objectId = targets()->primary;
+    p.frame = box->frame;
+    for (int i = 0; i < 8; ++i) {
+        p.box.push_back(box->world(Vec3{(i & 1) ? 1.0 : -1.0, (i & 2) ? 1.0 : -1.0, (i & 4) ? 1.0 : -1.0}));
+    }
+    for (const auto& g : box->grips) p.grips.push_back(g.second);
+    p.hotGrip = hot;
+    editor().setPreview(std::move(p));
+}
+
+ScalePreview ScaleTool::preview(const Vec3& factors, const std::optional<Vec3>& current) const {
+    ScalePreview p;
+    const Targets& t = gesture_->targets;
+    p.objectId = t.primary;
+    p.pivot = gesture_->pivot;
+    p.start = gesture_->start;
+    p.current = current;
+    p.factors = factors;
+    p.factor = factors.x;
+    if (gesture_->side) {
+        // Show the factor of an axis the grip moves along.
+        for (int i = 0; i < 3; ++i) {
+            if ((*gesture_->side)[i] != 0.0) {
+                p.factor = factors[i];
+                break;
+            }
+        }
+    }
+    p.frame = gesture_->frame;
+    p.hotGrip = gesture_->grip;
+    if (gesture_->side) {
+        if (const auto box = selectionBox()) {
+            for (int i = 0; i < 8; ++i) {
+                p.box.push_back(box->world(Vec3{(i & 1) ? 1.0 : -1.0, (i & 2) ? 1.0 : -1.0, (i & 4) ? 1.0 : -1.0}));
+            }
+            for (const auto& g : box->grips) p.grips.push_back(g.second);
+        }
+    }
+    if (t.ids.size() > 1) p.objectIds = t.ids;
+    const Document& doc = editor().document();
+    auto result = t.elements.empty() ? scaleObjects(doc, t.ids, factors, gesture_->pivot, gesture_->frame)
+                                     : scaleElements(doc, t.elements, factors, gesture_->pivot, gesture_->frame);
+    if (result) {
+        if (const auto* o = result->document.find(t.primary)) p.result = *o;
+        if (t.ids.size() > 1) {
+            for (const ObjectId id : t.ids) p.group.push_back(*result->document.find(id));
+        }
+    } else {
+        p.error = result.error();
+    }
+    return p;
+}
+
+std::optional<Vec3> ScaleTool::gripFactors(const Ray& ray) const {
+    const Vec3& side = *gesture_->side;
+    const Mat3& frame = gesture_->frame;
+    const Vec3 span = gesture_->start - gesture_->pivot; // pivot to grip
+    std::vector<int> axes;
+    for (int i = 0; i < 3; ++i) {
+        if (side[i] != 0.0) axes.push_back(i);
+    }
+    Vec3 f{1.0};
+    if (axes.size() == 3) {
+        // Corner: uniform, along the diagonal through the pivot.
+        const double len = glm::length(span);
+        const auto t = closestParameterOnAxis(gesture_->pivot, span / len, ray);
+        if (!t) return std::nullopt;
+        f = Vec3{*t / len};
+    } else if (axes.size() == 2) {
+        // Edge: free in the plane of its two axes.
+        int other = 0;
+        while (other == axes[0] || other == axes[1]) ++other;
+        const auto p = intersectPlane(ray, gesture_->start, frame[other]);
+        if (!p) return std::nullopt;
+        for (const int i : axes) f[i] = glm::dot(*p - gesture_->pivot, frame[i]) / glm::dot(span, frame[i]);
+    } else {
+        // Face: along its one axis.
+        const int i = axes.front();
+        const auto t = closestParameterOnAxis(gesture_->pivot, frame[i], ray);
+        if (!t) return std::nullopt;
+        f[i] = *t / glm::dot(span, frame[i]);
+    }
+    if (ctx_.snap.enabled) {
+        for (const int i : axes) f[i] = snapFactor(f[i]);
+    }
+    return f;
+}
+
 void ScaleTool::pointerDown(const PointerInput& input) {
     if (!gesture_) {
-        const auto* o = ctx_.transformTarget(input);
-        if (!o) return;
-        // First click: the grip point. Its distance from the base centre (of
-        // the group's bounding box, for several objects) is 100 %.
-        std::vector<ObjectId> ids = transformGroup(editor(), o->id);
-        const Vec3 pivot = groupBaseCenter(editor().document(), ids);
-        const Vec3 normal = profileNormalWorld(*o);
+        // On a grip: scale about the opposite grip (the centre with Ctrl).
+        if (const auto box = selectionBox()) {
+            if (const auto grip = gripAt(*box, input)) {
+                const Vec3 side = box->grips[*grip].first;
+                Gesture g{*targets(), input.ctrl ? box->world(Vec3{0.0}) : box->world(-side), Vec3{0.0, 0.0, 1.0},
+                          box->grips[*grip].second, box->frame, side, grip};
+                gesture_ = std::move(g);
+                editor().setPreview(preview(Vec3{1.0}, gesture_->start));
+                editor().notify(std::nullopt);
+                return;
+            }
+        }
+        // Elsewhere: a uniform scale about the base centre. The first click is
+        // the grip point; its distance from the centre is 100 %.
+        std::optional<Targets> t;
+        Vec3 normal{0.0, 0.0, 1.0};
+        if (!editor().selectionSet().elements().empty()) {
+            t = targets();
+        } else if (const auto* o = ctx_.transformTarget(input)) {
+            t = Targets{o->id, transformGroup(editor(), o->id), {}};
+            normal = profileNormalWorld(*o);
+        }
+        if (!t) return;
+        const Document& doc = editor().document();
+        const Vec3 pivot = t->elements.empty() ? groupBaseCenter(doc, t->ids) : elementsBaseCenter(doc, t->elements);
         Bounds bounds;
-        for (const ObjectId id : ids) bounds.extend(objectBounds(*editor().document().find(id)));
+        if (t->elements.empty()) {
+            for (const ObjectId id : t->ids) bounds.extend(objectBounds(*doc.find(id)));
+        } else {
+            for (const Vec3& p : elementPoints(doc, t->elements)) bounds.extend(p);
+        }
         const auto p = intersectPlane(input.ray, pivot, normal);
-        if (const double size = glm::length(bounds.size()); !p || glm::length(*p - pivot) < size * 1e-3) {
+        if (const double size = glm::length(bounds.size()); !p || glm::length(*p - pivot) < std::max(size, 1e-3) * 1e-3) {
             editor().notify(Message{Message::Kind::Error, "Click a point away from the object's centre to start scaling."});
             return;
         }
-        gesture_ = Gesture{o->id, pivot, normal, *p, std::move(ids)};
-        editor().setPreview(scalePreview(o->id, pivot, *p, *p));
+        gesture_ = Gesture{std::move(*t), pivot, normal, *p, Mat3(1.0), std::nullopt, std::nullopt};
+        editor().setPreview(preview(Vec3{1.0}, *p));
         editor().notify(std::nullopt);
         return;
     }
-    // Second click: commit the previewed factor.
+    // Second click: commit the previewed factors.
     const auto* preview = std::get_if<ScalePreview>(&editor().preview());
     if (!preview) return;
-    if (std::abs(preview->factor - 1.0) < 1e-12) {
+    if (glm::length(preview->factors - Vec3{1.0}) < 1e-12) {
         abandon();
+        showGrips(std::nullopt);
         editor().notify(Message{Message::Kind::Info, "Scale cancelled (factor 1)."});
         return;
     }
@@ -58,83 +267,103 @@ void ScaleTool::pointerDown(const PointerInput& input) {
         editor().notify(Message{Message::Kind::Error, *preview->error});
         return;
     }
-    commit(gesture_->ids, gesture_->pivot, Vec3{preview->factor});
+    commit(gesture_->targets, gesture_->pivot, preview->factors, gesture_->frame);
 }
 
 void ScaleTool::pointerMove(const PointerInput& input) {
     if (!gesture_) {
         editor().setHover(input.pick ? std::optional<Selection>(Selection{input.pick->objectId, std::nullopt}) : std::nullopt);
+        const auto box = selectionBox();
+        showGrips(box ? gripAt(*box, input) : std::nullopt);
+        return;
+    }
+    if (gesture_->side) {
+        const auto f = gripFactors(input.ray);
+        if (!f) return;
+        Vec3 current = gesture_->pivot;
+        for (int i = 0; i < 3; ++i) {
+            current += gesture_->frame[i] * (glm::dot(gesture_->start - gesture_->pivot, gesture_->frame[i]) * (*f)[i]);
+        }
+        editor().setPreview(preview(*f, current));
         return;
     }
     const auto p = intersectPlane(input.ray, gesture_->pivot, gesture_->normal);
     if (!p) return;
-    ScalePreview preview = scalePreview(gesture_->objectId, gesture_->pivot, gesture_->start, *p);
     double factor = glm::length(*p - gesture_->pivot) / glm::length(gesture_->start - gesture_->pivot);
     if (ctx_.snap.enabled) factor = std::max(kSnapStep, snapValue(factor, kSnapStep));
-    preview.factor = factor;
-    if (gesture_->ids.size() > 1) preview.objectIds = gesture_->ids;
-    if (auto result = scaleObjects(editor().document(), gesture_->ids, Vec3{factor}, gesture_->pivot); result) {
-        if (const auto* o = result->document.find(gesture_->objectId)) preview.result = *o;
-        if (gesture_->ids.size() > 1) {
-            for (const ObjectId id : gesture_->ids) preview.group.push_back(*result->document.find(id));
-        }
-    } else {
-        preview.error = result.error();
-    }
-    editor().setPreview(std::move(preview));
+    editor().setPreview(preview(Vec3{factor}, *p));
 }
 
-bool ScaleTool::commit(const std::vector<ObjectId>& ids, const Vec3& pivot, const Vec3& factors) {
+bool ScaleTool::commit(const Targets& t, const Vec3& pivot, const Vec3& factors, const Mat3& frame) {
     std::string label = "Scale ";
+    if (!t.elements.empty()) label += elementsLabel(t.elements) + " ";
     const auto pct = [](double f) {
-        std::string t = formatLength(f * 100.0, LengthUnit::Meter, false);
-        return t + "%";
+        std::string text = formatLength(f * 100.0, LengthUnit::Meter, false);
+        return text + "%";
     };
-    if (factors.x == factors.y && factors.y == factors.z) label += pct(factors.x);
+    if (uniform(factors)) label += pct(factors.x);
     else label += pct(factors.x) + ", " + pct(factors.y) + ", " + pct(factors.z);
-    label += groupSuffix(ids.size());
-    const SelectionSet after = ids.size() == 1 ? SelectionSet{Selection{ids.front(), std::nullopt}} : editor().selectionSet();
+    label += groupSuffix(t.ids.size());
+    const SelectionSet after = t.ids.size() == 1 && t.elements.empty() ? SelectionSet{Selection{t.ids.front(), std::nullopt}}
+                                                                       : editor().selectionSet();
     const bool ok = editor().commit(
-        label, [&ids, &pivot, &factors](const Document& doc) { return scaleObjects(doc, ids, factors, pivot); },
+        label,
+        [&t, &pivot, &factors, &frame](const Document& doc) {
+            return t.elements.empty() ? scaleObjects(doc, t.ids, factors, pivot, frame)
+                                      : scaleElements(doc, t.elements, factors, pivot, frame);
+        },
         [&after](const OpResult&) { return after; });
     if (ok) {
         gesture_.reset();
         editor().cancelPreview();
+        showGrips(std::nullopt);
     }
     return ok;
 }
 
 std::optional<std::string> ScaleTool::submitFactors(std::string_view text) {
-    const auto factors = parseScaleFactors(text);
-    if (!factors) return factors.error();
-    ObjectId id;
-    std::vector<ObjectId> ids;
+    const auto parsed = parseScaleFactors(text);
+    if (!parsed) return parsed.error();
+    Vec3 f{(*parsed)[0], (*parsed)[1], (*parsed)[2]};
+    Targets t;
     Vec3 pivot{0.0};
+    Mat3 frame{1.0};
     if (gesture_) {
-        id = gesture_->objectId;
-        ids = gesture_->ids;
+        t = gesture_->targets;
         pivot = gesture_->pivot;
+        frame = gesture_->frame;
+        // One typed factor on a grip applies along the grip's axes only.
+        const bool one = text.find_first_of(",;") == std::string_view::npos;
+        if (gesture_->side && one) {
+            for (int i = 0; i < 3; ++i) {
+                if ((*gesture_->side)[i] == 0.0) f[i] = 1.0;
+            }
+        }
     } else {
-        const auto& sel = editor().selection();
-        const auto* o = sel ? editor().document().find(sel->objectId) : nullptr;
-        if (!o) return std::string("Select an object to scale first.");
-        id = o->id;
-        ids = transformGroup(editor(), id);
-        pivot = groupBaseCenter(editor().document(), ids);
+        const auto found = targets();
+        if (!found) return std::string("Select an object to scale first.");
+        t = *found;
+        const Document& doc = editor().document();
+        pivot = t.elements.empty() ? groupBaseCenter(doc, t.ids) : elementsBaseCenter(doc, t.elements);
     }
-    const Vec3 f{(*factors)[0], (*factors)[1], (*factors)[2]};
-    if (const auto* o = editor().document().find(id); o && f.x == 1.0 && f.y == 1.0 && (f.z == 1.0 || !o->extrusion)) {
+    if (const auto* o = editor().document().find(t.primary);
+        o && t.elements.empty() && f.x == 1.0 && f.y == 1.0 && (f.z == 1.0 || !o->extrusion)) {
         return std::string("A factor of 1 changes nothing.");
     }
-    if (!commit(ids, pivot, f)) return ctx_.lastError("Could not scale the object.");
+    if (!t.elements.empty() && f == Vec3{1.0}) return std::string("A factor of 1 changes nothing.");
+    if (!commit(t, pivot, f, frame)) return ctx_.lastError("Could not scale the object.");
     return std::nullopt;
 }
 
 std::string ScaleTool::hint() const {
     if (!gesture_) {
         if (!editor().selection()) return "Scale: click the object to scale.";
-        return "Scale: click a grip point and move away from or toward the centre, or type a factor (2, 50%) or "
-               "width, depth, height factors (2, 1, 1).";
+        return "Scale: drag a grip of the box (Ctrl: about the centre), or click elsewhere and move away from or "
+               "toward the base centre, or type a factor (2, 50%, -1 mirrors) or width, depth, height factors (2, 1, 1).";
+    }
+    if (gesture_->side) {
+        return "Scale: move the grip and click (0.1 steps with grid snap; past the opposite side mirrors), or type a "
+               "factor. Esc cancels.";
     }
     return "Scale: move to resize about the base centre (0.1 steps with grid snap) and click, or type a factor. Esc cancels.";
 }

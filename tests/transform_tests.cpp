@@ -276,7 +276,7 @@ TEST_CASE("angle and scale factor input") {
     CHECK(*parseScaleFactors("150%") == std::vector<double>{1.5, 1.5, 1.5});
     CHECK(*parseScaleFactors("2, 1; 0.5") == std::vector<double>{2, 1, 0.5});
     CHECK_FALSE(parseScaleFactors("2, 1").ok());
-    CHECK_FALSE(parseScaleFactors("-1").ok());
+    CHECK(*parseScaleFactors("-1") == std::vector<double>{-1, -1, -1}); // mirrors (item 15)
     CHECK_FALSE(parseScaleFactors("0").ok());
     CHECK_FALSE(parseScaleFactors("2m").ok());
     CHECK_FALSE(parseScaleFactors("").ok());
@@ -418,7 +418,7 @@ TEST_CASE("Scale tool: mouse gesture and typed factors") {
 
     // No-ops and invalid factors add no history.
     CHECK(tools.submitScaleFactors("1").has_value());
-    CHECK(tools.submitScaleFactors("-2").has_value());
+    CHECK(tools.submitScaleFactors("0").has_value());
     CHECK(tools.submitScaleFactors("0.00001").has_value());
     CHECK(editor.undoDepth() == depth + 3);
 

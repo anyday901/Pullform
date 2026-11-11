@@ -11,6 +11,13 @@
 
 namespace pf {
 
+namespace {
+
+constexpr const char* kNoElementCopy =
+    "Copies of vertices, edges or faces are not supported yet: turn copy mode off to move them.";
+
+} // namespace
+
 bool MoveTool::key(ToolKey key) {
     auto axis = arrowAxis(key);
     if (!axis) axis = letterAxis(key);
@@ -48,7 +55,9 @@ std::optional<Vec3> MoveTool::snappedOffset(const PointerInput& input) {
         ctx_.indicator.reset();
         return std::nullopt;
     }
-    const auto res = ctx_.snapper.infer(input, InferOptions{gesture_->anchor, std::nullopt, gesture_->objectId, std::nullopt, false});
+    // Moving elements may snap to the rest of their own object; a whole object skips itself.
+    const std::optional<ObjectId> exclude = gesture_->elements.empty() ? std::optional(gesture_->objectId) : std::nullopt;
+    const auto res = ctx_.snapper.infer(input, InferOptions{gesture_->anchor, std::nullopt, exclude, std::nullopt, false});
     // A face point or the ground is the free move's job (it keeps the height).
     if (!res || res->kind < SnapKind::Inference) {
         ctx_.indicator.reset();
@@ -80,10 +89,22 @@ void MoveTool::pointerDown(const PointerInput& input) {
     const auto& pick = *input.pick;
     const auto* o = editor().document().find(pick.objectId);
     if (!o) return;
-    // Clicking one of several selected objects moves them all; any other
-    // object becomes the selection on its own.
-    std::vector<ObjectId> ids = transformGroup(editor(), pick.objectId);
-    if (ids.size() > 1) {
+    // Selected vertices, edges or faces move on their own when one of their
+    // objects is clicked; the selection stays as it is.
+    const SelectionSet& set = editor().selectionSet();
+    std::vector<ElementRef> elements;
+    std::vector<ObjectId> ids;
+    if (set.hasElements(pick.objectId)) {
+        elements = set.elements();
+        ids = elementOwners(set);
+    } else {
+        // Clicking one of several selected objects moves them all; any other
+        // object becomes the selection on its own.
+        ids = transformGroup(editor(), pick.objectId);
+    }
+    if (!elements.empty()) {
+        // Nothing to change in the selection.
+    } else if (ids.size() > 1) {
         SelectionSet keep = editor().selectionSet();
         keep.add(Selection{pick.objectId, pick.faceId}); // primary, others kept
         editor().setSelection(keep);
@@ -96,15 +117,37 @@ void MoveTool::pointerDown(const PointerInput& input) {
     if (ctx_.snapper.active(input)) {
         if (const auto res = ctx_.snapper.infer(input); res && res->kind >= SnapKind::OnEdge) anchor = res->point;
     }
-    gesture_ = Gesture{pick.objectId, anchor, o->transform.translation, input.screen, true, std::nullopt, std::nullopt, std::move(ids)};
+    gesture_ = Gesture{pick.objectId, anchor, o->transform.translation, input.screen, true, std::nullopt, std::nullopt,
+                       std::move(ids), std::move(elements)};
     editor().notify(std::nullopt);
-    editor().setPreview(preview(Vec3{0.0}, std::nullopt));
+    editor().setPreview(checkedPreview(Vec3{0.0}));
 }
 
 MovePreview MoveTool::preview(const Vec3& offset, std::optional<std::string> error) const {
-    MovePreview p{gesture_->objectId, gesture_->anchor, offset, axisLock_, std::move(error), copy_, {}};
+    MovePreview p{gesture_->objectId, gesture_->anchor, offset, axisLock_, std::move(error), copy_, {}, {}, false};
     if (gesture_->ids.size() > 1) p.objectIds = gesture_->ids;
+    if (gesture_->elements.empty()) return p;
+    // Elements: draw their owners stretched (or unchanged while refused).
+    p.elements = true;
+    p.objectIds = gesture_->ids;
+    const Document& doc = editor().document();
+    if (!p.error && copy_) p.error = std::string(kNoElementCopy);
+    if (!p.error && glm::length(offset) >= tol::kLengthEpsilon) {
+        if (auto moved = moveElements(doc, gesture_->elements, offset)) {
+            for (const ObjectId id : gesture_->ids) p.results.push_back(*moved->document.find(id));
+            return p;
+        } else {
+            p.error = moved.error();
+        }
+    }
+    for (const ObjectId id : gesture_->ids) {
+        if (const auto* o = doc.find(id)) p.results.push_back(*o);
+    }
     return p;
+}
+
+MovePreview MoveTool::checkedPreview(const Vec3& offset) const {
+    return preview(offset, gesture_->elements.empty() ? checkGroup(gesture_->ids, offset) : std::nullopt);
 }
 
 std::optional<std::string> MoveTool::checkGroup(const std::vector<ObjectId>& ids, const Vec3& offset) const {
@@ -169,7 +212,7 @@ void MoveTool::updatePreview(const Ray& ray, std::optional<Vec3> snapped) {
             offset = Vec3{last.x, last.y, 0.0};
         }
     }
-    editor().setPreview(preview(*offset, checkGroup(gesture_->ids, *offset)));
+    editor().setPreview(checkedPreview(*offset));
 }
 
 void MoveTool::pointerMove(const PointerInput& input) {
@@ -196,17 +239,28 @@ void MoveTool::finish() {
         editor().notify(Message{Message::Kind::Error, *preview->error});
         return;
     }
-    commit(gesture_->ids, gesture_->objectId, offset);
+    commit(gesture_->ids, gesture_->objectId, offset, gesture_->elements);
 }
 
-bool MoveTool::commit(const std::vector<ObjectId>& ids, ObjectId primary, const Vec3& offset) {
+bool MoveTool::commit(const std::vector<ObjectId>& ids, ObjectId primary, const Vec3& offset,
+                      const std::vector<ElementRef>& elements) {
     const LengthUnit unit = editor().document().displayUnit;
     const bool copy = copy_;
-    std::string label = (copy ? "Copy " : "Move ") + formatLength(glm::length(offset), unit);
+    if (copy && !elements.empty()) {
+        editor().notify(Message{Message::Kind::Error, kNoElementCopy});
+        return false;
+    }
+    std::string label = (copy ? "Copy " : "Move ") + (elements.empty() ? std::string() : elementsLabel(elements) + " ") +
+                        formatLength(glm::length(offset), unit);
     if (const auto axis = singleAxis(offset)) label += std::string(" along ") + axisName(*axis);
     label += groupSuffix(ids.size());
     bool ok = false;
-    if (copy) {
+    if (!elements.empty()) {
+        const SelectionSet keep = editor().selectionSet();
+        ok = editor().commit(
+            label, [&elements, &offset](const Document& doc) { return moveElements(doc, elements, offset); },
+            [&keep](const OpResult&) { return keep; });
+    } else if (copy) {
         // The copies take over the selection (the picked object's copy with the
         // same face) so they can be moved or copied again right away.
         const auto face = editor().selection() && editor().selection()->objectId == primary ? editor().selection()->face
@@ -237,15 +291,22 @@ std::optional<std::string> MoveTool::submitDistance(std::string_view text) {
     const LengthUnit unit = editor().document().displayUnit;
     ObjectId id;
     std::vector<ObjectId> ids;
+    std::vector<ElementRef> elements;
     if (gesture_) {
         id = gesture_->objectId;
         ids = gesture_->ids;
+        elements = gesture_->elements;
     } else {
         const auto& sel = editor().selection();
         const auto* o = sel ? editor().document().find(sel->objectId) : nullptr;
         if (!o) return std::string("Select an object to move first.");
         id = o->id;
-        ids = transformGroup(editor(), id);
+        if (!editor().selectionSet().elements().empty()) {
+            elements = editor().selectionSet().elements();
+            ids = elementOwners(editor().selectionSet());
+        } else {
+            ids = transformGroup(editor(), id);
+        }
     }
     Vec3 offset{0.0};
     if (text.find_first_of(",;") != std::string_view::npos) {
@@ -267,8 +328,10 @@ std::optional<std::string> MoveTool::submitDistance(std::string_view text) {
         offset = direction * *d;
     }
     if (glm::length(offset) < tol::kLengthEpsilon) return std::string("Distance must not be zero.");
-    if (auto e = checkGroup(ids, offset)) return e;
-    if (!commit(ids, id, offset)) return ctx_.lastError("Move failed.");
+    if (elements.empty()) {
+        if (auto e = checkGroup(ids, offset)) return e;
+    }
+    if (!commit(ids, id, offset, elements)) return ctx_.lastError("Move failed.");
     return std::nullopt;
 }
 
@@ -283,6 +346,10 @@ std::string MoveTool::hint() const {
     if (gesture_) {
         return "Move: click the destination, or type a distance and press Enter. X, Y, Z or the arrow keys lock an "
                "axis. Esc cancels." + lock;
+    }
+    if (!editor().selectionSet().elements().empty()) {
+        return "Move: click the selected geometry's object and move: the selected vertices, edges and faces move and "
+               "the rest stretches. Or type x, y, z. X, Y, Z or the arrow keys lock an axis." + lock;
     }
     return "Move: click an object and move it, or select one and type x, y, z. X, Y, Z or the arrow keys lock an "
            "axis." + lock;

@@ -417,6 +417,37 @@ void Viewport::drawElements(const Editor& editor, const std::vector<ObjectId>& p
     renderer_.drawWideLines(hoverEdges, kHighlightWidthPx, true);
 }
 
+void Viewport::drawScaleGrips(std::vector<LineSegment>& lines, const ScalePreview& preview) const {
+    // The selection's bounding box: its 12 edges, faint.
+    if (preview.box.size() == 8) {
+        for (std::size_t i = 0; i < 8; ++i) {
+            for (const std::size_t bit : {1U, 2U, 4U}) {
+                if ((i & bit) == 0) lines.emplace_back(preview.box[i], preview.box[i | bit], dim(kPreviewEdge, 0.6f));
+            }
+        }
+    }
+    // Grips: small squares facing the camera, the one under the pointer (or
+    // being dragged) larger and in the selection colour.
+    const Vec3 eye = camera_.position();
+    const Vec3 f = camera_.forward();
+    const Vec3 right = glm::normalize(glm::cross(f, Vec3{0.0, 0.0, 1.0}));
+    const Vec3 up = glm::cross(right, f);
+    for (std::size_t i = 0; i < preview.grips.size(); ++i) {
+        const Vec3& at = preview.grips[i];
+        const bool hot = preview.hotGrip == i;
+        const double half = (hot ? 5.0 : 3.5) * pixelAngle() * glm::length(at - eye);
+        const glm::vec4 color = hot ? kSelectedEdge : kPreviewEdge;
+        const Vec3 a = at + (-right - up) * half;
+        const Vec3 b = at + (right - up) * half;
+        const Vec3 c = at + (right + up) * half;
+        const Vec3 d = at + (-right + up) * half;
+        lines.emplace_back(a, b, color);
+        lines.emplace_back(b, c, color);
+        lines.emplace_back(c, d, color);
+        lines.emplace_back(d, a, color);
+    }
+}
+
 void Viewport::drawTransformResult(const std::optional<ProfileObject>& result, bool error, const ProfileObject* original,
                                    std::vector<LineSegment>& lines) {
     if (result) {
@@ -615,11 +646,19 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
         const bool valid = !movePreview->error.has_value();
         const std::vector<ObjectId> moving =
             movePreview->objectIds.empty() ? std::vector<ObjectId>{movePreview->objectId} : movePreview->objectIds;
-        for (const ObjectId id : moving) {
-            const auto* obj = doc.find(id);
-            if (!obj) continue;
-            ProfileObject moved = *obj;
-            moved.transform.translation += movePreview->offset;
+        std::vector<ProfileObject> shown;
+        if (movePreview->elements) {
+            shown = movePreview->results; // stretched around the moving elements
+        } else {
+            for (const ObjectId id : moving) {
+                const auto* obj = doc.find(id);
+                if (!obj) continue;
+                ProfileObject moved = *obj;
+                moved.transform.translation += movePreview->offset;
+                shown.push_back(std::move(moved));
+            }
+        }
+        for (const ProfileObject& moved : shown) {
             const MeshData mesh = buildMesh(moved);
             glm::vec4 fill = mesh.closed ? kSolidFill : kSheetFill;
             if (!valid) fill = kErrorFill;
@@ -660,6 +699,7 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
         drawTransformGroup(sc->group, sc->objectIds, sc->result, sc->error.has_value(), sc->objectId, doc, lines);
         if (sc->start) lines.push_back({sc->pivot, *sc->start, dim(kPreviewEdge, 0.5f)});
         if (sc->current) lines.push_back({sc->pivot, *sc->current, sc->error ? kErrorEdge : kPreviewEdge});
+        drawScaleGrips(lines, *sc);
     }
     // Dimensions and measurements draw on top so they stay readable.
     for (const auto& d : doc.dimensions) {

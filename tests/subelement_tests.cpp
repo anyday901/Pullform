@@ -63,6 +63,16 @@ Vec3 worldVertex(const Document& doc, ObjectId id, std::uint32_t v) {
 
 bool nearVec(const Vec3& a, const Vec3& b, double eps = 1e-9) { return glm::length(a - b) <= eps; }
 
+/// Whether the object has a vertex at world point `p`.
+bool hasVertexAt(const Document& doc, ObjectId id, const Vec3& p) {
+    const auto& o = *doc.find(id);
+    const auto m = mesh::objectMesh(o);
+    for (const auto& [vid, v] : m->vertices()) {
+        if (nearVec(localToWorld(o, v.position), p, 1e-9)) return true;
+    }
+    return false;
+}
+
 /// The group's faces as one-sided triangles (the render mesh of a group is
 /// two-sided), for checkSolid.
 MeshData oneSided(const ProfileObject& o) {
@@ -268,4 +278,165 @@ TEST_CASE("curves follow rigid and uniform transforms and are dropped otherwise"
     const auto& mm = *mirrored->document.find(id)->mesh;
     REQUIRE(mm.curves().size() == 1);
     CHECK(near(mm.curves().begin()->second.radius, 2.0));
+}
+
+// ---- The tools on an element selection ------------------------------------------------
+
+namespace {
+
+/// An editor holding `doc` with `elements` selected (as the Select tool leaves them).
+void selectElements(Editor& editor, const std::vector<ElementRef>& elements) {
+    SelectionSet set;
+    set.addElements(elements, std::nullopt);
+    editor.setSelection(set);
+}
+
+/// A pointer looking at `at` from `eye`, at `screen`, resolved like the viewport does.
+PointerInput look(const Editor& editor, const Vec3& eye, const Vec3& at, Vec2 screen = {0, 0}) {
+    PointerInput in = test::lookAtElements(editor, eye, at, 0.001);
+    in.screen = screen;
+    return in;
+}
+
+} // namespace
+
+TEST_CASE("Move tool: a selected edge moves and the box stretches (sloped roof)") {
+    auto [doc, id] = boxDoc(2.0, 1.0, 1.0);
+    Editor editor;
+    editor.resetDocument(doc);
+    ToolController tools(editor);
+    tools.snap().points = false;
+    selectElements(editor, {edgeRef(id, 5)});
+    tools.setTool(Tool::Move);
+
+    SUBCASE("click, move, click") {
+        tools.pointerDown(test::downAt(editor, 1.0, 0.5, {10, 10}));
+        REQUIRE(tools.active());
+        tools.pointerMove(test::downAt(editor, 1.0, 0.9, {40, 10}));
+        const auto* p = std::get_if<MovePreview>(&editor.preview());
+        REQUIRE(p);
+        CHECK(p->elements);
+        CHECK_FALSE(p->error.has_value());
+        REQUIRE(p->results.size() == 1);
+        CHECK(replacedObjects(editor.preview()) == std::vector<ObjectId>{id});
+        CHECK(editor.document().find(id)->isMeshGroup() == false); // only a preview so far
+        tools.pointerDown(test::downAt(editor, 1.0, 0.9, {40, 10}));
+        CHECK_FALSE(tools.active());
+        CHECK(nearVec(worldVertex(editor.document(), id, 5), {0.0, 0.4, 1.0}));
+        CHECK(editor.undoLabel().starts_with("Move edge"));
+        CHECK(editor.selectionSet().containsElement(edgeRef(id, 5)));
+        CHECK(near(solidVolume(editor.document(), id), 1.6, 1e-9));
+    }
+    SUBCASE("typed x, y, z") {
+        REQUIRE_FALSE(tools.submitMoveDistance("0, 0, 500").has_value());
+        CHECK(nearVec(worldVertex(editor.document(), id, 6), {2.0, 0.0, 1.5}));
+        CHECK(near(solidVolume(editor.document(), id), 2.5, 1e-9));
+    }
+    SUBCASE("copy mode is refused for elements") {
+        tools.toggleMoveCopy();
+        CHECK(tools.submitMoveDistance("0, 400, 0").has_value());
+        CHECK_FALSE(editor.document().find(id)->isMeshGroup());
+    }
+}
+
+TEST_CASE("Rotate tool: a face turns about an edge dragged along from the centre") {
+    auto [doc, id] = boxDoc(1.0, 1.0, 1.0);
+    Editor editor;
+    editor.resetDocument(doc);
+    ToolController tools(editor);
+    selectElements(editor, {faceRef(id, 2)});
+    tools.setTool(Tool::Rotate);
+    const Vec3 eye{0.5, -2.0, 4.0};
+    // Press on the back edge's midpoint and drag to its end: the axis is that edge (+x).
+    tools.pointerDown(look(editor, eye, {0.5, 1.0, 1.0}, {100, 100}));
+    REQUIRE(tools.active());
+    tools.pointerUp(look(editor, eye, {1.0, 1.0, 1.0}, {160, 100}));
+    const auto* p = std::get_if<RotatePreview>(&editor.preview());
+    REQUIRE(p);
+    CHECK(nearVec(p->pivot, {0.5, 1.0, 1.0}, 1e-9));
+    CHECK(nearVec(p->axis, {1.0, 0.0, 0.0}, 1e-9));
+    REQUIRE_FALSE(tools.submitRotateAngle("-30").has_value());
+    const Document& d = editor.document();
+    CHECK(nearVec(worldVertex(d, id, 5), {0.0, 1.0 - std::cos(kPi / 6.0), 1.0 + std::sin(kPi / 6.0)}, 1e-9));
+    CHECK(nearVec(worldVertex(d, id, 7), {1.0, 1.0, 1.0}));
+    CHECK(editor.undoLabel().starts_with("Rotate face"));
+    solidVolume(d, id);
+}
+
+TEST_CASE("Scale tool: grips on the bounding box, and -1 mirrors") {
+    auto [doc, id] = lDoc();
+    Editor editor;
+    editor.resetDocument(doc);
+    ToolController tools(editor);
+    tools.snap().points = false;
+    editor.select(Selection{id, std::nullopt});
+    tools.setTool(Tool::Scale);
+    // Activating shows the box (0..2 in x and y, 0..1 in z) with 26 grips.
+    const auto* idle = std::get_if<ScalePreview>(&editor.preview());
+    REQUIRE(idle);
+    CHECK(idle->grips.size() == 26);
+    CHECK(idle->box.size() == 8);
+    CHECK_FALSE(replacedObject(editor.preview()).has_value());
+
+    const Vec3 grip{2.0, 1.0, 0.5}; // the +x face grip
+    const Vec3 eye = grip + Vec3{4.0, -3.0, 5.0};
+    tools.pointerMove(look(editor, eye, grip, {200, 200}));
+    idle = std::get_if<ScalePreview>(&editor.preview());
+    REQUIRE(idle);
+    REQUIRE(idle->hotGrip);
+    CHECK(nearVec(idle->grips[*idle->hotGrip], grip));
+
+    SUBCASE("drag the face grip: width only, about the opposite face") {
+        tools.pointerDown(look(editor, eye, grip, {200, 200}));
+        REQUIRE(tools.active());
+        tools.pointerMove(look(editor, eye, {3.0, 1.0, 0.5}, {260, 200}));
+        const auto* p = std::get_if<ScalePreview>(&editor.preview());
+        REQUIRE(p);
+        CHECK(nearVec(p->factors, {1.5, 1.0, 1.0}));
+        tools.pointerDown(look(editor, eye, {3.0, 1.0, 0.5}, {260, 200}));
+        CHECK_FALSE(tools.active());
+        const Bounds b = objectBounds(*editor.document().find(id));
+        CHECK(nearVec(b.min, {0.0, 0.0, 0.0}));
+        CHECK(nearVec(b.max, {3.0, 2.0, 1.0}));
+    }
+    SUBCASE("drag past the opposite face mirrors") {
+        tools.pointerDown(look(editor, eye, grip, {200, 200}));
+        tools.pointerMove(look(editor, eye, {-2.0, 1.0, 0.5}, {100, 200}));
+        const auto* p = std::get_if<ScalePreview>(&editor.preview());
+        REQUIRE(p);
+        CHECK(nearVec(p->factors, {-1.0, 1.0, 1.0}));
+        CHECK_FALSE(p->error.has_value());
+    }
+    SUBCASE("roadmap check: type -1 on the grip") {
+        tools.pointerDown(look(editor, eye, grip, {200, 200}));
+        REQUIRE_FALSE(tools.submitScaleFactors("-1").has_value());
+        CHECK_FALSE(tools.active());
+        const Document& d = editor.document();
+        // Mirrored across x = 0 (the opposite face): the notch is now at -x.
+        CHECK(hasVertexAt(d, id, {-1.0, 1.0, 0.0}));
+        CHECK(hasVertexAt(d, id, {-2.0, 1.0, 0.0}));
+        CHECK(hasVertexAt(d, id, {-1.0, 2.0, 0.0}));
+        CHECK_FALSE(hasVertexAt(d, id, {-2.0, 2.0, 0.0}));
+        CHECK(near(solidVolume(editor.document(), id), 3.0, 1e-9));
+        CHECK(editor.undoLabel() == "Scale -100%, 100%, 100%");
+    }
+}
+
+TEST_CASE("Scale tool: a selected cap scales on its own into a frustum") {
+    auto [doc, id] = boxDoc(1.0, 1.0, 1.0);
+    Editor editor;
+    editor.resetDocument(doc);
+    ToolController tools(editor);
+    selectElements(editor, {faceRef(id, 2)});
+    tools.setTool(Tool::Scale);
+    // The cap is flat: its box has grips only for width and depth.
+    const auto* idle = std::get_if<ScalePreview>(&editor.preview());
+    REQUIRE(idle);
+    CHECK(idle->grips.size() == 8);
+    REQUIRE_FALSE(tools.submitScaleFactors("50%").has_value());
+    CHECK(nearVec(worldVertex(editor.document(), id, 5), {0.25, 0.25, 1.0}));
+    CHECK(nearVec(worldVertex(editor.document(), id, 1), {0.0, 0.0, 0.0}));
+    // A square frustum: h/3 (A1 + A2 + sqrt(A1 A2)) = (1 + 0.25 + 0.5) / 3.
+    CHECK(near(solidVolume(editor.document(), id), 1.75 / 3.0, 1e-9));
+    CHECK(editor.undoLabel().starts_with("Scale face"));
 }
