@@ -9,6 +9,14 @@ include breaking changes, but project files will keep a migration path.
 
 ### Added
 
+- **Solid tools** (Tools > Solid Tools, or the buttons under a multi-selection): Union,
+  Subtract, Intersect, Trim, Split and Outer Shell on closed solids (boxes, cylinders,
+  prisms and closed mesh groups), at any position and rotation. The order of selection
+  matters: for Subtract, Trim and Split the first object selected cuts the second. The
+  result is a mesh group that keeps the object's id, name and placement, with coplanar
+  faces merged and a cylinder's soft edges kept, and passes `checkSolid`; it is one undo
+  entry. Dimensions on changed objects are removed. The booleans are our own code on the
+  edge/face mesh (`core/geometry/solid_boolean.*`); no geometry kernel was added.
 - **Freehand tool** (Tools > Freehand, or the toolbar). Press and drag to draw a curve; on
   release it is smoothed (within 3 screen pixels of the stroke) into a polyline of straight
   edges and committed as one undo entry. It draws on the horizontal plane through the press

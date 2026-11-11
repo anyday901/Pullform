@@ -195,4 +195,28 @@ std::optional<std::string> ToolController::duplicateSelection() {
     return std::nullopt;
 }
 
+std::optional<std::string> ToolController::applySolidTool(SolidTool tool) {
+    const std::vector<ObjectId> ids = editor_.selectedObjects();
+    const std::string name(solidToolName(tool));
+    if (!solidToolAccepts(tool, ids.size())) {
+        if (tool == SolidTool::OuterShell) return std::string{"Select the solids for Outer Shell."};
+        if (tool == SolidTool::Subtract || tool == SolidTool::Trim || tool == SolidTool::Split) {
+            return name + " needs exactly two solids: select the one that cuts first, then the one to cut.";
+        }
+        return name + " needs two or more solids selected.";
+    }
+    cancel();
+    if (!editor_.commit(
+            name, [&ids, tool](const Document& d) { return pf::applySolidTool(d, tool, ids); },
+            [](const OpResult& r) {
+                SelectionSet result = SelectionSet::ofObjects(r.objectIds);
+                if (r.objectId) result.add(Selection{*r.objectId, std::nullopt});
+                return result;
+            })) {
+        return ctx_.lastError("The solid tool could not be applied.");
+    }
+    editor_.notify(Message{Message::Kind::Info, name + " done."});
+    return std::nullopt;
+}
+
 } // namespace pf

@@ -503,7 +503,9 @@ resolved pick, screen position), so tests drive it with synthetic events and no 
 ## Geometry boundaries (what this design does not do yet)
 
 The edge/face mesh exists in the core, but push/pull on a drawn group works only on a
-face standing on its own or the end of a prism, there are no booleans, and no healing of
-collinear edges left after an erase. Arcs are drawn by the Arc tools; a curve record gives
+face standing on its own or the end of a prism, and there is no healing of collinear
+edges left after an erase. Solid booleans (Tools > Solid Tools) work on whole closed
+objects and give the result fresh element ids without curve records (docs/GEOMETRY.md,
+"Solid booleans"). Arcs are drawn by the Arc tools; a curve record gives
 centre snapping but is not yet used for selecting a whole curve. Dimension anchors still name corners by index
 (vertex id - 1) rather than by vertex id. See docs/GEOMETRY.md and the roadmap.

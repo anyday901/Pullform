@@ -28,6 +28,7 @@ add_executable(pullform_tests
   line_tool_tests.cpp
   circle_tests.cpp
   freehand_tests.cpp
+  solid_tools_tests.cpp
   fake_renderer.hpp)
 target_link_libraries(pullform_tests PRIVATE pullform_app_logic doctest::doctest nlohmann_json::nlohmann_json)
 # Project files of every earlier version (tests/data), opened by migration tests.

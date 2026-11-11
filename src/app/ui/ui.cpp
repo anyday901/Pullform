@@ -49,7 +49,7 @@ constexpr const char* kLimitsText =
     "- Side and base faces of rectangles and boxes cannot be pushed yet.\n"
     "- A rectangle drawn on a face is its own object: pushing it into a wall overlaps the wall\n"
     "  rather than cutting it. Holes and cutting are not supported yet.\n"
-    "- Touching or overlapping objects stay separate (no merging).\n"
+    "- Touching or overlapping objects stay separate until joined with Tools > Solid Tools.\n"
     "- Move, Duplicate, Rotate and Scale work on whole objects; Rotate turns about the X, Y or Z\n"
     "  axis and Scale cannot mirror.\n"
     "- Dimensions are deleted with their object and listed in this panel for deleting.";
@@ -76,6 +76,11 @@ std::string rotationLabel(const Transform& t) {
 
 void tooltip(const char* text) {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", text);
+}
+
+/// Runs a solid tool on the selection; a refusal is shown in the status bar.
+void solidTool(UiContext& ctx, SolidTool tool) {
+    if (auto e = ctx.tools.applySolidTool(tool)) ctx.editor.notify(Message{Message::Kind::Error, *e});
 }
 
 void copyTo(std::array<char, 64>& dst, const std::string& s) {
@@ -373,6 +378,15 @@ void Ui::menuBar(UiContext& ctx) {
         if (ImGui::MenuItem("Dimension", shortcuts::kDimension, t == Tool::Dimension)) ctx.tools.setTool(Tool::Dimension);
         if (ImGui::MenuItem("Eraser", shortcuts::kEraser, t == Tool::Eraser)) ctx.tools.setTool(Tool::Eraser);
         if (ImGui::MenuItem("Protractor", nullptr, t == Tool::Protractor)) ctx.tools.setTool(Tool::Protractor);
+        if (ImGui::BeginMenu("Solid Tools")) {
+            const std::size_t count = ctx.editor.selectedObjects().size();
+            for (const SolidTool tool : kSolidTools) {
+                const std::string label(solidToolName(tool));
+                if (ImGui::MenuItem(label.c_str(), nullptr, false, solidToolAccepts(tool, count))) solidTool(ctx, tool);
+                tooltip(std::string(solidToolHelp(tool)).c_str());
+            }
+            ImGui::EndMenu();
+        }
         ImGui::Separator();
         ImGui::MenuItem("Grid snap", shortcuts::kSnap, &ctx.tools.snap().enabled);
         ImGui::MenuItem("Point snap", nullptr, &ctx.tools.snap().points);
@@ -515,6 +529,19 @@ void Ui::properties(UiContext& ctx, float x, float y, float width, float height)
         ImGui::SameLine();
         if (ImGui::Button("Delete objects")) action(UiAction::Delete);
         tooltip("Deletes every selected object (Delete).");
+        ImGui::Spacing();
+        ImGui::TextColored(kMutedColor, "Solid tools");
+        bool first = true;
+        const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+        for (const SolidTool tool : kSolidTools) {
+            if (!solidToolAccepts(tool, ctx.editor.selectedObjects().size())) continue;
+            const std::string label(solidToolName(tool));
+            const float w = ImGui::CalcTextSize(label.c_str()).x + 2.0f * ImGui::GetStyle().FramePadding.x;
+            if (!first && ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + w <= right) ImGui::SameLine();
+            first = false;
+            if (ImGui::Button(label.c_str())) solidTool(ctx, tool);
+            tooltip((std::string(solidToolHelp(tool)) + " Uses the order the objects were selected in.").c_str());
+        }
     } else if (!o) {
         ImGui::TextColored(kMutedColor, "Nothing selected");
         ImGui::TextWrapped("Pick the Select tool (Space) and click an object, or drag a box around several, or draw a "
