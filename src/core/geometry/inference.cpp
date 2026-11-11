@@ -63,7 +63,7 @@ public:
         auto hit = index_.nearest(q_.ray, q_.radius, q_.occluder, q_.exclude);
         if (!q_.guides.empty()) {
             // Guide points and guide crossings compete with corners and midpoints.
-            if (auto g = nearestGuidePoint(q_.guides, index_, q_.ray, q_.radius, q_.occluder)) {
+            if (auto g = nearestGuidePoint(q_.guides, index_, q_.ray, q_.radius, q_.occluder, q_.exclude)) {
                 const auto score = hit ? snapScore(q_.ray, *hit) : std::nullopt;
                 if (!score || g->score < *score) hit = std::move(g->snap);
             }

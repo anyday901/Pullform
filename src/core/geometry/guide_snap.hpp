@@ -33,10 +33,12 @@ std::optional<double> angularDistance(const Ray& ray, const Vec3& p);
 std::optional<double> snapScore(const Ray& ray, const SnapResult& snap);
 
 /// Nearest guide point, or crossing (SnapKind::Intersection) of a guide line
-/// with another guide line or with an object edge in `edges`. Guide points
+/// with another guide line or with an object edge in `edges` (not of
+/// `exclude`, the object being edited, whose edges the preview replaces). Guide points
 /// weigh like endpoints and crossings a little less, so they compete fairly with SnapIndex::nearest.
 std::optional<ScoredSnap> nearestGuidePoint(std::span<const Guide> guides, const SnapIndex& edges, const Ray& ray,
-                                            double radiusPerDistance, std::optional<double> occluder = std::nullopt);
+                                            double radiusPerDistance, std::optional<double> occluder = std::nullopt,
+                                            std::optional<ObjectId> exclude = std::nullopt);
 
 /// The point on the nearest guide line under the pointer (the point of the
 /// line closest to the ray), or nothing when no line is within the radius.

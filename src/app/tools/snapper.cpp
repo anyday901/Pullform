@@ -153,7 +153,7 @@ std::optional<SnapResult> PointSnapper::point(const PointerInput& input, std::op
     const auto& guides = editor_.document().guides;
     if (settings_.guides && !guides.empty()) {
         // Guide points and crossings compete with corners and midpoints.
-        if (auto g = nearestGuidePoint(guides, index_, input.ray, radius, occluder)) {
+        if (auto g = nearestGuidePoint(guides, index_, input.ray, radius, occluder, exclude)) {
             const auto score = hit ? snapScore(input.ray, *hit) : std::nullopt;
             if (!score || g->score < *score) hit = std::move(g->snap);
         }

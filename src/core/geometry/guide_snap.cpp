@@ -50,7 +50,7 @@ std::optional<double> snapScore(const Ray& ray, const SnapResult& snap) {
 }
 
 std::optional<ScoredSnap> nearestGuidePoint(std::span<const Guide> guides, const SnapIndex& edges, const Ray& ray,
-                                            double radius, std::optional<double> occluder) {
+                                            double radius, std::optional<double> occluder, std::optional<ObjectId> exclude) {
     if (!(radius > 0.0)) return std::nullopt;
     Best best;
     for (std::size_t i = 0; i < guides.size(); ++i) {
@@ -72,6 +72,7 @@ std::optional<ScoredSnap> nearestGuidePoint(std::span<const Guide> guides, const
         }
         // With an object edge: the crossing must lie on the segment.
         for (const auto& [id, entry] : edges.entries()) {
+            if (exclude && id == *exclude) continue;
             const auto& f = entry.features;
             // The line misses the object's bounding sphere: no edge can cross it.
             const Vec3 w = f.center - g.point;

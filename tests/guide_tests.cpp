@@ -348,6 +348,20 @@ TEST_CASE("guide snapping: closest points of lines and the guide candidates") {
     CHECK(pt->snap.feature == 1);
 }
 
+TEST_CASE("guide crossings skip the object being edited") {
+    Editor editor;
+    ToolController tools(editor);
+    const ObjectId box = test::makeBox(editor, tools, "1000, 1000", "1000");
+    const std::vector<Guide> guides{Guide::line({0.5, -5.0, 1.0}, {0, 1, 0})}; // crosses the cap edges at x = 0.5
+    SnapIndex index;
+    index.sync(editor.document());
+    const Ray down{{0.5, 0.0, 11.0}, {0, 0, -1}};
+    const auto hit = nearestGuidePoint(guides, index, down, 0.005);
+    REQUIRE(hit);
+    CHECK(hit->snap.kind == SnapKind::Intersection);
+    CHECK_FALSE(nearestGuidePoint(guides, index, down, 0.005, std::nullopt, box));
+}
+
 TEST_CASE("guide ids share the document allocator") {
     Document d;
     auto a = addGuide(d, Guide::at({0, 0, 0}));
