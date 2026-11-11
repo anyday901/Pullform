@@ -18,6 +18,7 @@ add_executable(pullform_tests
   selection_tests.cpp
   element_tests.cpp
   tool_interface_tests.cpp
+  drawing_plane_tests.cpp
   mesh_tests.cpp
   format_v3_tests.cpp
   line_tool_tests.cpp

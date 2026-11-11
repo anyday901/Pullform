@@ -30,6 +30,7 @@ ToolController::ToolController(Editor& editor) : editor_(editor), snapper_(edito
     pushPull_ = &add<PushPullTool>(Tool::PushPull);
     add<SelectTool>(Tool::Select, *pushPull_);
     rectangle_ = &add<RectangleTool>(Tool::Rectangle);
+    add<RectangleTool>(Tool::RotatedRectangle, RectangleTool::Mode::Rotated);
     add<LineTool>(Tool::Line);
     move_ = &add<MoveTool>(Tool::Move);
     rotate_ = &add<RotateTool>(Tool::Rotate);
