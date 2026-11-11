@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/document/document.hpp"
+#include "core/document/element_ref.hpp"
 #include "core/document/result.hpp"
 #include "core/geometry/mesh.hpp"
 #include "core/geometry/rectangle.hpp"
@@ -108,5 +109,16 @@ Expected<OpResult> drawEdge(const Document& doc, std::optional<ObjectId> target,
 /// that used it are removed. A rectangle or box is converted to a mesh group
 /// first. A group left with nothing is deleted.
 Expected<OpResult> eraseEdge(const Document& doc, ObjectId id, mesh::EdgeId edge);
+/// Erases several edges of one group in one step (see eraseEdge). Edges that
+/// are already gone are skipped; it fails only when none of them exists.
+Expected<OpResult> eraseEdges(const Document& doc, ObjectId id, const std::vector<mesh::EdgeId>& edges);
+/// Erases edges of any number of groups in one step (the Eraser's stroke).
+/// Entries that are not edges are ignored. OpResult::objectIds lists the
+/// groups touched (a group left with nothing is deleted).
+Expected<OpResult> eraseEdges(const Document& doc, const std::vector<ElementRef>& edges);
+/// Sets the soft and smooth flags of edges (the Eraser's Shift: hide, soft
+/// only; Ctrl: soften, soft and smooth). Soft edges are not drawn or picked;
+/// faces keep using them. A rectangle or box is converted to a mesh group first.
+Expected<OpResult> setEdgesSoft(const Document& doc, const std::vector<ElementRef>& edges, bool soft, bool smooth);
 
 } // namespace pf

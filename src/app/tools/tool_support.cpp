@@ -20,6 +20,7 @@ std::string_view toolName(Tool tool) {
     case Orbit: return "Orbit";
     case TapeMeasure: return "Tape Measure";
     case Dimension: return "Dimension";
+    case Eraser: return "Eraser";
     }
     return "Select";
 }

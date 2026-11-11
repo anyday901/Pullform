@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <iterator>
 #include <numbers>
 #include <string_view>
 
@@ -359,11 +360,20 @@ Expected<OpResult> drawEdge(const Document& doc, std::optional<ObjectId> target,
 }
 
 Expected<OpResult> eraseEdge(const Document& doc, ObjectId id, mesh::EdgeId edge) {
+    return eraseEdges(doc, id, {edge});
+}
+
+Expected<OpResult> eraseEdges(const Document& doc, ObjectId id, const std::vector<mesh::EdgeId>& edges) {
     const auto* o = doc.find(id);
     if (!o) return Error{"Object " + idString(id) + " no longer exists."};
     ProfileObject changed = asMeshGroup(*o);
     mesh::Mesh m = *changed.mesh;
-    if (!m.eraseEdge(edge)) return Error{"That edge no longer exists."};
+    bool any = false;
+    for (const mesh::EdgeId edge : edges) {
+        // An edge may already be gone (listed twice); the rest still erase.
+        if (m.eraseEdge(edge)) any = true;
+    }
+    if (!any) return Error{edges.size() == 1 ? "That edge no longer exists." : "Those edges no longer exist."};
     if (m.empty()) return deleteObject(doc, id); // nothing left: the group goes, with its dimensions
     changed.mesh = std::make_shared<const mesh::Mesh>(std::move(m));
     // Dimensions on corners that disappeared go with them.
@@ -379,6 +389,70 @@ Expected<OpResult> eraseEdge(const Document& doc, ObjectId id, mesh::EdgeId edge
         return false;
     });
     return replaceObject(partial.document, std::move(changed));
+}
+
+namespace {
+
+/// The edges of `refs` grouped by object, objects in first-seen order.
+std::vector<std::pair<ObjectId, std::vector<mesh::EdgeId>>> edgesByObject(const std::vector<ElementRef>& refs) {
+    std::vector<std::pair<ObjectId, std::vector<mesh::EdgeId>>> groups;
+    for (const auto& r : refs) {
+        if (r.kind != ElementKind::Edge) continue;
+        auto it = std::ranges::find_if(groups, [&r](const auto& g) { return g.first == r.object; });
+        if (it == groups.end()) {
+            groups.push_back({r.object, {}});
+            it = std::prev(groups.end());
+        }
+        const mesh::EdgeId e{r.id};
+        if (std::ranges::find(it->second, e) == it->second.end()) it->second.push_back(e);
+    }
+    return groups;
+}
+
+} // namespace
+
+Expected<OpResult> eraseEdges(const Document& doc, const std::vector<ElementRef>& edges) {
+    const auto groups = edgesByObject(edges);
+    if (groups.empty()) return Error{"Pick an edge to erase."};
+    OpResult result{doc, std::nullopt, {}};
+    for (const auto& [id, ids] : groups) {
+        auto step = eraseEdges(result.document, id, ids);
+        if (!step) return Error{step.error()};
+        result.document = std::move(step).value().document;
+        result.objectIds.push_back(id);
+    }
+    result.objectId = result.objectIds.back();
+    return result;
+}
+
+Expected<OpResult> setEdgesSoft(const Document& doc, const std::vector<ElementRef>& edges, bool soft, bool smooth) {
+    const auto groups = edgesByObject(edges);
+    if (groups.empty()) return Error{"Pick an edge first."};
+    OpResult result{doc, std::nullopt, {}};
+    for (const auto& [id, ids] : groups) {
+        const auto* o = result.document.find(id);
+        if (!o) return Error{"Object " + idString(id) + " no longer exists."};
+        ProfileObject changed = asMeshGroup(*o);
+        mesh::Mesh m = *changed.mesh;
+        bool any = false;
+        for (const mesh::EdgeId e : ids) {
+            const auto* edge = m.edge(e);
+            if (!edge) continue;
+            mesh::Edge flagged = *edge;
+            flagged.soft = soft;
+            flagged.smooth = smooth;
+            m.insertEdge(e, flagged);
+            any = true;
+        }
+        if (!any) return Error{ids.size() == 1 ? "That edge no longer exists." : "Those edges no longer exist."};
+        changed.mesh = std::make_shared<const mesh::Mesh>(std::move(m));
+        auto step = replaceObject(result.document, std::move(changed));
+        if (!step) return Error{step.error()};
+        result.document = std::move(step).value().document;
+        result.objectIds.push_back(id);
+    }
+    result.objectId = result.objectIds.back();
+    return result;
 }
 
 Expected<Vec3> selectionBaseCenter(const Document& doc, const std::vector<ObjectId>& ids) {

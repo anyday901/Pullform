@@ -118,10 +118,16 @@ struct SelectBoxPreview {
     std::vector<ObjectId> found;
 };
 
+/// The Eraser's stroke in progress: the edges its release will erase (or hide,
+/// or soften), drawn highlighted.
+struct ErasePreview {
+    std::vector<ElementRef> edges;
+};
+
 /// Transient feedback drawn by the viewport. Never part of the document or history.
 using Preview =
     std::variant<std::monostate, RectanglePreview, PushPullPreview, MovePreview, RotatePreview, ScalePreview, MeasurePreview,
-                 SelectBoxPreview>;
+                 SelectBoxPreview, ErasePreview>;
 
 /// The object a preview draws in place of the document's version (push/pull,
 /// rotate and scale), if any. The viewport hides the original while it is set.

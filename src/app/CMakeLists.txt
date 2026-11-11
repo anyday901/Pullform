@@ -7,6 +7,7 @@ add_library(pullform_app_logic STATIC
   tools/tool_support.cpp
   tools/tool_controller.cpp
   tools/select_tool.cpp
+  tools/eraser_tool.cpp
   tools/rectangle_tool.cpp
   tools/push_pull_tool.cpp
   tools/move_tool.cpp

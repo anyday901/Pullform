@@ -441,6 +441,7 @@ void App::handleShortcuts() {
     if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) tools_.key(ToolKey::Z);
     if (ImGui::IsKeyPressed(ImGuiKey_T, false)) tools_.setTool(Tool::TapeMeasure);
     if (ImGui::IsKeyPressed(ImGuiKey_D, false)) tools_.setTool(Tool::Dimension);
+    if (ImGui::IsKeyPressed(ImGuiKey_E, false)) tools_.setTool(Tool::Eraser);
     if (ImGui::IsKeyPressed(ImGuiKey_F, false)) fitView();
     if (ImGui::IsKeyPressed(ImGuiKey_G, false)) tools_.snap().enabled = !tools_.snap().enabled;
     // Backspace also erases typed values: right after the last character is

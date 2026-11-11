@@ -9,6 +9,13 @@ include breaking changes, but project files will keep a migration path.
 
 ### Added
 
+- **Eraser tool (E).** Click an edge, or press and drag over several, and release: every
+  edge the stroke touched is erased in one undo entry. Erasing the edge between two
+  coplanar faces leaves one face; other faces that used the edge go with it. Hold Shift
+  to hide the edges instead, or Ctrl (Cmd on macOS) to soften them (hidden and smoothed);
+  faces are kept. Near a corner the Eraser takes the corner's edge nearest the pointer.
+  Erasing, hiding or softening an edge of a rectangle or box turns it into a mesh group
+  (Push/Pull then no longer applies to it).
 - **Multi-selection.** With the Select tool, Shift-click adds or removes an object,
   Ctrl-click (Cmd on macOS) adds one, clicking empty space clears, and Ctrl+A / Cmd+A
   (Edit > Select all) selects everything. Drag a box left to right to select objects

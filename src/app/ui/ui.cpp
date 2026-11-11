@@ -58,8 +58,10 @@ std::string rotationLabel(const Transform& t) {
 }
 #ifdef __APPLE__
 #define PF_COPY_KEY "Option"
+#define PF_SOFTEN_KEY "Cmd"
 #else
 #define PF_COPY_KEY "Ctrl"
+#define PF_SOFTEN_KEY "Ctrl"
 #endif
 
 void tooltip(const char* text) {
@@ -287,6 +289,7 @@ void Ui::menuBar(UiContext& ctx) {
         if (ImGui::MenuItem("Orbit", shortcuts::kOrbit, t == Tool::Orbit)) ctx.tools.setTool(Tool::Orbit);
         if (ImGui::MenuItem("Tape Measure", shortcuts::kTape, t == Tool::TapeMeasure)) ctx.tools.setTool(Tool::TapeMeasure);
         if (ImGui::MenuItem("Dimension", shortcuts::kDimension, t == Tool::Dimension)) ctx.tools.setTool(Tool::Dimension);
+        if (ImGui::MenuItem("Eraser", shortcuts::kEraser, t == Tool::Eraser)) ctx.tools.setTool(Tool::Eraser);
         ImGui::Separator();
         ImGui::MenuItem("Grid snap", shortcuts::kSnap, &ctx.tools.snap().enabled);
         ImGui::MenuItem("Point snap", nullptr, &ctx.tools.snap().points);
@@ -324,6 +327,8 @@ void Ui::toolbar(UiContext& ctx, float y, float height, float width) {
     if (toolButton("Tape", t == Tool::TapeMeasure, "Tape Measure (T)\nClick two points to measure the distance between them.")) ctx.tools.setTool(Tool::TapeMeasure);
     ImGui::SameLine();
     if (toolButton("Dimension", t == Tool::Dimension, "Dimension (D)\nClick two points, then click to place the dimension line.")) ctx.tools.setTool(Tool::Dimension);
+    ImGui::SameLine();
+    if (toolButton("Eraser", t == Tool::Eraser, "Eraser (E)\nClick or drag over edges to erase them; coplanar faces merge.\nShift hides the edges instead, " PF_SOFTEN_KEY " softens them.")) ctx.tools.setTool(Tool::Eraser);
     ImGui::SameLine(0, 18);
     if (ImGui::Button("Fit")) action(UiAction::FitView);
     tooltip("Fit view to model (F)");
