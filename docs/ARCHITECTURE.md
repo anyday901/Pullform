@@ -81,7 +81,7 @@ from a unit quaternion (`localToWorld`, `profileToWorld`, `profileNormalWorld` i
 `document.hpp`; `buildFaces` and therefore meshes, picking, bounds and snapping all go
 through them). `rotationMatrix` makes entries within 1e-15 of -1, 0 or 1 exact, so quarter
 turns keep grid-aligned corners exact. **Scale is not stored in the transform:**
-`scaleObject` bakes factors into the real dimensions (rectangle width/depth, extrusion
+`scaleObject` bakes factors (negative ones mirror) into the real dimensions (rectangle width/depth, extrusion
 height) and shifts the translation so the base centre stays put. Sizes shown and typed
 therefore stay true lengths, push/pull heights need no unscaling, and vertex indices (used
 by dimension anchors) do not change. A scale field belongs with component instances
@@ -259,6 +259,35 @@ same interface.
   rotate and scale about the base centre of their combined bounding box
   (`selectionBaseCenter`); scaling a group also moves each object's base centre away from
   that point by the same factors, so a uniform factor scales the group rigidly.
+  `scaleObjects` takes a `frame` (the axes the factors run along): world axes for a group,
+  `objectAxes` for one object, so a grip on a turned object's own box scales about the
+  opposite grip exactly.
+- **Element transforms** (roadmap item 15): with vertices, edges or faces selected, Move,
+  Rotate and Scale act on those elements instead of whole objects (`moveElements`,
+  `rotateElements`, `scaleElements`, all through `transformElements` with an `AffineMap`
+  of world space). Each owner is converted to a mesh group (`asMeshGroup`, same ids) and
+  the map is turned into its local space; `mesh::Mesh::transformVertices` moves the
+  vertices so the connected geometry stretches. Faces whose vertices all move stay planar
+  (an affine map keeps planes); a mirroring map (negative determinant) reverses their loops
+  so they keep facing outwards. A face only partly moved gets its new plane, or, if its
+  vertices are no longer coplanar, is **folded**: its old triangulation is regrouped into
+  the largest pieces that stay planar (connected triangles of a simple polygon's
+  triangulation always form a simple polygon), joined by new soft edges, the largest
+  piece keeping the face id. Faces with holes are not folded (refused). Curves move with a
+  rigid or uniform map that takes all their vertices, and are dropped otherwise. The
+  result must pass `validateMesh`, and a closed shell must keep the sign of its volume, so
+  edges shrunk to nothing and solids pushed through themselves are refused. The selection
+  keeps its element ids across the commit. Copy mode is refused for elements.
+- **Scale grips:** the Scale tool's idle `ScalePreview` carries the selection's bounding
+  box (`box`, 8 corners) and grips (corners, edge midpoints, face centres; none along a
+  flat axis) in `frame`; the viewport draws them, and `hotGrip` marks the one within
+  `ScaleTool::kGripPx` of the pointer. Dragging a grip scales about the opposite grip
+  (Ctrl: the box centre): a face grip along its axis (closest point to the ray on that
+  line), an edge grip in the plane of its two axes, a corner grip uniformly along the
+  diagonal. Factors snap to 0.1 steps with grid snap but never to zero; dragging past the
+  pivot gives a negative factor, a mirror. A typed single factor applies along the dragged
+  grip's axes. Negative factors on a rectangle or box keep its shape (it is symmetric)
+  except in height, where the prism flips below its base.
 - Camera navigation, hover, tool changes and snap settings are not model history.
 - **New/Open** replace the project and clear history.
 

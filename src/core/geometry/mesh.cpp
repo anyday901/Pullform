@@ -1045,7 +1045,7 @@ std::optional<TransformResult> Mesh::transformVertices(const std::vector<VertexI
         const Vec3 n = loopNormal(next.loopPositions(face.loops[0]));
         bool planar = glm::length(n) > 0.0;
         if (planar) {
-            const Vec3 origin = next.vertex(next.useStart(face.loops[0].front()))->position;
+            const Vec3 origin = next.vertices_.at(next.useStart(face.loops[0].front()).value).position;
             for (const Loop& loop : face.loops) {
                 for (const Vec3& p : next.loopPositions(loop)) {
                     if (std::abs(glm::dot(p - origin, n)) > tol::kPlanarity) planar = false;
@@ -1060,7 +1060,7 @@ std::optional<TransformResult> Mesh::transformVertices(const std::vector<VertexI
         // triangulation is itself a simple polygon, so merging neighbouring
         // triangles while they stay on one plane gives valid planar pieces.
         if (face.loops.size() > 1 || triangles.empty()) return std::nullopt;
-        const auto pos = [&next](VertexId v) { return next.vertex(v)->position; };
+        const auto pos = [&next](VertexId v) { return next.vertices_.at(v.value).position; };
         Groups groups(triangles.size());
         std::vector<std::vector<VertexId>> members(triangles.size());
         for (std::size_t i = 0; i < triangles.size(); ++i) members[i] = {triangles[i].begin(), triangles[i].end()};

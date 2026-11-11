@@ -9,6 +9,27 @@ include breaking changes, but project files will keep a migration path.
 
 ### Added
 
+- **Move, Rotate and Scale on vertices, edges and faces.** Select geometry with the Select
+  tool, then use Move, Rotate or Scale on it (click the selected geometry's object, or type
+  a value): only the selected vertices, edges and faces move, and the geometry connected
+  to them stretches. A face that would bend is folded along new soft edges into planar
+  pieces (auto-fold); faces with holes cannot fold yet, and moves that would shrink an
+  edge to nothing or turn a solid inside out are refused. Moving a box's top edge sideways
+  or up makes a sloped wall or roof. A rectangle or box becomes a mesh group the first time
+  its geometry is edited this way (same element ids, so selections and dimensions stay put).
+  Copy mode does not apply to elements yet. The core gains `mesh::Mesh::transformVertices`,
+  `transformElements`, `moveElements`, `rotateElements` and `scaleElements`.
+- **Rotate about any line.** Press on the centre of rotation and drag along an edge before
+  releasing to turn about that line, for example a face about one of its edges. The centre
+  now snaps to corners, midpoints and edges.
+- **Scale grips and mirroring.** The Scale tool shows the selection's bounding box (along a
+  single object's own axes) with grips at its corners, edge midpoints and face centres.
+  Drag a face grip to scale along one axis, an edge grip along two, or a corner grip
+  uniformly, about the opposite grip (Ctrl at the press: about the centre). Dragging past
+  the opposite side, or typing a negative factor, mirrors: `-1` on a grip mirrors across
+  that grip's axis, and the faces stay facing outwards. Typed factors no longer have to be
+  positive, only non-zero.
+
 - **Freehand tool** (Tools > Freehand, or the toolbar). Press and drag to draw a curve; on
   release it is smoothed (within 3 screen pixels of the stroke) into a polyline of straight
   edges and committed as one undo entry. It draws on the horizontal plane through the press

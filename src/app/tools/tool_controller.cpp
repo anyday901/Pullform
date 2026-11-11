@@ -75,7 +75,10 @@ bool ToolController::active() const {
 }
 
 bool ToolController::cancel() {
-    const bool had = active() || !std::holds_alternative<std::monostate>(editor_.preview());
+    // The Scale tool's idle grips are not something Esc cancels (it goes on to clear the selection).
+    const auto* grips = std::get_if<ScalePreview>(&editor_.preview());
+    const bool idle = std::holds_alternative<std::monostate>(editor_.preview()) || (grips && !grips->start);
+    const bool had = active() || !idle;
     for (const auto& t : tools_) t->cancel();
     ctx_.indicator.reset();
     editor_.cancelPreview();
