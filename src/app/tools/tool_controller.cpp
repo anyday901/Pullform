@@ -568,15 +568,17 @@ std::optional<std::string> ToolController::duplicateSelection() {
     const Vec3 offset{objectBounds(*o).size().x, 0.0, 0.0};
     const auto face = selection->face;
     const ObjectId id = selection->objectId;
-    const bool ok = editor_.commit(
-        "Duplicate " + idString(id), [id, offset](const Document& d) { return duplicateObject(d, id, offset); },
-        [face](const OpResult& r) -> std::optional<Selection> {
-            if (!r.objectId) return std::nullopt;
-            return Selection{*r.objectId, face};
-        });
-    if (!ok) return lastError("Could not duplicate the object.");
-    const auto* copy = editor_.selection() ? editor_.document().find(editor_.selection()->objectId) : nullptr;
-    if (copy) editor_.notify(Message{Message::Kind::Info, "Duplicated as " + copy->name + "."});
+    if (const bool ok = editor_.commit(
+            "Duplicate " + idString(id), [id, offset](const Document& d) { return duplicateObject(d, id, offset); },
+            [face](const OpResult& r) -> std::optional<Selection> {
+                if (!r.objectId) return std::nullopt;
+                return Selection{*r.objectId, face};
+            });
+        !ok) {
+        return lastError("Could not duplicate the object.");
+    }
+    if (const auto* copy = editor_.selection() ? editor_.document().find(editor_.selection()->objectId) : nullptr)
+        editor_.notify(Message{Message::Kind::Info, "Duplicated as " + copy->name + "."});
     return std::nullopt;
 }
 

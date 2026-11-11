@@ -565,9 +565,11 @@ void App::deleteSelection() {
 // so shortcuts like Ctrl+Z never toggle it.
 void App::handleMoveCopyTap() {
 #ifdef __APPLE__
-    constexpr ImGuiKey left = ImGuiKey_LeftAlt, right = ImGuiKey_RightAlt;
+    constexpr ImGuiKey left = ImGuiKey_LeftAlt;
+    constexpr ImGuiKey right = ImGuiKey_RightAlt;
 #else
-    constexpr ImGuiKey left = ImGuiKey_LeftCtrl, right = ImGuiKey_RightCtrl;
+    constexpr ImGuiKey left = ImGuiKey_LeftCtrl;
+    constexpr ImGuiKey right = ImGuiKey_RightCtrl;
 #endif
     if (tools_.tool() != Tool::Move) {
         copyTapArmed_ = false;
