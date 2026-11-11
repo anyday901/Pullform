@@ -6,6 +6,7 @@
 
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace pf {
 
@@ -14,6 +15,9 @@ namespace pf {
 struct OpResult {
     Document document;
     std::optional<ObjectId> objectId;
+    /// Every object created or changed, for operations on several objects
+    /// (the copies, for duplicateObjects). Empty for single-object operations.
+    std::vector<ObjectId> objectIds;
 };
 
 /// Checks a total extrusion height. Heights must be positive (at least 0.1 mm);
@@ -30,6 +34,9 @@ Expected<OpResult> setExtrusionHeight(const Document& doc, ObjectId id, double h
 /// along `axis` (right-hand rule). Same object, same ID; only the transform
 /// changes. A quarter turn about a grid point keeps grid-aligned corners exact.
 Expected<OpResult> rotateObject(const Document& doc, ObjectId id, const Vec3& pivot, const Vec3& axis, double radians);
+
+/// World-space centre of an object's base (the centre scaleObject keeps fixed).
+Vec3 objectBaseCenter(const ProfileObject& object);
 
 /// Scales an object by `factors` along its own axes (x = width, y = depth,
 /// z = height) about the centre of its base, so a box on the ground stays on
@@ -60,6 +67,30 @@ Expected<OpResult> deleteObject(const Document& doc, ObjectId id);
 Expected<OpResult> addDimension(const Document& doc, const DimensionAnchor& a, const DimensionAnchor& b, const Vec3& offset);
 /// Removes a dimension.
 Expected<OpResult> deleteDimension(const Document& doc, DimensionId id);
+// Operations on several objects (a multi-selection). Each runs the
+// single-object operation on every object in turn and fails as a whole if any
+// one fails, so a selection always changes in one commit and one undo entry.
+// `ids` must be non-empty and contain each object once.
+
+/// World-space centre of the base of the objects' combined bounding box: the
+/// default rotation and scale centre when several objects are selected (one
+/// object uses objectBaseCenter).
+Expected<Vec3> selectionBaseCenter(const Document& doc, const std::vector<ObjectId>& ids);
+/// Moves every object by `offset`. A zero offset is rejected.
+Expected<OpResult> moveObjects(const Document& doc, const std::vector<ObjectId>& ids, const Vec3& offset);
+/// Rotates every object about the same world line, so the selection turns as one.
+Expected<OpResult> rotateObjects(const Document& doc, const std::vector<ObjectId>& ids, const Vec3& pivot, const Vec3& axis,
+                                 double radians);
+/// Scales every object by `factors` along its own axes, and moves its base
+/// centre away from `pivot` by the same factors along the world axes, so a
+/// uniform factor scales the selection as one rigid group.
+Expected<OpResult> scaleObjects(const Document& doc, const std::vector<ObjectId>& ids, const Vec3& factors, const Vec3& pivot);
+/// Copies every object, offset by `offset`. The copies (new IDs, in the order
+/// of `ids`) are in OpResult::objectIds; objectId is the last copy.
+Expected<OpResult> duplicateObjects(const Document& doc, const std::vector<ObjectId>& ids, const Vec3& offset);
+/// Removes every object with its dimensions.
+Expected<OpResult> deleteObjects(const Document& doc, const std::vector<ObjectId>& ids);
+
 /// Changes the display unit (storage stays in meters).
 Expected<OpResult> setDisplayUnit(const Document& doc, LengthUnit unit);
 
