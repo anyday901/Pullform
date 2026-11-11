@@ -31,6 +31,14 @@ include breaking changes, but project files will keep a migration path.
   radius and segment count. Saved in project files as profile kind `"circle"` or
   `"polygon"` with their curves.
 
+- **Line tool (L).** Click a start point, then each next point, to draw a chain of edges
+  (one undo entry per segment). Type a length to draw the next segment toward the pointer,
+  or `x, y, z` for an offset; the arrow keys (or X, Y, Z) lock an axis, and the pointer
+  infers the X, Y and Z axes through the last point. A segment that closes a planar loop
+  makes a face and ends the chain; Esc ends it and keeps what was drawn. Drawn groups now
+  snap to all their vertices and edges, including loose ones.
+- **Push/pull of drawn faces.** A face standing on its own extrudes into a closed solid
+  (either direction), and the end face of a drawn prism moves with its walls stretching.
 - **Multi-selection.** With the Select tool, Shift-click adds or removes an object,
   Ctrl-click (Cmd on macOS) adds one, clicking empty space clears, and Ctrl+A / Cmd+A
   (Edit > Select all) selects everything. Drag a box left to right to select objects

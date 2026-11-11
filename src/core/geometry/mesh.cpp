@@ -861,6 +861,102 @@ void Mesh::translate(const Vec3& offset) {
     for (auto& [id, c] : curves_) c.center += offset;
 }
 
+std::optional<PushPullResult> Mesh::pushPull(FaceId id, double distance) {
+    const auto it = faces_.find(id.value);
+    if (it == faces_.end() || !std::isfinite(distance) || std::abs(distance) < tol::kMinDimension) return std::nullopt;
+    const Face face = it->second;
+    const Vec3 n = face.normal;
+    const Vec3 offset = n * distance;
+
+    std::vector<VertexId> ring; // every vertex of the face, once
+    std::vector<EdgeId> own;    // every edge of the face
+    for (const Loop& loop : face.loops) {
+        for (const VertexId v : loopVertices(loop)) {
+            if (std::ranges::find(ring, v) == ring.end()) ring.push_back(v);
+        }
+        for (const EdgeUse& use : loop) own.push_back(use.edge);
+    }
+    const bool free = std::ranges::all_of(own, [this](EdgeId e) { return facesOfEdge(e).size() == 1; }) &&
+                      std::ranges::all_of(ring, [this, &own](VertexId v) {
+                          return std::ranges::all_of(edgesOfVertex(v), [&own](EdgeId e) { return std::ranges::find(own, e) != own.end(); });
+                      });
+
+    if (!free) {
+        // Stretch: the face is the end of a prism. Every edge of the face is
+        // shared with a wall, every other edge at its vertices runs along the
+        // normal and every other face there contains the normal, so moving the
+        // face keeps all of them planar. Anything else attached is refused.
+        if (!std::ranges::all_of(own, [this](EdgeId e) { return facesOfEdge(e).size() >= 2; })) return std::nullopt;
+        for (const VertexId v : ring) {
+            const Vec3 p = vertices_.at(v.value).position;
+            for (const EdgeId e : edgesOfVertex(v)) {
+                if (std::ranges::find(own, e) != own.end()) continue;
+                const Edge& edge = edges_.at(e.value);
+                const VertexId w = edge.v0 == v ? edge.v1 : edge.v0;
+                const Vec3 along = vertices_.at(w.value).position - p;
+                const double s = glm::dot(along, n);
+                if (glm::length(along - n * s) > tol::kPlanarity) return std::nullopt; // not along the normal
+                // The wall keeps its direction and a usable length.
+                if (s * (s - distance) <= 0.0 || std::abs(s - distance) < tol::kMinDimension) return std::nullopt;
+            }
+        }
+        for (const auto& [fid, other] : faces_) {
+            if (fid == id.value) continue;
+            const auto vs = [&] {
+                std::vector<VertexId> all;
+                for (const Loop& l : other.loops) {
+                    const auto lv = loopVertices(l);
+                    all.insert(all.end(), lv.begin(), lv.end());
+                }
+                return all;
+            }();
+            const bool touches = std::ranges::any_of(vs, [&ring](VertexId v) { return std::ranges::find(ring, v) != ring.end(); });
+            if (touches && std::abs(glm::dot(other.normal, n)) > tol::kCoplanarNormal) return std::nullopt;
+        }
+        for (const VertexId v : ring) vertices_.at(v.value).position += offset;
+        return PushPullResult{id, {}, true};
+    }
+
+    // Extrude a free face: a cap at the offset, one side face per loop edge,
+    // and the original face stays as the base, turned to face away.
+    PushPullResult result{id, {}, false};
+    std::map<std::uint32_t, VertexId> top;
+    for (const VertexId v : ring) top[v.value] = appendVertex(vertices_.at(v.value).position + offset);
+    for (const VertexId v : ring) appendEdge(v, top.at(v.value));
+    for (const Loop& loop : face.loops) {
+        for (const EdgeUse& use : loop) appendEdge(top.at(useStart(use).value), top.at(useEnd(use).value));
+    }
+    const bool up = distance > 0.0;
+    for (const Loop& loop : face.loops) {
+        for (const EdgeUse& use : loop) {
+            const VertexId a = useStart(use);
+            const VertexId b = useEnd(use);
+            const Vec3 side = glm::normalize(glm::cross(vertices_.at(b.value).position - vertices_.at(a.value).position, n));
+            const VertexId ta = top.at(a.value);
+            const VertexId tb = top.at(b.value);
+            const auto sideFace = up ? appendFace({{a, b, tb, ta}}, side) : appendFace({{ta, tb, b, a}}, side);
+            if (sideFace) result.createdFaces.push_back(*sideFace);
+        }
+    }
+    std::vector<std::vector<VertexId>> capLoops;
+    for (const Loop& loop : face.loops) {
+        std::vector<VertexId> vs;
+        for (const VertexId v : loopVertices(loop)) vs.push_back(top.at(v.value));
+        if (!up) std::ranges::reverse(vs);
+        capLoops.push_back(std::move(vs));
+    }
+    const auto cap = appendFace(capLoops, up ? n : -n);
+    if (!cap) return std::nullopt;
+    result.face = *cap;
+    result.createdFaces.push_back(*cap);
+    if (up) {
+        Face& base = faces_.at(id.value);
+        for (Loop& loop : base.loops) loop = reversedLoop(loop);
+        base.normal = -n;
+    }
+    return result;
+}
+
 // ---- Validation --------------------------------------------------------------------
 
 std::optional<std::string> validateMesh(const Mesh& m, std::string_view pathView) {

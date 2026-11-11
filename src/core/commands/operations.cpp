@@ -486,6 +486,24 @@ Expected<OpResult> eraseEdge(const Document& doc, ObjectId id, mesh::EdgeId edge
     return replaceObject(partial.document, std::move(changed));
 }
 
+Expected<OpResult> pushPullFace(const Document& doc, ObjectId id, mesh::FaceId face, double distance, mesh::FaceId* pushed) {
+    const auto* o = doc.find(id);
+    if (!o) return Error{"Object " + idString(id) + " no longer exists."};
+    if (!o->isMeshGroup()) return Error{"Only drawn faces are pushed this way; use the height for a rectangle or box."};
+    if (!std::isfinite(distance) || std::abs(distance) < tol::kMinDimension) return Error{"Distance must be at least 0.1 mm."};
+    ProfileObject changed = *o;
+    mesh::Mesh m = *changed.mesh;
+    if (!m.face(face)) return Error{"That face no longer exists."};
+    const auto result = m.pushPull(face, distance);
+    if (!result) {
+        return Error{"Push/pull works on a face standing on its own, or on the end of a prism that keeps a positive "
+                     "length. Other faces are not supported yet."};
+    }
+    if (pushed) *pushed = result->face;
+    changed.mesh = std::make_shared<const mesh::Mesh>(std::move(m));
+    return replaceObject(doc, std::move(changed));
+}
+
 Expected<Vec3> selectionBaseCenter(const Document& doc, const std::vector<ObjectId>& ids) {
     if (auto e = checkIds(doc, ids)) return Error{*e};
     Bounds b;

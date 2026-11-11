@@ -7,6 +7,7 @@
 #include <glm/geometric.hpp>
 
 #include <algorithm>
+#include <map>
 #include <unordered_set>
 #include <utility>
 
@@ -100,7 +101,18 @@ const char* snapKindName(SnapKind kind) {
 
 SnapFeatures snapFeatures(const ProfileObject& object, std::optional<double> heightOverride) {
     SnapFeatures f;
-    for (const auto& face : buildFaces(object, heightOverride)) {
+    if (object.mesh) {
+        // A mesh group snaps to every vertex and edge, including loose edges
+        // that bound no face yet (a Line tool chain before it closes).
+        std::map<std::uint32_t, int> index;
+        for (const auto& [id, v] : object.mesh->vertices()) {
+            index[id] = static_cast<int>(f.vertices.size());
+            f.vertices.push_back(localToWorld(object, v.position));
+        }
+        for (const auto& [id, e] : object.mesh->edges()) f.edges.emplace_back(index.at(e.v0.value), index.at(e.v1.value));
+    }
+    const auto faces = object.mesh ? std::vector<FacePolygon>{} : buildFaces(object, heightOverride);
+    for (const auto& face : faces) {
         const auto n = face.loop.size();
         std::vector<int> ids;
         ids.reserve(n);

@@ -4,9 +4,9 @@
 
 namespace pf {
 
-/// Push/Pull: click a rectangle or an extrusion's top cap and move to set the
-/// height (click-move-click or press-drag-release), or type a distance.
-/// Commits one "Push/pull to" or "Set height to" entry.
+/// Push/Pull: click a rectangle, an extrusion's top cap or a drawn face and
+/// move to set the distance (click-move-click or press-drag-release), or type
+/// it. Commits one "Push/pull to", "Set height to" or "Push/pull" entry.
 class PushPullTool final : public ToolBase {
 public:
     using ToolBase::ToolBase;
@@ -38,15 +38,19 @@ private:
         FaceKind face = FaceKind::Profile;
         Vec3 anchor{0.0};
         double startHeight = 0.0;
-        double baseZ = 0.0; ///< world height of the profile plane
+        double baseZ = 0.0; ///< world height of the profile plane (of the picked point for a drawn face)
         Vec2 pressScreen{0.0};
         bool pressed = false;
+        std::uint32_t meshFace = 0;    ///< the drawn face (FaceKind::Mesh)
+        Vec3 normal{0.0, 0.0, 1.0};    ///< world normal of the drawn face
     };
 
     void finish();
     void setPreview(double delta);
     std::optional<double> snapHeight(const PointerInput& input, std::optional<double> raw);
     bool commitHeight(ObjectId id, FaceKind face, double height);
+    void moveMeshFace(const PointerInput& input);
+    bool commitMeshFace(ObjectId id, std::uint32_t face, double distance);
 
     std::optional<Gesture> gesture_;
 };

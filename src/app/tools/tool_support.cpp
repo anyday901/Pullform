@@ -16,6 +16,7 @@ std::string_view toolName(Tool tool) {
     case Circle: return "Circle";
     case Polygon: return "Polygon";
     case RotatedRectangle: return "Rotated Rectangle";
+    case Line: return "Line";
     case PushPull: return "Push/Pull";
     case Rotate: return "Rotate";
     case Scale: return "Scale";

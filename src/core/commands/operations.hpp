@@ -127,4 +127,11 @@ Expected<OpResult> drawEdge(const Document& doc, std::optional<ObjectId> target,
 /// first. A group left with nothing is deleted.
 Expected<OpResult> eraseEdge(const Document& doc, ObjectId id, mesh::EdgeId edge);
 
+/// Pushes or pulls face `face` of a mesh group by `distance` along its normal
+/// (see mesh::Mesh::pushPull): a free face becomes a closed solid, and the end
+/// face of a prism moves with its walls stretching. Same object, same id.
+/// `pushed`, when given, receives the face where it ended up (the new cap of an extrusion).
+Expected<OpResult> pushPullFace(const Document& doc, ObjectId id, mesh::FaceId face, double distance,
+                                mesh::FaceId* pushed = nullptr);
+
 } // namespace pf
