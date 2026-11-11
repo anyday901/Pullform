@@ -97,6 +97,9 @@ Expected<OpResult> rotateObject(const Document& doc, ObjectId id, const Vec3& pi
         return Error{"The rotation centre is not valid."};
     }
     const Vec3 a = axis / len;
+    // Reduce to (-pi, pi] once, so the quaternion and the pivot-relative
+    // translation use the same angle and huge typed angles stay well defined.
+    radians = std::remainder(radians, 2.0 * std::acos(-1.0));
     ProfileObject changed = *o;
     changed.transform.rotation = glm::normalize(axisAngle(a, radians) * o->transform.rotation);
     changed.transform.translation = pivot + rotateVector(o->transform.translation - pivot, a, radians);

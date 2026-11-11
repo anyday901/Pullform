@@ -101,6 +101,13 @@ TEST_CASE("invalid rotations are rejected") {
     CHECK_FALSE(rotateObject(doc, id, {0, 0, 0}, {0, 0, 0}, 1.0).ok());
     CHECK_FALSE(rotateObject(doc, id, {0, 0, 0}, {0, 0, 1}, std::nan("")).ok());
     CHECK_FALSE(rotateObject(doc, ObjectId{99}, {0, 0, 0}, {0, 0, 1}, 1.0).ok());
+    // Huge but finite angles are reduced, not cast out of range; whole turns are exact.
+    const auto huge = rotateObject(doc, id, {5, 0, 0}, {0, 0, 1}, degrees(1e22));
+    REQUIRE(huge.ok());
+    CHECK(checkSolid(buildMesh(*huge->document.find(id))).ok());
+    const auto turns = rotateObject(doc, id, {5, 0, 0}, {0, 0, 1}, degrees(360.0 * 1000 + 90));
+    REQUIRE(turns.ok());
+    CHECK(baseCorners(*turns->document.find(id))[0] == Vec3{5, -5, 0});
     // Swinging an object about a far pivot would take it beyond 10 km.
     auto [far, farId] = boxDoc(1.0, 1.0, 1.0, {9000, 0, 0});
     const auto out = rotateObject(far, farId, {-1000, 0, 0}, {0, 0, 1}, degrees(180)); // lands at x = -11 km
