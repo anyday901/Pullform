@@ -104,6 +104,7 @@ std::optional<ElementHit> pickElement(const Ray& ray, std::span<const PickTarget
             if (px <= options.vertexPixels) candidates.push_back({ElementKind::Vertex, v, ti, p, t, px});
         }
         for (std::uint32_t e = 0; e < topo.edges.size(); ++e) {
+            if (topo.edges[e].soft) continue;
             const Vec3 a = topo.vertices[topo.edges[e].a].position;
             const Vec3 b = topo.vertices[topo.edges[e].b].position;
             const Vec3 ab = b - a;

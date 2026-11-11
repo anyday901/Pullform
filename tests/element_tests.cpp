@@ -54,6 +54,9 @@ TEST_CASE("a box has 8 shared vertices, 12 shared edges and 6 faces") {
     for (const auto& v : topo.vertices) CHECK(v.edges.size() == 3);
     REQUIRE(topo.faceFor(FaceId::cap()));
     CHECK(topo.faces[*topo.faceFor(FaceId::cap())].normal.z == doctest::Approx(1.0));
+    // Ids are the mesh's: corners 1..8, edges 1..12, faces 1..6 (base 1, cap 2, sides 3..6).
+    CHECK(topo.faces[*topo.faceFor(FaceId::cap())].id == 2);
+    for (const auto& f : topo.faces) CHECK_FALSE(f.twoSided);
 }
 
 TEST_CASE("a planar profile is one two-sided face with four border edges") {
@@ -80,7 +83,7 @@ TEST_CASE("pick prefers a vertex, then an edge, then the face") {
         const auto hit = pickOne(topo, through(eye, {0.5, 0.5, 1.0}));
         REQUIRE(hit);
         CHECK(hit->element.kind == ElementKind::Face);
-        CHECK(topo.faces[*topo.indexOf(ElementKind::Face, hit->element.id)].logical == FaceId::cap());
+        CHECK(topo.faces[*topo.indexOf(ElementKind::Face, hit->element.id)].logical == std::optional(FaceId::cap()));
         CHECK(hit->point.z == doctest::Approx(1.0));
     }
     SUBCASE("three pixels from an edge") {
@@ -108,7 +111,7 @@ TEST_CASE("hidden edges and vertices are not picked; the face in front is") {
     const auto hit = pickOne(topo, ray);
     REQUIRE(hit);
     CHECK(hit->element.kind == ElementKind::Face);
-    CHECK(topo.faces[*topo.indexOf(ElementKind::Face, hit->element.id)].logical == FaceId::cap());
+    CHECK(topo.faces[*topo.indexOf(ElementKind::Face, hit->element.id)].logical == std::optional(FaceId::cap()));
 }
 
 TEST_CASE("another object in front hides an edge") {
@@ -278,4 +281,49 @@ TEST_CASE("selecting an object whole drops its element entries; removing the las
     CHECK(other.contains(a));
     other.toggleElements({{a, ElementKind::Face, 1}}, std::nullopt);
     CHECK_FALSE(other.contains(a));
+}
+
+TEST_CASE("mesh group: a square split by a line has two pickable faces and a shared edge") {
+    mesh::Mesh m;
+    m.addEdge({0, 0, 0}, {2, 0, 0});
+    m.addEdge({2, 0, 0}, {2, 2, 0});
+    m.addEdge({2, 2, 0}, {0, 2, 0});
+    m.addEdge({0, 2, 0}, {0, 0, 0});
+    REQUIRE(m.faces().size() == 1);
+    m.addEdge({1, 0, 0}, {1, 2, 0}); // splits the square in two
+    REQUIRE(m.faces().size() == 2);
+
+    ProfileObject group;
+    group.id = ObjectId{7};
+    group.mesh = std::make_shared<const mesh::Mesh>(m);
+    group.transform.translation = {10, 0, 0}; // topology is in world space
+    const auto topo = buildTopology(group);
+    CHECK(topo.faces.size() == 2);
+    CHECK(topo.edges.size() == m.edges().size());
+    for (const auto& f : topo.faces) CHECK(f.twoSided); // a loose sheet: both sides
+    CHECK_FALSE(topo.faces[0].logical);
+
+    const Vec3 eye{11.0, 1.0, 11.0};
+    // The splitting edge, at x = 1 (world 11), borders both faces.
+    const auto onEdge = pickOne(topo, through(eye, {11.0, 1.4, 0.0}), group.id);
+    REQUIRE(onEdge);
+    REQUIRE(onEdge->element.kind == ElementKind::Edge);
+    const auto edgeIndex = *topo.indexOf(ElementKind::Edge, onEdge->element.id);
+    CHECK(topo.edges[edgeIndex].faces.size() == 2);
+    CHECK(countKind(expandBounded(group.id, topo, ElementKind::Edge, onEdge->element.id), ElementKind::Face) == 2);
+
+    // Each half is its own face; the left one's double-click has 4 edges.
+    const auto left = pickOne(topo, through(eye, {10.5, 1.0, 0.0}), group.id);
+    const auto right = pickOne(topo, through(eye, {11.5, 1.0, 0.0}), group.id);
+    REQUIRE(left);
+    REQUIRE(right);
+    CHECK(left->element.kind == ElementKind::Face);
+    CHECK(right->element.kind == ElementKind::Face);
+    CHECK(left->element.id != right->element.id);
+    CHECK(countKind(expandBounded(group.id, topo, ElementKind::Face, left->element.id), ElementKind::Edge) == 4);
+
+    // Triple-click: both faces and all edges.
+    const auto all = expandConnected(group.id, topo, ElementKind::Face, left->element.id);
+    CHECK(countKind(all, ElementKind::Face) == 2);
+    CHECK(countKind(all, ElementKind::Edge) == m.edges().size());
 }

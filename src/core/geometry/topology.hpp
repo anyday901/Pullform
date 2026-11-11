@@ -2,6 +2,7 @@
 
 #include "core/document/document.hpp"
 #include "core/document/element_ref.hpp"
+#include "core/geometry/mesh.hpp"
 #include "core/geometry/solid.hpp"
 
 #include <cstdint>
@@ -17,8 +18,8 @@ namespace pf {
 /// mesh's VertexId/EdgeId/FaceId value), which is what selections store.
 ///
 /// This is a derived view, like MeshData: it is rebuilt from the model and
-/// never stored. Today it is built from an object's logical faces
-/// (buildFaces); a mesh-based object builds the same structure from its mesh.
+/// never stored. It is built from the object's edge/face mesh
+/// (mesh::objectMesh), in world space, with the mesh's element ids.
 struct ElementTopology {
     struct Vertex {
         std::uint32_t id = 0;
@@ -29,14 +30,16 @@ struct ElementTopology {
         std::uint32_t id = 0;
         std::uint32_t a = 0, b = 0;       ///< vertex indices
         std::vector<std::uint32_t> faces; ///< faces bordered by this edge (0, 1 or 2 for a manifold)
+        bool soft = false;                ///< hidden: not drawn and not picked
     };
     struct Face {
         std::uint32_t id = 0;
-        FaceId logical;                   ///< the model's face id (push/pull, properties)
+        std::optional<FaceId> logical;    ///< semantic face of a profile object (push/pull, properties)
         Vec3 normal{0.0};
         std::vector<std::uint32_t> loop;  ///< outer loop, vertex indices, counter-clockwise from +normal
+        std::vector<std::vector<std::uint32_t>> holes; ///< hole loops, vertex indices
         std::vector<std::uint32_t> edges; ///< bounding edges in loop order
-        bool twoSided = false;            ///< a planar sheet, visible and pickable from both sides
+        bool twoSided = false;            ///< not part of a closed shell: visible and pickable from both sides
     };
     struct Triangle {
         std::uint32_t face = 0;
@@ -58,13 +61,18 @@ struct ElementTopology {
     [[nodiscard]] std::uint32_t idAt(ElementKind kind, std::uint32_t index) const;
 };
 
+/// Builds the topology of a mesh placed by `object`'s transform. Element ids
+/// are the mesh's ids. A face is two-sided when any of its edges does not
+/// border exactly two faces (a sheet, or a face with an open boundary).
+ElementTopology buildTopology(const mesh::Mesh& mesh, const ProfileObject& object);
+
 /// Builds the topology from logical face polygons. Corners that coincide
 /// (within `tolerance` meters) are merged into one vertex, and every
 /// undirected vertex pair along a loop becomes one shared edge. Ids are
 /// indices + 1, in order of first appearance.
 ElementTopology buildTopology(const std::vector<FacePolygon>& faces, double tolerance = 1e-9);
 
-/// Topology of a document object.
+/// Topology of a document object: of its mesh (mesh::objectMesh).
 ElementTopology buildTopology(const ProfileObject& object);
 
 /// Edges that outline the shape from the eye: border edges (one face, as on a

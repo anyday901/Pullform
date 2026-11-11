@@ -11,7 +11,7 @@ namespace pf {
 
 std::optional<std::uint32_t> ElementTopology::faceFor(const FaceId& logical) const {
     for (std::uint32_t i = 0; i < faces.size(); ++i) {
-        if (faces[i].logical == logical) return i;
+        if (faces[i].logical && *faces[i].logical == logical) return i;
     }
     return std::nullopt;
 }
@@ -96,13 +96,80 @@ ElementTopology buildTopology(const std::vector<FacePolygon>& polygons, double t
     return topo;
 }
 
-ElementTopology buildTopology(const ProfileObject& object) { return buildTopology(buildFaces(object)); }
+ElementTopology buildTopology(const mesh::Mesh& m, const ProfileObject& object) {
+    ElementTopology topo;
+    const Mat3 rotation = rotationMatrix(object.transform);
+    std::map<std::uint32_t, std::uint32_t> vertexIndex; // mesh id -> index
+    std::map<std::uint32_t, std::uint32_t> edgeIndex;
+    for (const auto& [id, v] : m.vertices()) {
+        vertexIndex.emplace(id, static_cast<std::uint32_t>(topo.vertices.size()));
+        topo.vertices.push_back({id, localToWorld(object, v.position), {}});
+    }
+    for (const auto& [id, e] : m.edges()) {
+        const auto a = vertexIndex.find(e.v0.value);
+        const auto b = vertexIndex.find(e.v1.value);
+        if (a == vertexIndex.end() || b == vertexIndex.end()) continue;
+        const auto index = static_cast<std::uint32_t>(topo.edges.size());
+        edgeIndex.emplace(id, index);
+        topo.edges.push_back({id, a->second, b->second, {}, e.soft});
+        topo.vertices[a->second].edges.push_back(index);
+        topo.vertices[b->second].edges.push_back(index);
+    }
+    const auto loopIndices = [&](const mesh::Loop& loop) {
+        std::vector<std::uint32_t> out;
+        for (const auto v : m.loopVertices(loop)) {
+            if (const auto it = vertexIndex.find(v.value); it != vertexIndex.end()) out.push_back(it->second);
+        }
+        return out;
+    };
+    for (const auto& [id, f] : m.faces()) {
+        if (f.loops.empty()) continue;
+        const auto index = static_cast<std::uint32_t>(topo.faces.size());
+        ElementTopology::Face face;
+        face.id = id;
+        face.logical = mesh::semanticFace(object, mesh::FaceId{id});
+        face.normal = glm::normalize(rotation * f.normal);
+        face.loop = loopIndices(f.loops[0]);
+        for (std::size_t h = 1; h < f.loops.size(); ++h) face.holes.push_back(loopIndices(f.loops[h]));
+        for (const auto& loop : f.loops) {
+            for (const auto& use : loop) {
+                const auto it = edgeIndex.find(use.edge.value);
+                if (it == edgeIndex.end()) continue;
+                face.edges.push_back(it->second);
+                topo.edges[it->second].faces.push_back(index);
+            }
+        }
+        for (const auto& tri : mesh::triangulateFace(m, mesh::FaceId{id})) {
+            ElementTopology::Triangle t{index, {0, 0, 0}};
+            bool ok = true;
+            for (int k = 0; k < 3; ++k) {
+                const auto it = vertexIndex.find(tri[k].value);
+                if (it == vertexIndex.end()) ok = false;
+                else t.v[k] = it->second;
+            }
+            if (ok) topo.triangles.push_back(t);
+        }
+        topo.faces.push_back(std::move(face));
+    }
+    for (auto& face : topo.faces) {
+        face.twoSided = std::ranges::any_of(face.edges, [&](std::uint32_t e) { return topo.edges[e].faces.size() != 2; });
+    }
+    for (const auto& v : topo.vertices) topo.bounds.extend(v.position);
+    return topo;
+}
+
+ElementTopology buildTopology(const ProfileObject& object) {
+    const auto m = mesh::objectMesh(object);
+    if (!m) return buildTopology(buildFaces(object));
+    return buildTopology(*m, object);
+}
 
 /// Profile edges are returned as indices (they are a drawing aid, not a selection).
 std::vector<std::uint32_t> profileEdges(const ElementTopology& topo, const Vec3& eye) {
     std::vector<std::uint32_t> out;
     for (std::uint32_t e = 0; e < topo.edges.size(); ++e) {
         const auto& edge = topo.edges[e];
+        if (edge.soft) continue;
         if (edge.faces.size() != 2) {
             out.push_back(e); // border (or non-manifold) edge: always an outline
             continue;

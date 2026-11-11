@@ -240,8 +240,32 @@ void Viewport::appendVertexMarker(std::vector<LineSegment>& lines, const Vec3& p
     for (int i = 0; i < 4; ++i) lines.push_back({c[i], c[(i + 1) % 4], color});
 }
 
+namespace {
+
+/// Appends one face's triangles (both sides for a two-sided face) to an overlay mesh.
+void appendFaceTriangles(MeshData& out, const ElementTopology& topo, std::uint32_t face) {
+    const auto& f = topo.faces[face];
+    for (const auto& tri : topo.triangles) {
+        if (tri.face != face) continue;
+        const auto emit = [&](std::uint32_t a, std::uint32_t b, std::uint32_t c, const Vec3& n) {
+            const auto base = static_cast<std::uint32_t>(out.positions.size());
+            for (const auto v : {a, b, c}) {
+                out.positions.push_back(topo.vertices[v].position);
+                out.normals.push_back(n);
+            }
+            out.indices.insert(out.indices.end(), {base, base + 1, base + 2});
+        };
+        emit(tri.v[0], tri.v[1], tri.v[2], f.normal);
+        if (f.twoSided) emit(tri.v[0], tri.v[2], tri.v[1], -f.normal);
+    }
+}
+
+} // namespace
+
 void Viewport::drawElements(const Editor& editor, std::optional<ObjectId> previewed, std::vector<LineSegment>& onTop) {
     const auto& set = editor.selectionSet();
+    MeshData selectedFaces;
+    MeshData hoverFaces;
     std::vector<LineSegment> selectedEdges;
     std::vector<LineSegment> hoverEdges;
     const auto edgeSegment = [](const ElementTopology& topo, std::uint32_t index, const glm::vec4& color) {
@@ -255,7 +279,7 @@ void Viewport::drawElements(const Editor& editor, std::optional<ObjectId> previe
         const auto index = cached->topology.indexOf(ref.kind, ref.id);
         if (!index) continue;
         switch (ref.kind) {
-        case ElementKind::Face: drawFaceOverlay(*cached, cached->topology.faces[*index].logical, kSelectedFace); break;
+        case ElementKind::Face: appendFaceTriangles(selectedFaces, cached->topology, *index); break;
         case ElementKind::Edge: selectedEdges.push_back(edgeSegment(cached->topology, *index, kSelectedEdge)); break;
         case ElementKind::Vertex: appendVertexMarker(onTop, cached->topology.vertices[*index].position, 4.0, kSelectedEdge); break;
         }
@@ -264,12 +288,20 @@ void Viewport::drawElements(const Editor& editor, std::optional<ObjectId> previe
         if (const auto* cached = meshes_.find(hover->object)) {
             if (const auto index = cached->topology.indexOf(hover->kind, hover->id)) {
                 switch (hover->kind) {
-                case ElementKind::Face: drawFaceOverlay(*cached, cached->topology.faces[*index].logical, kHoverFace); break;
+                case ElementKind::Face: appendFaceTriangles(hoverFaces, cached->topology, *index); break;
                 case ElementKind::Edge: hoverEdges.push_back(edgeSegment(cached->topology, *index, kHoverEdge)); break;
                 case ElementKind::Vertex: appendVertexMarker(onTop, cached->topology.vertices[*index].position, 5.0, kHoverEdge); break;
                 }
             }
         }
+    }
+    // Face overlays from the topology's own triangles, uploaded for this frame
+    // only (a handful of faces), so they work for any mesh.
+    for (const auto& [faces, color] : {std::pair{&selectedFaces, kSelectedFace}, std::pair{&hoverFaces, kHoverFace}}) {
+        if (faces->indices.empty()) continue;
+        const MeshHandle handle = renderer_.createMesh(*faces);
+        renderer_.drawMeshOverlay(handle, 0, static_cast<std::uint32_t>(faces->indices.size()), color);
+        renderer_.destroyMesh(handle);
     }
     renderer_.drawWideLines(selectedEdges, kHighlightWidthPx, true);
     renderer_.drawWideLines(hoverEdges, kHighlightWidthPx, true);
@@ -354,7 +386,13 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
             continue;
         }
         const bool selected = set.contains(id) && !set.hasElements(id);
-        appendEdges(selected ? selectedLines : lines, cached.mesh, selected ? kSelectedEdge : kEdge);
+        // From the topology, so loose edges (no face) of a mesh group draw too.
+        for (const auto& e : cached.topology.edges) {
+            if (e.soft) continue;
+            (selected ? selectedLines : lines)
+                .push_back({cached.topology.vertices[e.a].position, cached.topology.vertices[e.b].position,
+                            selected ? kSelectedEdge : kEdge});
+        }
         if (profileEdges_) {
             const auto& topo = cached.topology;
             for (const auto e : pf::profileEdges(topo, eye)) {

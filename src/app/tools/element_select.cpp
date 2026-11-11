@@ -28,7 +28,9 @@ std::optional<FaceId> primaryFace(const Document& document, const ElementRef& el
     if (element.kind == ElementKind::Face) {
         if (const auto* object = document.find(element.object)) {
             const auto topo = buildTopology(*object);
-            if (const auto index = topo.indexOf(ElementKind::Face, element.id)) return topo.faces[*index].logical;
+            if (const auto index = topo.indexOf(ElementKind::Face, element.id); index && topo.faces[*index].logical) {
+                return topo.faces[*index].logical;
+            }
         }
     }
     if (input.pick && input.pick->objectId == element.object) return input.pick->faceId;
