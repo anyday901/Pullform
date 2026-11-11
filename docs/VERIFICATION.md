@@ -67,6 +67,10 @@ with `xdotool` and inspecting screenshots:
 - Rectangle by click-click and by typing `2000,1000`; push/pull by drag and by typing `750`.
 - Select the cap, type a total height of `900`; Ctrl+Z restores 750.
 - Second object, Delete, undo.
+- Move (M): press X, type `500`, Enter moves the box 500 mm along X (Position X 500 mm);
+  click the box and move the pointer for a live preview with a faint outline at the start;
+  the Right arrow locks the preview to X (red guide, "300 mm along X" in Measurements); Esc
+  cancels without an undo entry.
 - Save through the GTK native dialog, reopen through the Open dialog; camera view restored.
 - A file with `"version": 7` is rejected with an error dialog; the open model is unchanged.
 - Unsaved-changes prompt on New and on Ctrl+Q; "Don't save" quits.

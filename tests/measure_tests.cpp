@@ -347,3 +347,22 @@ TEST_CASE("measuring works on the bare ground with grid snap off, and the line c
     click(tools, sky);
     CHECK_FALSE(tools.active());
 }
+
+TEST_CASE("an attached dimension follows Move; Duplicate leaves it on the original") {
+    Editor editor;
+    ToolController tools(editor);
+    const ObjectId box = test::makeBox(editor, tools, "2000, 1000", "500");
+    REQUIRE(editor.commit("dim", [](const Document& d) {
+        return addDimension(d, anchorAt(d, {0, 0, 0}), DimensionAnchor{{0, -3, 0}, std::nullopt, {}}, {-0.5, 0, 0});
+    }));
+    CHECK(layoutDimension(editor.document(), editor.document().dimensions[0])->length == 3.0);
+    REQUIRE(editor.commit("Move", [box](const Document& d) { return moveObject(d, box, {0, -1, 0}); }));
+    const auto moved = layoutDimension(editor.document(), editor.document().dimensions[0]);
+    CHECK(moved->a == Vec3{0, -1, 0});
+    CHECK(moved->length == 2.0);
+    REQUIRE(editor.commit("Duplicate", [box](const Document& d) { return duplicateObject(d, box, {5, 0, 0}); }));
+    REQUIRE(editor.document().dimensions.size() == 1);
+    CHECK(*editor.document().dimensions[0].a.object == box);
+    // The copy's ID never collides with the dimension's.
+    CHECK(editor.document().objects.back()->id.value != editor.document().dimensions[0].id.value);
+}

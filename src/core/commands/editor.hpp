@@ -51,8 +51,27 @@ struct MeasurePreview {
     Vec3 cursor{0.0};          ///< snapped pointer point
 };
 
+/// A world axis that a gesture is locked to (Move: the direction of travel).
+enum class MoveAxis { X, Y, Z };
+
+/// Unit vector of a world axis.
+Vec3 axisVector(MoveAxis axis);
+/// "X", "Y" or "Z".
+const char* axisName(MoveAxis axis);
+
+/// Live move preview: the object drawn at its translation plus `offset`, and
+/// a guide line from `from` (the picked point) to `from + offset`.
+struct MovePreview {
+    ObjectId objectId;
+    Vec3 from{0.0};
+    Vec3 offset{0.0};
+    std::optional<MoveAxis> axis;     ///< locked axis, if any
+    std::optional<std::string> error; ///< why the current offset cannot be committed
+    bool copy = false;                ///< committing places a copy; the original stays put
+};
+
 /// Transient feedback drawn by the viewport. Never part of the document or history.
-using Preview = std::variant<std::monostate, RectanglePreview, PushPullPreview, MeasurePreview>;
+using Preview = std::variant<std::monostate, RectanglePreview, PushPullPreview, MovePreview, MeasurePreview>;
 
 /// The editing session: the current document, selection, transient preview and
 /// snapshot-based undo/redo.

@@ -6,7 +6,9 @@
 
 #include <algorithm>
 
+#include <algorithm>
 #include <cmath>
+#include <string_view>
 
 namespace pf {
 
@@ -68,6 +70,58 @@ Expected<OpResult> setExtrusionHeight(const Document& doc, ObjectId id, double h
     ProfileObject changed = *o;
     changed.extrusion->height = height;
     return replaceObject(doc, std::move(changed));
+}
+
+std::optional<std::string> checkMove(const ProfileObject& object, const Vec3& offset) {
+    if (!std::isfinite(offset.x) || !std::isfinite(offset.y) || !std::isfinite(offset.z)) {
+        return "Move distance must be a finite number.";
+    }
+    if (const Vec3 t = object.transform.translation + offset;
+        std::abs(t.x) > tol::kMaxCoordinate || std::abs(t.y) > tol::kMaxCoordinate || std::abs(t.z) > tol::kMaxCoordinate) {
+        return "The move would place the object outside the supported range of +/-10 km.";
+    }
+    return std::nullopt;
+}
+
+Expected<OpResult> moveObject(const Document& doc, ObjectId id, const Vec3& offset) {
+    const auto* o = doc.find(id);
+    if (!o) return Error{"Object " + idString(id) + " no longer exists."};
+    if (auto e = checkMove(*o, offset)) return Error{*e};
+    if (std::abs(offset.x) < tol::kLengthEpsilon && std::abs(offset.y) < tol::kLengthEpsilon &&
+        std::abs(offset.z) < tol::kLengthEpsilon) {
+        return Error{"Move distance must not be zero."};
+    }
+    ProfileObject changed = *o;
+    changed.transform.translation += offset;
+    return replaceObject(doc, std::move(changed));
+}
+
+std::string duplicateName(const std::string& name, ObjectId newId) {
+    for (std::string_view prefix : {std::string_view{"Rectangle "}, std::string_view{"Box "}}) {
+        if (name.size() <= prefix.size() || name.compare(0, prefix.size(), prefix) != 0) continue;
+        const auto rest = std::string_view{name}.substr(prefix.size());
+        if (std::ranges::all_of(rest, [](char c) { return c >= '0' && c <= '9'; })) {
+            std::string renamed{prefix};
+            renamed.append(std::to_string(newId.value));
+            return renamed;
+        }
+    }
+    return name.empty() ? std::string{"Copy"} : name + " copy";
+}
+
+Expected<OpResult> duplicateObject(const Document& doc, ObjectId id, const Vec3& offset) {
+    const auto* o = doc.find(id);
+    if (!o) return Error{"Object " + idString(id) + " no longer exists."};
+    if (auto e = checkMove(*o, offset)) return Error{*e};
+    ProfileObject copy = *o;
+    copy.id = ObjectId{doc.nextId};
+    copy.name = duplicateName(o->name, copy.id);
+    copy.transform.translation += offset;
+    if (auto e = validateObject(copy, "copy")) return Error{*e};
+    OpResult result{doc, copy.id};
+    result.document.nextId = doc.nextId + 1;
+    result.document.objects.push_back(std::make_shared<const ProfileObject>(std::move(copy)));
+    return result;
 }
 
 Expected<OpResult> deleteObject(const Document& doc, ObjectId id) {
