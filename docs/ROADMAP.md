@@ -1,7 +1,7 @@
 # Roadmap
 
-Priorities are listed top to bottom. Each item notes its dependencies and a small
-acceptance check.
+The planned work now lives in [TODO.md](../TODO.md), as numbered, PR-sized items with
+dependencies and acceptance checks. This file keeps the record of completed milestones.
 
 ## Completed: Milestone 1, the first modeling workflow
 
@@ -18,71 +18,11 @@ acceptance check.
 - [x] Windows NSIS installer; Linux and macOS source builds; CI on all three plus ASan/UBSan.
 - [x] Headless doctest suite for geometry, units, history, tools, camera and files.
 
-## Next: Milestone 2, move and precision basics (recommended next)
+## Completed: Milestone 2, move and precision basics
 
-1. **Move tool** with exact distance and axis locking. *Depends on:* nothing new.
-   *Accept:* move an object 500 mm along X by typing; undo restores the old position;
-   one undo entry per move.
-2. **Endpoint/midpoint snapping and inference guides** for rectangle corners and push/pull
-   heights. *Depends on:* a snap-candidate index built from `buildFaces`.
-   *Accept:* the second rectangle snaps exactly to a corner of the first; a height snaps to
-   another object's cap.
-3. **Duplicate** (copy) objects. *Depends on:* Move. *Accept:* the copy has a new stable ID
-   and editing it leaves the original unchanged.
-4. **Tape measure and dimension annotations.** *Depends on:* snapping.
-   *Accept:* the measured distance between two corners matches the model exactly.
-5. **Rotate and scale** (done: Rotate and Scale tools, file format version 2) with typed angles/factors; full transforms in the document
-   (schema version 2 with a migration from version 1). *Accept:* a rotated object saves,
-   reopens and picks correctly.
-
-## Modeling tools
-
-- Lines and closed polygon profiles (`profile.kind: 'polygon'`, ear-clipping
-  triangulation, self-intersection checks). *Accept:* an L-shaped profile extrudes to a
-  closed solid that passes `checkSolid`.
-- Circles and arcs (stored as true curves, tessellated for display).
-- Drawing on other planes: on existing faces and on vertical planes (uses the `plane`
-  basis already in the document).
-
-## General face editing (needs a topology decision first)
-
-- Evaluate a topology model (half-edge B-rep) versus a geometry kernel (e.g. OpenCascade
-  or Manifold, both usable from C++) before promising these. *Accept:* a written decision with
-  size, license and performance findings.
-- Push/pull of side faces and arbitrary planar faces; negative push/pull (cutting).
-- Splitting faces with lines, intersections, connected geometry, offsets, openings/holes.
-
-## Organization
-
-- Groups and nested editing contexts; component definitions and instances.
-- Outliner panel; visibility tags/layers.
-
-## Presentation
-
-- Materials and colors; standard views (top/front/side/iso); orthographic camera; saved
-  scenes.
-
-## Interchange
-
-- Export glTF/GLB and OBJ; STL for 3D printing with unit selection and a manifold check
-  (`checkSolid` already verifies closed, oriented solids).
-- Import of meshes as non-editable reference geometry, clearly distinct from native
-  editable profiles.
-- Proprietary formats such as `.skp` are a separate research task with no promise of
-  support.
-
-## Reliability
-
-- Autosave to a recovery file beside the user's config directory, and crash recovery.
-- Larger-model performance: instancing/merged buffers, BVH picking. Baseline measured for
-  milestone 1: see docs/VERIFICATION.md.
-- File format migrations with tests for every previous version.
-- Automated viewport tests: render known scenes offscreen (Mesa) and compare images, so
-  rendering regressions are caught in CI and not only by manual runs.
-
-## Distribution
-
-- Code-signed Windows installer and a winget manifest; a signed and notarized macOS app
-  bundle (`.dmg`); a Linux AppImage or Flatpak. *Depends on:* signing certificates.
-  *Accept:* the installer runs without SmartScreen/Gatekeeper warnings.
-- Optional Vulkan or Metal renderer behind the existing `Renderer` interface.
+- [x] Move tool with typed distance, vector and axis locking; tap Ctrl to place a copy.
+- [x] Endpoint and midpoint snapping with X/Y/Z inference guides and height locks.
+- [x] Duplicate with a new stable ID.
+- [x] Tape Measure and dimension annotations attached to corners and edge midpoints.
+- [x] Rotate and Scale with typed angles and factors; file format version 2 with a
+      migration from version 1.
