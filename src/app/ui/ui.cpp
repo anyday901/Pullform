@@ -117,7 +117,10 @@ void Ui::drawSelectBox(const Editor& editor) {
         const float len = std::hypot(b.x - a.x, b.y - a.y);
         if (len <= 0.0f) return;
         const ImVec2 d((b.x - a.x) / len, (b.y - a.y) / len);
-        for (float t = 0.0f; t < len; t += 2.0f * dash) {
+        // Integer counter: a float loop counter can drift and miss or repeat a dash.
+        const auto dashes = static_cast<int>(std::ceil(len / (2.0f * dash)));
+        for (int i = 0; i < dashes; ++i) {
+            const float t = static_cast<float>(i) * 2.0f * dash;
             const float e = std::min(t + dash, len);
             dl->AddLine(ImVec2(a.x + d.x * t, a.y + d.y * t), ImVec2(a.x + d.x * e, a.y + d.y * e), line);
         }
