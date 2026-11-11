@@ -176,18 +176,8 @@ TEST_CASE("clicks at one spot in quick succession count up to three") {
 
 namespace {
 
-/// A pointer looking from `eye` through `at`, with the element pick resolved
-/// against the document as the viewport does it.
 PointerInput lookAt(const Editor& editor, const Vec3& eye, const Vec3& at, int clicks = 1) {
-    PointerInput in;
-    in.ray = through(eye, at);
-    in.pick = pickDocument(in.ray, editor.document());
-    in.pixelAngle = kPixel;
-    std::vector<ElementTopology> topos;
-    for (const auto& o : editor.document().objects) topos.push_back(buildTopology(*o));
-    std::vector<PickTarget> targets;
-    for (std::size_t i = 0; i < topos.size(); ++i) targets.push_back({editor.document().objects[i]->id, &topos[i]});
-    in.element = pickElement(in.ray, targets, ElementPickOptions{kPixel});
+    PointerInput in = test::lookAtElements(editor, eye, at, kPixel);
     in.clicks = clicks;
     return in;
 }

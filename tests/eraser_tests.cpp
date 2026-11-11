@@ -19,19 +19,9 @@ namespace {
 
 constexpr double kPixel = 1e-3; // radians per pixel
 
-/// A pointer looking from `eye` through `at`, with the element pick resolved
-/// against the document as the viewport does it.
 PointerInput lookAt(const Editor& editor, const Vec3& eye, const Vec3& at, Vec2 screen = {0, 0}) {
-    PointerInput in;
-    in.ray = Ray{eye, glm::normalize(at - eye)};
-    in.pick = pickDocument(in.ray, editor.document());
-    in.pixelAngle = kPixel;
+    PointerInput in = test::lookAtElements(editor, eye, at, kPixel);
     in.screen = screen;
-    std::vector<ElementTopology> topos;
-    for (const auto& o : editor.document().objects) topos.push_back(buildTopology(*o));
-    std::vector<PickTarget> targets;
-    for (std::size_t i = 0; i < topos.size(); ++i) targets.push_back({editor.document().objects[i]->id, &topos[i]});
-    in.element = pickElement(in.ray, targets, ElementPickOptions{kPixel});
     return in;
 }
 
@@ -59,6 +49,17 @@ ObjectId twoSquares(Editor& editor) {
     REQUIRE(o.isMeshGroup());
     REQUIRE(o.mesh->faces().size() == 2);
     return o.id;
+}
+
+/// A 3 x 1 m strip of three squares: inner edges at x = 1 and x = 2.
+ObjectId threeSquares(Editor& editor) {
+    line(editor, {0, 0, 0}, {3, 0, 0});
+    line(editor, {3, 0, 0}, {3, 1, 0});
+    line(editor, {3, 1, 0}, {0, 1, 0});
+    line(editor, {0, 1, 0}, {0, 0, 0});
+    line(editor, {1, 0, 0}, {1, 1, 0});
+    line(editor, {2, 0, 0}, {2, 1, 0});
+    return editor.document().objects.front()->id;
 }
 
 const mesh::Mesh& meshOf(const Editor& editor, ObjectId id) { return *editor.document().find(id)->mesh; }
@@ -125,13 +126,7 @@ TEST_CASE("Eraser: a drag erases every edge it passes over in one commit") {
     Editor editor;
     ToolController tools(editor);
     // A 3 x 1 strip in three squares: two inner edges at x = 1 and x = 2.
-    line(editor, {0, 0, 0}, {3, 0, 0});
-    line(editor, {3, 0, 0}, {3, 1, 0});
-    line(editor, {3, 1, 0}, {0, 1, 0});
-    line(editor, {0, 1, 0}, {0, 0, 0});
-    line(editor, {1, 0, 0}, {1, 1, 0});
-    line(editor, {2, 0, 0}, {2, 1, 0});
-    const ObjectId id = editor.document().objects.front()->id;
+    const ObjectId id = threeSquares(editor);
     REQUIRE(meshOf(editor, id).faces().size() == 3);
     const std::size_t depth = editor.undoDepth();
 
@@ -155,13 +150,7 @@ TEST_CASE("Eraser: a drag erases every edge it passes over in one commit") {
 TEST_CASE("Eraser: a fast drag keeps the edges passed over between two events") {
     Editor editor;
     ToolController tools(editor);
-    line(editor, {0, 0, 0}, {3, 0, 0});
-    line(editor, {3, 0, 0}, {3, 1, 0});
-    line(editor, {3, 1, 0}, {0, 1, 0});
-    line(editor, {0, 1, 0}, {0, 0, 0});
-    line(editor, {1, 0, 0}, {1, 1, 0});
-    line(editor, {2, 0, 0}, {2, 1, 0});
-    const ObjectId id = editor.document().objects.front()->id;
+    const ObjectId id = threeSquares(editor);
     const Vec3 eye{1.5, 0.5, 10.0};
 
     tools.setTool(Tool::Eraser);
