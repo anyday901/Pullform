@@ -31,7 +31,7 @@ acceptance check.
    and editing it leaves the original unchanged.
 4. **Tape measure and dimension annotations.** *Depends on:* snapping.
    *Accept:* the measured distance between two corners matches the model exactly.
-5. **Rotate and scale** with typed angles/factors; full transforms in the document
+5. **Rotate and scale** (done: Rotate and Scale tools, file format version 2) with typed angles/factors; full transforms in the document
    (schema version 2 with a migration from version 1). *Accept:* a rotated object saves,
    reopens and picks correctly.
 

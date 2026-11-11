@@ -14,6 +14,16 @@ namespace pf {
 
 namespace {
 
+/// "red", "green" or "blue": the viewport colour of a world axis.
+const char* axisColorName(MoveAxis axis) {
+    using enum MoveAxis;
+    switch (axis) {
+    case X: return "red";
+    case Y: return "green";
+    case Z: return "blue";
+    }
+    return "blue";
+}
 
 /// The axis a move runs along when exactly one component is non-zero.
 std::optional<MoveAxis> singleAxis(const Vec3& offset) {
@@ -41,12 +51,46 @@ std::string_view toolName(Tool tool) {
     case Tool::Select: return "Select";
     case Tool::Rectangle: return "Rectangle";
     case Tool::PushPull: return "Push/Pull";
+    case Tool::Rotate: return "Rotate";
+    case Tool::Scale: return "Scale";
     case Tool::Move: return "Move";
     case Tool::Orbit: return "Orbit";
     case Tool::TapeMeasure: return "Tape Measure";
     case Tool::Dimension: return "Dimension";
     }
     return "Select";
+}
+
+namespace {
+
+RotatePreview rotatePreview(ObjectId id, const Vec3& pivot, const Vec3& axis,
+                            const std::optional<Vec3>& reference = std::nullopt,
+                            const std::optional<Vec3>& current = std::nullopt) {
+    RotatePreview p;
+    p.objectId = id;
+    p.pivot = pivot;
+    p.axis = axis;
+    p.reference = reference;
+    p.current = current;
+    return p;
+}
+
+ScalePreview scalePreview(ObjectId id, const Vec3& pivot, const Vec3& start, const Vec3& current) {
+    ScalePreview p;
+    p.objectId = id;
+    p.pivot = pivot;
+    p.start = start;
+    p.current = current;
+    return p;
+}
+
+} // namespace
+
+Vec3 baseCenter(const ProfileObject& o) {
+    Vec2 sum{0.0};
+    for (const auto& p : o.profile.boundary) sum += p;
+    const Vec2 c = o.profile.boundary.empty() ? Vec2{0.0} : sum / static_cast<double>(o.profile.boundary.size());
+    return profileToWorld(o, c, 0.0);
 }
 
 void ToolController::setTool(Tool tool) {
@@ -67,6 +111,8 @@ bool ToolController::cancel() {
     const bool had = active() || !std::holds_alternative<std::monostate>(editor_.preview());
     rect_.reset();
     push_.reset();
+    rotate_.reset();
+    scale_.reset();
     move_.reset();
     indicator_.reset();
     measure_.cancel();
@@ -112,6 +158,8 @@ void ToolController::pointerDown(const PointerInput& input) {
     case Tool::Select: selectDown(input); break;
     case Tool::Rectangle: rectDown(input); break;
     case Tool::PushPull: pushDown(input); break;
+    case Tool::Rotate: rotateDown(input); break;
+    case Tool::Scale: scaleDown(input); break;
     case Tool::Move: moveDown(input); break;
     case Tool::Orbit: break; // navigation owns the drag
     case Tool::TapeMeasure:
@@ -127,6 +175,8 @@ void ToolController::pointerMove(const PointerInput& input) {
         break;
     case Tool::Rectangle: rectMove(input); break;
     case Tool::PushPull: pushMove(input); break;
+    case Tool::Rotate: rotateMove(input); break;
+    case Tool::Scale: scaleMove(input); break;
     case Tool::Move: moveMove(input); break;
     case Tool::Orbit: break;
     case Tool::TapeMeasure:
@@ -285,7 +335,7 @@ void ToolController::pushDown(const PointerInput& input) {
     const auto* o = editor_.document().find(pick.objectId);
     if (!o) return;
     push_ = PushGesture{pick.objectId, pick.faceId.kind, pick.point, o->extrusion ? o->extrusion->height : 0.0,
-                        o->transform.translation.z + o->profile.plane.origin.z, input.screen, true};
+                        profileToWorld(*o, Vec2{0.0}, 0.0).z, input.screen, true};
     editor_.notify(std::nullopt);
     setPushPreview(0.0);
 }
@@ -303,10 +353,22 @@ void ToolController::pushMove(const PointerInput& input) {
         else editor_.setHover(std::nullopt);
         return;
     }
-    // The pointer ray may be parallel to the push axis (looking straight down);
-    // a corner under the pointer still gives a height then.
-    const auto t = closestParameterOnAxis(push_->anchor, {0.0, 0.0, 1.0}, input.ray);
-    const auto total = snapPushHeight(input, t.has_value() ? std::optional(push_->startHeight + *t) : std::nullopt);
+    const auto* o = editor_.document().find(push_->objectId);
+    if (!o) return;
+    // Along the profile normal, which a rotated object carries with it. The
+    // pointer ray may be parallel to it (looking straight down); a corner under
+    // the pointer still gives a height then.
+    const Vec3 normal = profileNormalWorld(*o);
+    const auto t = closestParameterOnAxis(push_->anchor, normal, input.ray);
+    const auto raw = t.has_value() ? std::optional(push_->startHeight + *t) : std::nullopt;
+    if (normal != Vec3{0.0, 0.0, 1.0}) {
+        // Point and height snaps compare world heights, so a tipped object
+        // snaps its height to the grid only.
+        indicator_.reset();
+        if (raw.has_value()) setPushPreview(snap_.toGrid(*raw) - push_->startHeight);
+        return;
+    }
+    const auto total = snapPushHeight(input, raw);
     if (total.has_value()) setPushPreview(*total - push_->startHeight);
 }
 
@@ -588,6 +650,217 @@ std::optional<std::string> ToolController::setTotalHeight(ObjectId id, std::stri
     return std::nullopt;
 }
 
+// ---- Rotate and Scale ---------------------------------------------------------
+
+const ProfileObject* ToolController::transformTarget(const PointerInput& input) {
+    const auto& sel = editor_.selection();
+    if (const auto* o = sel ? editor_.document().find(sel->objectId) : nullptr) return o;
+    // Nothing selected yet: the first click picks the object.
+    if (input.pick) {
+        editor_.select(Selection{input.pick->objectId, std::nullopt});
+        editor_.notify(std::nullopt);
+    }
+    return nullptr;
+}
+
+void ToolController::setRotateAxis(MoveAxis axis) {
+    rotateAxis_ = axis;
+    if (!rotate_) return;
+    // Keep the centre; the old reference direction is not in the new plane.
+    rotate_->axis = axisVector(axis);
+    rotate_->reference.reset();
+    editor_.setPreview(rotatePreview(rotate_->objectId, rotate_->pivot, rotate_->axis));
+}
+
+void ToolController::rotateDown(const PointerInput& input) {
+    if (!rotate_) {
+        const auto* o = transformTarget(input);
+        if (!o) return;
+        // First click: the centre of rotation, on a face or on the ground.
+        std::optional<Vec3> pivot;
+        if (input.pick) pivot = input.pick->point;
+        else pivot = groundPoint(input);
+        if (!pivot) return;
+        rotate_ = RotateGesture{o->id, *pivot, axisVector(rotateAxis_), std::nullopt};
+        editor_.setPreview(rotatePreview(o->id, *pivot, rotate_->axis));
+        editor_.notify(std::nullopt);
+        return;
+    }
+    const auto* preview = std::get_if<RotatePreview>(&editor_.preview());
+    if (!rotate_->reference) {
+        // Second click: the direction the angle is measured from.
+        const auto p = intersectPlane(input.ray, rotate_->pivot, rotate_->axis);
+        if (!p || glm::length(*p - rotate_->pivot) < 1e-6) {
+            editor_.notify(Message{Message::Kind::Error, "Click a point away from the centre to set the reference direction."});
+            return;
+        }
+        rotate_->reference = *p - rotate_->pivot;
+        editor_.setPreview(rotatePreview(rotate_->objectId, rotate_->pivot, rotate_->axis, rotate_->reference, rotate_->reference));
+        return;
+    }
+    // Third click: commit the previewed angle.
+    if (!preview) return;
+    if (std::abs(preview->angle) < 1e-12) {
+        cancel();
+        editor_.notify(Message{Message::Kind::Info, "Rotate cancelled (zero angle)."});
+        return;
+    }
+    if (preview->error) {
+        editor_.notify(Message{Message::Kind::Error, *preview->error});
+        return;
+    }
+    commitRotation(rotate_->objectId, rotate_->pivot, rotate_->axis, preview->angle);
+}
+
+void ToolController::rotateMove(const PointerInput& input) {
+    if (!rotate_) {
+        editor_.setHover(input.pick ? std::optional<Selection>(Selection{input.pick->objectId, std::nullopt}) : std::nullopt);
+        return;
+    }
+    const auto p = intersectPlane(input.ray, rotate_->pivot, rotate_->axis);
+    if (!p) return;
+    RotatePreview preview = rotatePreview(rotate_->objectId, rotate_->pivot, rotate_->axis, rotate_->reference, *p - rotate_->pivot);
+    if (rotate_->reference && glm::length(*preview.current) > 1e-9) {
+        const Vec3 a = *rotate_->reference;
+        const Vec3 b = *preview.current;
+        double angle = std::atan2(glm::dot(glm::cross(a, b), rotate_->axis), glm::dot(a, b));
+        if (snap_.enabled) angle = snapValue(angle, kRotateSnapRadians);
+        preview.angle = angle;
+        if (auto result = rotateObject(editor_.document(), rotate_->objectId, rotate_->pivot, rotate_->axis, angle); result) {
+            if (const auto* o = result->document.find(rotate_->objectId)) preview.result = *o;
+        } else {
+            preview.error = result.error();
+        }
+    }
+    editor_.setPreview(std::move(preview));
+}
+
+bool ToolController::commitRotation(ObjectId id, const Vec3& pivot, const Vec3& axis, double angle) {
+    const bool ok = editor_.commit(
+        "Rotate " + formatAngle(angle),
+        [id, &pivot, &axis, angle](const Document& doc) { return rotateObject(doc, id, pivot, axis, angle); },
+        [id](const OpResult&) -> std::optional<Selection> { return Selection{id, std::nullopt}; });
+    if (ok) {
+        rotate_.reset();
+        editor_.cancelPreview();
+    }
+    return ok;
+}
+
+std::optional<std::string> ToolController::submitRotateAngle(std::string_view text) {
+    const auto parsed = parseAngle(text);
+    if (!parsed) return parsed.error();
+    double angle = *parsed;
+    ObjectId id;
+    Vec3 pivot{0.0};
+    Vec3 axis = axisVector(rotateAxis_);
+    if (rotate_) {
+        id = rotate_->objectId;
+        pivot = rotate_->pivot;
+        axis = rotate_->axis;
+        // Typed values follow the direction the pointer is turning.
+        if (const auto* p = std::get_if<RotatePreview>(&editor_.preview()); p && p->angle < 0.0) angle = -angle;
+    } else {
+        const auto& sel = editor_.selection();
+        const auto* o = sel ? editor_.document().find(sel->objectId) : nullptr;
+        if (!o) return std::string("Select an object to rotate first.");
+        id = o->id;
+        pivot = baseCenter(*o);
+    }
+    if (std::abs(angle) < 1e-12) return std::string("Angle must not be zero.");
+    if (!commitRotation(id, pivot, axis, angle)) return lastError("Could not rotate the object.");
+    return std::nullopt;
+}
+
+void ToolController::scaleDown(const PointerInput& input) {
+    if (!scale_) {
+        const auto* o = transformTarget(input);
+        if (!o) return;
+        // First click: the grip point. Its distance from the base centre is 100 %.
+        const Vec3 pivot = baseCenter(*o);
+        const Vec3 normal = profileNormalWorld(*o);
+        const auto p = intersectPlane(input.ray, pivot, normal);
+        if (const double size = glm::length(objectBounds(*o).size()); !p || glm::length(*p - pivot) < size * 1e-3) {
+            editor_.notify(Message{Message::Kind::Error, "Click a point away from the object's centre to start scaling."});
+            return;
+        }
+        scale_ = ScaleGesture{o->id, pivot, normal, *p};
+        editor_.setPreview(scalePreview(o->id, pivot, *p, *p));
+        editor_.notify(std::nullopt);
+        return;
+    }
+    // Second click: commit the previewed factor.
+    const auto* preview = std::get_if<ScalePreview>(&editor_.preview());
+    if (!preview) return;
+    if (std::abs(preview->factor - 1.0) < 1e-12) {
+        cancel();
+        editor_.notify(Message{Message::Kind::Info, "Scale cancelled (factor 1)."});
+        return;
+    }
+    if (preview->error) {
+        editor_.notify(Message{Message::Kind::Error, *preview->error});
+        return;
+    }
+    commitScale(scale_->objectId, Vec3{preview->factor});
+}
+
+void ToolController::scaleMove(const PointerInput& input) {
+    if (!scale_) {
+        editor_.setHover(input.pick ? std::optional<Selection>(Selection{input.pick->objectId, std::nullopt}) : std::nullopt);
+        return;
+    }
+    const auto p = intersectPlane(input.ray, scale_->pivot, scale_->normal);
+    if (!p) return;
+    ScalePreview preview = scalePreview(scale_->objectId, scale_->pivot, scale_->start, *p);
+    double factor = glm::length(*p - scale_->pivot) / glm::length(scale_->start - scale_->pivot);
+    if (snap_.enabled) factor = std::max(kScaleSnapStep, snapValue(factor, kScaleSnapStep));
+    preview.factor = factor;
+    if (auto result = scaleObject(editor_.document(), scale_->objectId, Vec3{factor}); result) {
+        if (const auto* o = result->document.find(scale_->objectId)) preview.result = *o;
+    } else {
+        preview.error = result.error();
+    }
+    editor_.setPreview(std::move(preview));
+}
+
+bool ToolController::commitScale(ObjectId id, const Vec3& factors) {
+    std::string label = "Scale ";
+    const auto pct = [](double f) {
+        std::string t = formatLength(f * 100.0, LengthUnit::Meter, false);
+        return t + "%";
+    };
+    if (factors.x == factors.y && factors.y == factors.z) label += pct(factors.x);
+    else label += pct(factors.x) + ", " + pct(factors.y) + ", " + pct(factors.z);
+    const bool ok = editor_.commit(
+        label, [id, &factors](const Document& doc) { return scaleObject(doc, id, factors); },
+        [id](const OpResult&) -> std::optional<Selection> { return Selection{id, std::nullopt}; });
+    if (ok) {
+        scale_.reset();
+        editor_.cancelPreview();
+    }
+    return ok;
+}
+
+std::optional<std::string> ToolController::submitScaleFactors(std::string_view text) {
+    const auto factors = parseScaleFactors(text);
+    if (!factors) return factors.error();
+    ObjectId id;
+    if (scale_) {
+        id = scale_->objectId;
+    } else {
+        const auto& sel = editor_.selection();
+        const auto* o = sel ? editor_.document().find(sel->objectId) : nullptr;
+        if (!o) return std::string("Select an object to scale first.");
+        id = o->id;
+    }
+    const Vec3 f{(*factors)[0], (*factors)[1], (*factors)[2]};
+    if (const auto* o = editor_.document().find(id); o && f.x == 1.0 && f.y == 1.0 && (f.z == 1.0 || !o->extrusion)) {
+        return std::string("A factor of 1 changes nothing.");
+    }
+    if (!commitScale(id, f)) return lastError("Could not scale the object.");
+    return std::nullopt;
+}
+
 std::string ToolController::hint() const {
     std::string text = toolHint();
     if (indicator_ && indicator_->kind >= SnapKind::OnFace && tool_ != Tool::Select && tool_ != Tool::Orbit) {
@@ -606,6 +879,23 @@ std::string ToolController::toolHint() const {
     case Tool::PushPull:
         if (push_) return "Push/Pull: move to set the height and click, or type a distance and press Enter. Esc cancels.";
         return "Push/Pull: click a rectangle or an extrusion's top cap, then move up. Side and base faces are not supported yet.";
+    case Tool::Rotate: {
+        const std::string axis = " Axis " + std::string(axisName(rotateAxis_)) + " (" + axisColorName(rotateAxis_) +
+                                 "); arrow keys change it (Right X, Left Y, Up Z).";
+        if (!rotate_) {
+            if (!editor_.selection()) return "Rotate: click the object to rotate." + axis;
+            return "Rotate: click the centre of rotation, or type an angle in degrees to turn about the base centre." + axis;
+        }
+        if (!rotate_->reference) return "Rotate: click to set the reference direction, or type an angle. Esc cancels." + axis;
+        return "Rotate: move to turn (15° steps with grid snap) and click, or type an angle. Esc cancels.";
+    }
+    case Tool::Scale:
+        if (!scale_) {
+            if (!editor_.selection()) return "Scale: click the object to scale.";
+            return "Scale: click a grip point and move away from or toward the centre, or type a factor (2, 50%) or "
+                   "width, depth, height factors (2, 1, 1).";
+        }
+        return "Scale: move to resize about the base centre (0.1 steps with grid snap) and click, or type a factor. Esc cancels.";
     case Tool::Move: {
         std::string lock = axisLock_ ? std::string(" Locked to ") + axisName(*axisLock_) + "." : std::string();
 #ifdef __APPLE__

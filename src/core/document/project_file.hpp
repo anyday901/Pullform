@@ -14,7 +14,9 @@ namespace pf {
 // editable model (never meshes). Schema: docs/ARCHITECTURE.md.
 
 inline constexpr std::string_view kProjectFormat = "pullform-project";
-inline constexpr int kProjectVersion = 1;
+/// Current file version. Version 2 added transform.rotation; version 1 files are
+/// migrated when opened and saved as version 2.
+inline constexpr int kProjectVersion = 2;
 inline constexpr std::string_view kProjectExtension = ".pullform.json";
 inline constexpr std::size_t kMaxProjectBytes = 50u * 1024u * 1024u;
 
@@ -27,13 +29,15 @@ struct CameraView {
 struct LoadedProject {
     Document document;
     std::optional<CameraView> view;
+    int fileVersion = kProjectVersion; ///< version the file was written in (before migration)
 };
 
 std::string serializeProject(const Document& document, const std::optional<CameraView>& view);
 
 /// Parses and fully validates a project. Nothing is applied on failure, so the
-/// caller keeps the current project intact. Unknown formats and versions other
-/// than kProjectVersion are rejected; an invalid optional view is ignored.
+/// caller keeps the current project intact. Older versions are migrated to
+/// kProjectVersion; unknown formats and newer versions are rejected. An invalid
+/// optional view is ignored.
 Expected<LoadedProject> parseProject(std::string_view text);
 
 /// Reads a whole file (refusing files over kMaxProjectBytes).

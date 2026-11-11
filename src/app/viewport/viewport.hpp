@@ -58,6 +58,10 @@ private:
                          const glm::vec4& color) const;
     [[nodiscard]] std::optional<Vec2> toWindow(const Vec3& world) const;
     void drawFaceOverlay(const CachedMesh& cached, const FaceId& face, const glm::vec4& color);
+    /// Draws a rotate/scale preview object (or the original in red when the
+    /// current value is invalid). Uses previewHandle_.
+    void drawTransformResult(const std::optional<ProfileObject>& result, bool error, const ProfileObject* original,
+                             std::vector<LineSegment>& lines);
 
     Renderer& renderer_;
     Camera camera_;

@@ -6,29 +6,19 @@
 
 namespace pf {
 
-namespace {
-
-Vec3 profileNormal(const ProfileObject& o) { return glm::normalize(glm::cross(o.profile.plane.xAxis, o.profile.plane.yAxis)); }
-
-// Same mapping as buildFaces, so a corner is bit-identical to the point the
-// mesh, picking and snapping see.
-Vec3 toWorld(const ProfileObject& o, const Vec2& p, double offset) {
-    const auto& plane = o.profile.plane;
-    return o.transform.translation + plane.origin + plane.xAxis * p.x + plane.yAxis * p.y + profileNormal(o) * offset;
-}
-
-} // namespace
 
 int vertexCount(const ProfileObject& o) {
     const auto n = static_cast<int>(o.profile.boundary.size());
     return o.extrusion ? 2 * n : n;
 }
 
+// Same mapping as buildFaces (profileToWorld, rotation included), so a corner
+// is bit-identical to the point the mesh, picking and snapping see.
 std::optional<Vec3> objectVertex(const ProfileObject& o, int index) {
     const auto n = static_cast<int>(o.profile.boundary.size());
     if (index < 0 || index >= vertexCount(o)) return std::nullopt;
-    if (index < n) return toWorld(o, o.profile.boundary[static_cast<std::size_t>(index)], 0.0);
-    return toWorld(o, o.profile.boundary[static_cast<std::size_t>(index - n)], o.extrusion->height);
+    if (index < n) return profileToWorld(o, o.profile.boundary[static_cast<std::size_t>(index)], 0.0);
+    return profileToWorld(o, o.profile.boundary[static_cast<std::size_t>(index - n)], o.extrusion->height);
 }
 
 std::vector<std::pair<int, int>> objectEdges(const ProfileObject& o) {

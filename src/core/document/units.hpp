@@ -36,6 +36,17 @@ Expected<double> parseLength(std::string_view text, LengthUnit defaultUnit);
 /// Parses `count` lengths separated by commas or semicolons, e.g. "2000, 1000".
 Expected<std::vector<double>> parseLengthList(std::string_view text, std::size_t count, LengthUnit defaultUnit);
 
+/// Parses an angle in degrees ("45", "-90", "22.5deg", "30°") into radians.
+Expected<double> parseAngle(std::string_view text);
+
+/// Formats radians as degrees, trimming insignificant zeros ("45°", "22.5°").
+std::string formatAngle(double radians);
+
+/// Parses scale factors: one value for a uniform scale ("1.5", "150%") or three
+/// for width, depth and height ("2, 1, 0.5"). Always returns three factors.
+/// Factors must be positive.
+Expected<std::vector<double>> parseScaleFactors(std::string_view text);
+
 double metersTo(double meters, LengthUnit unit);
 
 /// Formats meters in `unit`, trimming insignificant zeros ("750 mm", "0.75 m").

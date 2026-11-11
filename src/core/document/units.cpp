@@ -3,6 +3,7 @@
 #include <cctype>
 #include <cmath>
 #include <locale>
+#include <numbers>
 #include <sstream>
 
 namespace pf {
@@ -162,6 +163,115 @@ Expected<std::vector<double>> parseLengthList(std::string_view text, std::size_t
         values.push_back(*r);
     }
     return values;
+}
+
+namespace {
+
+constexpr double kPi = std::numbers::pi;
+
+/// Advances `i` past an optional sign.
+void skipSign(const std::string& s, std::size_t& i) {
+    if (i < s.size() && (s[i] == '+' || s[i] == '-')) ++i;
+}
+
+/// Advances `i` past decimal digits and returns how many there were.
+std::size_t skipDigits(const std::string& s, std::size_t& i) {
+    const std::size_t start = i;
+    while (i < s.size() && isDigit(s[i])) ++i;
+    return i - start;
+}
+
+/// Advances `i` past an exponent ("e", optional sign, digits). Returns false
+/// for an "e" without digits; true when there is no exponent or a valid one.
+bool skipExponent(const std::string& s, std::size_t& i) {
+    if (i >= s.size() || s[i] != 'e') return true;
+    std::size_t j = i + 1;
+    skipSign(s, j);
+    if (skipDigits(s, j) == 0) return false;
+    i = j;
+    return true;
+}
+
+/// A plain decimal number, [+-]? (digits [. digits?] | . digits) (e [+-]? digits)?,
+/// with nothing else around it.
+std::optional<double> plainNumber(std::string_view text) {
+    const std::string s = lower(trim(text));
+    std::size_t i = 0;
+    skipSign(s, i);
+    std::size_t digits = skipDigits(s, i);
+    if (i < s.size() && s[i] == '.') {
+        ++i;
+        digits += skipDigits(s, i);
+    }
+    if (digits == 0 || !skipExponent(s, i) || i != s.size()) return std::nullopt;
+    std::string number = s;
+    if (number.front() == '+') number.erase(0, 1);
+    if (!number.empty() && number.back() == '.') number.pop_back();
+    const auto v = toDouble(number);
+    if (!v || !std::isfinite(*v)) return std::nullopt;
+    return v;
+}
+
+bool removeSuffix(std::string_view& s, std::string_view suffix) {
+    if (!s.ends_with(suffix)) return false;
+    s.remove_suffix(suffix.size());
+    s = trim(s);
+    return true;
+}
+
+} // namespace
+
+Expected<double> parseAngle(std::string_view input) {
+    std::string_view text = trim(input);
+    if (text.empty()) return Error{"Enter an angle in degrees."};
+    const std::string low = lower(text);
+    std::string_view s = low;
+    if (!removeSuffix(s, "°") && !removeSuffix(s, "degrees")) removeSuffix(s, "deg");
+    const auto v = plainNumber(s);
+    if (!v.has_value()) {
+        return Error{"\"" + std::string(text) + "\" is not a recognized angle. Enter degrees, for example 90, -45 or 22.5."};
+    }
+    return *v * kPi / 180.0;
+}
+
+std::string formatAngle(double radians) {
+    std::ostringstream out;
+    out.imbue(std::locale::classic());
+    out.setf(std::ios::fixed);
+    out.precision(2);
+    out << radians * 180.0 / kPi;
+    std::string text = out.str();
+    while (!text.empty() && text.back() == '0') text.pop_back();
+    if (!text.empty() && text.back() == '.') text.pop_back();
+    if (text == "-0") text = "0";
+    return text + "°";
+}
+
+Expected<std::vector<double>> parseScaleFactors(std::string_view text) {
+    const auto hint = [] {
+        return Error{"Enter one scale factor (for example 2, 0.5 or 150%) or three for width, depth and height "
+                     "(for example 2, 1, 1)."};
+    };
+    std::vector<std::string_view> parts;
+    std::size_t start = 0;
+    for (std::size_t k = 0; k <= text.size(); ++k) {
+        if (k == text.size() || text[k] == ',' || text[k] == ';') {
+            parts.push_back(trim(text.substr(start, k - start)));
+            start = k + 1;
+        }
+    }
+    if (parts.size() != 1 && parts.size() != 3) return hint();
+    std::vector<double> factors;
+    for (auto part : parts) {
+        const bool percent = removeSuffix(part, "%");
+        auto v = plainNumber(part);
+        if (!v.has_value()) return hint();
+        if (percent) *v /= 100.0;
+        if (!(*v > 0.0)) return Error{"Scale factors must be positive. Mirroring (negative factors) is not supported."};
+        factors.push_back(*v);
+    }
+    if (factors.size() == 1) factors = {factors[0], factors[0], factors[0]};
+    return factors;
 }
 
 double metersTo(double meters, LengthUnit unit) { return meters / metersPerUnit(unit); }

@@ -28,13 +28,14 @@ is not affiliated with SketchUp and does not read or write `.skp` files.
 
 ### Current limits
 
-- Shapes are rectangles on the ground plane (z = 0) and their straight extrusions only.
+- Shapes are rectangles and their straight extrusions only. They are drawn on the ground
+  plane (z = 0); Move and Rotate can then place them anywhere.
 - Push/pull works on a planar rectangle and on an extrusion's top cap. Side and base faces
   cannot be pushed yet. Heights must be positive: pushing below the base, holes, cutting
   through solids and merging touching geometry are not supported.
 - Objects stay independent when they touch or overlap.
-- No rotate or scale tools yet; Move and Duplicate work on whole objects.
-- Rectangle width and depth cannot be edited after drawing (only the height).
+- Move, Rotate and Scale work on whole objects; Scale cannot mirror.
+- Width and depth change only with the Scale tool; the Properties panel edits the height.
 
 The same limits are listed in the app's Properties panel. See
 [docs/ROADMAP.md](docs/ROADMAP.md) for what comes next.
@@ -122,6 +123,8 @@ tree, configure with `-DFETCHCONTENT_FULLY_DISCONNECTED=ON`.
 | Move tool | M |
 | Lock Move to an axis (again to release) | X / Y / Z, or Right / Left / Up arrow |
 | Move: place a copy instead (again to stop) | Tap Ctrl (Option on macOS) |
+| Rotate tool | Q (arrow keys pick the axis: Right X, Left Y, Up Z) |
+| Scale tool | S |
 | Orbit tool | O |
 | Tape Measure tool | T |
 | Dimension tool | D |
@@ -154,6 +157,15 @@ with an explanation.
   along the pointer's direction while a move is in progress; or `x, y, z` to move by that
   vector (for example `500, 0, -250`). With no move in progress it applies to the selected
   object.
+- Rotate tool: an angle in degrees (`90`, `-45`, `22.5deg`). Click the object, then the
+  centre of rotation, then a reference direction, then move and click; with grid snap the
+  angle snaps to 15 degree steps. A typed angle without a centre turns the object about the
+  centre of its base. Positive angles turn counter-clockwise looking down the axis; once a
+  reference direction is set, the typed angle follows the pointer's direction.
+- Scale tool: one factor (`2`, `0.5`, `150%`) or `width, depth, height` factors (`2, 1, 1`),
+  about the centre of the object's base. By mouse, click a grip point and move away from or
+  toward the centre (0.1 steps with grid snap). Scaling changes the object's real
+  dimensions; factors must be positive (no mirroring).
 - Select tool / Properties panel **Total height**: the absolute height from the base.
 
 ## Project files
@@ -168,7 +180,9 @@ extension and asks before replacing an existing file. Opening
 validates the whole file first; a malformed file or an unsupported version shows an error
 and leaves the open project untouched. Opening or starting a new project clears the undo
 history. Pullform asks before discarding unsaved changes (New, Open, quit or closing the
-window). Files saved by the earlier web prototype (format version 1) open unchanged.
+window). The current file format is version 2 (it adds object rotation). Version 1 files,
+from Pullform 0.2.0 and the earlier web prototype, open and are migrated; once saved they
+are version 2 and need this version of Pullform or newer.
 
 ## Documentation
 

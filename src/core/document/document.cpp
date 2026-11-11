@@ -1,6 +1,10 @@
 #include "core/document/document.hpp"
 
+#include <glm/geometric.hpp>
+#include <glm/gtc/quaternion.hpp>
+
 #include <charconv>
+#include <cmath>
 
 namespace pf {
 
@@ -43,6 +47,47 @@ const Dimension* Document::findDimension(DimensionId id) const {
         if (d.id == id) return &d;
     }
     return nullptr;
+}
+
+namespace {
+
+/// Snaps a rotation matrix entry within 1e-15 of -1, 0 or 1 to that value.
+double exactUnit(double v) {
+    for (double exact : {-1.0, 0.0, 1.0}) {
+        if (std::abs(v - exact) <= 1e-15) return exact;
+    }
+    return v;
+}
+
+} // namespace
+
+Mat3 rotationMatrix(const Transform& transform) {
+    Mat3 m = glm::mat3_cast(transform.rotation);
+    for (int c = 0; c < 3; ++c) {
+        for (int r = 0; r < 3; ++r) m[c][r] = exactUnit(m[c][r]);
+    }
+    return m;
+}
+
+Quat axisAngle(const Vec3& axis, double radians) {
+    const Vec3 a = glm::normalize(axis);
+    const double s = std::sin(radians * 0.5);
+    return glm::normalize(Quat{std::cos(radians * 0.5), a.x * s, a.y * s, a.z * s});
+}
+
+Vec3 localToWorld(const ProfileObject& o, const Vec3& local) {
+    return o.transform.translation + rotationMatrix(o.transform) * local;
+}
+
+Vec3 profileToWorld(const ProfileObject& o, const Vec2& p, double offset) {
+    const auto& plane = o.profile.plane;
+    const Vec3 n = glm::normalize(glm::cross(plane.xAxis, plane.yAxis));
+    return localToWorld(o, plane.origin + plane.xAxis * p.x + plane.yAxis * p.y + n * offset);
+}
+
+Vec3 profileNormalWorld(const ProfileObject& o) {
+    const auto& plane = o.profile.plane;
+    return glm::normalize(rotationMatrix(o.transform) * glm::cross(plane.xAxis, plane.yAxis));
 }
 
 const ProfileObject* Document::find(ObjectId id) const {

@@ -4,6 +4,13 @@
 
 namespace pf {
 
+std::optional<ObjectId> replacedObject(const Preview& preview) {
+    if (const auto* p = std::get_if<PushPullPreview>(&preview)) return p->objectId;
+    if (const auto* r = std::get_if<RotatePreview>(&preview); r && r->result) return r->objectId;
+    if (const auto* s = std::get_if<ScalePreview>(&preview); s && s->result) return s->objectId;
+    return std::nullopt;
+}
+
 Vec3 axisVector(MoveAxis axis) {
     using enum MoveAxis;
     switch (axis) {

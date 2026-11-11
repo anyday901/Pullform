@@ -79,6 +79,16 @@ with `xdotool` and inspecting screenshots:
   reports only allocations inside GTK's accessibility bridge and D-Bus, suppressed by
   `tools/lsan.supp`.
 
+Rotate, Scale and file format version 2 (same setup, Linux Debug build):
+
+- A version 1 file opens with the status message about the format upgrade.
+- Rotate: click a box, then a centre on its cap, a reference direction, and swing; the
+  protractor, reference and current spokes and the rotated preview draw, the angle snaps to
+  45 degrees and one click commits it. Scale: grip and drag shows the scaled preview about
+  the base centre (220 %); a click commits.
+- Ctrl+S writes version 2; reopening restores the rotated, scaled box (Properties: 45
+  degrees about Z, 2200 x 1100 mm) and clicking its side selects "Side 1".
+
 Some synthetic key events were occasionally lost after GTK dialogs in Xvfb without a
 window manager; repeating the step worked. This looked like an Xvfb/xdotool artifact
 rather than an app defect, but it was not proven.

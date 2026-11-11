@@ -63,6 +63,17 @@ Vec2 vec2(const json& v, const std::string& path) {
     return {number(v[0], path + "[0]"), number(v[1], path + "[1]")};
 }
 
+/// A rotation stored as a unit quaternion [x, y, z, w] (glTF order). Hand-edited
+/// values like [0, 0, 0.7071, 0.7071] are accepted and normalized; anything
+/// further than kRotationLengthTolerance from unit length is rejected.
+Quat quaternion(const json& v, const std::string& path) {
+    if (!v.is_array() || v.size() != 4) fail(path, "must be an array of 4 numbers [x, y, z, w]");
+    const Quat q{number(v[3], path + "[3]"), number(v[0], path + "[0]"), number(v[1], path + "[1]"), number(v[2], path + "[2]")};
+    const double len = std::sqrt(q.w * q.w + q.x * q.x + q.y * q.y + q.z * q.z);
+    if (!(std::abs(len - 1.0) <= 1e-4)) fail(path, "must be a unit quaternion [x, y, z, w]");
+    return q / len;
+}
+
 // Returns a pointer (not a reference) so GCC's -Wdangling-reference does not
 // flag call sites that pass temporary path strings.
 const json* member(const json& obj, const char* key, const std::string& path) {
@@ -112,6 +123,7 @@ ProfileObject readObject(const json& v, const std::string& path) {
     const auto& transform = *member(v, "transform", path);
     if (!transform.is_object()) fail(path + ".transform", "must be an object");
     o.transform.translation = vec3(*member(transform, "translation", path + ".transform"), path + ".transform.translation");
+    o.transform.rotation = quaternion(*member(transform, "rotation", path + ".transform"), path + ".transform.rotation");
     return o;
 }
 
@@ -180,7 +192,8 @@ Document readDocument(const json& v) {
         doc.objects.push_back(std::make_shared<const ProfileObject>(
             readObject(objects[i], "document.objects[" + std::to_string(i) + "]")));
     }
-    // Optional: files without annotations (all files before dimensions existed) omit it.
+    // Optional: files without annotations omit it. Version 1 files written while
+    // dimensions were new may carry it too; the v1 -> v2 migration keeps it as is.
     if (const auto dims = v.find("dimensions"); dims != v.end()) {
         if (!dims->is_array()) fail("document.dimensions", "must be an array");
         for (std::size_t i = 0; i < dims->size(); ++i) {
@@ -188,6 +201,38 @@ Document readDocument(const json& v) {
         }
     }
     return doc;
+}
+
+// ---- Migrations ---------------------------------------------------------------
+//
+// Each migration rewrites a parsed file from version N to N + 1 in place. They
+// work on JSON, before any reading, so the reader only ever knows the current
+// schema. Only the parts a migration needs are checked here; everything else is
+// checked by the reader and validateDocument afterwards.
+
+/// Version 1 -> 2: objects gain transform.rotation. Version 1 transforms were
+/// translation only, so every object gets the identity rotation [0, 0, 0, 1]
+/// (a "rotation" key in a version 1 file never had a meaning and is replaced).
+void migrateV1ToV2(json& file) {
+    const auto doc = file.find("document");
+    if (doc == file.end() || !doc->is_object()) return; // reported by the reader
+    const auto objects = doc->find("objects");
+    if (objects == doc->end() || !objects->is_array()) return;
+    for (std::size_t i = 0; i < objects->size(); ++i) {
+        json& object = (*objects)[i];
+        if (!object.is_object()) continue;
+        const auto transform = object.find("transform");
+        if (transform == object.end() || !transform->is_object()) continue;
+        (*transform)["rotation"] = json::array({0.0, 0.0, 0.0, 1.0});
+    }
+}
+
+void migrateProject(json& file, int fromVersion) {
+    switch (fromVersion) {
+    case 1: migrateV1ToV2(file); break;
+    default: fail("version", "no migration from version " + std::to_string(fromVersion));
+    }
+    file["version"] = fromVersion + 1;
 }
 
 std::optional<CameraView> readView(const json& file) {
@@ -222,7 +267,10 @@ std::string serializeProject(const Document& doc, const std::optional<CameraView
                 {"yAxis", vec3ToJson(o.profile.plane.yAxis)}}},
               {"boundary", boundary}}},
             {"extrusion", o.extrusion ? json{{"height", o.extrusion->height}} : json(nullptr)},
-            {"transform", {{"translation", vec3ToJson(o.transform.translation)}}},
+            {"transform",
+             {{"translation", vec3ToJson(o.transform.translation)},
+              {"rotation", json::array({o.transform.rotation.x, o.transform.rotation.y, o.transform.rotation.z,
+                                        o.transform.rotation.w})}}},
         };
         objects.push_back(std::move(obj));
     }
@@ -249,7 +297,7 @@ std::string serializeProject(const Document& doc, const std::optional<CameraView
 
 Expected<LoadedProject> parseProject(std::string_view text) {
     if (text.size() > kMaxProjectBytes) return Error{"File is too large to be a project file."};
-    const json file = json::parse(text.begin(), text.end(), nullptr, /*allow_exceptions=*/false);
+    json file = json::parse(text.begin(), text.end(), nullptr, /*allow_exceptions=*/false);
     if (file.is_discarded()) return Error{"The file is not valid JSON, so it cannot be a Pullform project."};
     if (!file.is_object()) return Error{"The file is not a Pullform project."};
     const auto format = file.find("format");
@@ -259,13 +307,18 @@ Expected<LoadedProject> parseProject(std::string_view text) {
     const auto version = file.find("version");
     if (version == file.end() || !version->is_number_integer()) return Error{"The project file has no valid version number."};
     const auto v = version->get<std::int64_t>();
-    if (v != kProjectVersion) {
-        if (v > kProjectVersion) {
-            return Error{"This project uses file version " + std::to_string(v) +
-                         ", which is newer than this app supports (version " + std::to_string(kProjectVersion) +
-                         "). Update Pullform to open it."};
-        }
-        return Error{"Unsupported project file version " + std::to_string(v) + "."};
+    if (v > kProjectVersion) {
+        return Error{"This project uses file version " + std::to_string(v) +
+                     ", which is newer than this app supports (version " + std::to_string(kProjectVersion) +
+                     "). Update Pullform to open it."};
+    }
+    if (v < 1) return Error{"Unsupported project file version " + std::to_string(v) + "."};
+    // Bring older files up to the current schema one version at a time, so each
+    // migration only has to know about its neighbour.
+    try {
+        for (std::int64_t from = v; from < kProjectVersion; ++from) migrateProject(file, static_cast<int>(from));
+    } catch (const ParseError& e) {
+        return Error{"The project file is invalid: " + e.message};
     }
     const auto docJson = file.find("document");
     if (docJson == file.end()) return Error{"The project file is invalid: document: is missing"};
@@ -277,6 +330,7 @@ Expected<LoadedProject> parseProject(std::string_view text) {
     }
     if (auto e = validateDocument(project.document)) return Error{"The project file is invalid: " + *e};
     project.view = readView(file);
+    project.fileVersion = static_cast<int>(v);
     return project;
 }
 

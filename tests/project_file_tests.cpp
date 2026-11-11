@@ -83,13 +83,14 @@ TEST_CASE("scenario 7: save, reload, compare, and keep editing") {
     std::filesystem::remove_all(dir);
 }
 
-TEST_CASE("serialized file matches the documented v1 schema") {
+TEST_CASE("serialized file matches the documented v2 schema") {
     Editor editor;
     ToolController tools(editor);
     test::makeBox(editor, tools, "2000, 1000", "750");
     const auto text = serializeProject(editor.document(), std::nullopt);
     CHECK(text.find("\"format\": \"pullform-project\"") != std::string::npos);
-    CHECK(text.find("\"version\": 1") != std::string::npos);
+    CHECK(text.find("\"version\": 2") != std::string::npos);
+    CHECK(text.find("\"rotation\": [") != std::string::npos);
     CHECK(text.find("\"lengthUnit\": \"m\"") != std::string::npos);
     CHECK(text.find("\"id\": \"obj-1\"") != std::string::npos);
     CHECK(text.find("\"kind\": \"rectangle\"") != std::string::npos);
@@ -108,8 +109,12 @@ TEST_CASE("files written by the earlier web version open") {
   "view": { "position": [6, -6, 5], "target": [0, 0, 0] } })";
     const auto r = parseProject(v1);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error()));
+    CHECK(r->fileVersion == 1);
     CHECK(r->document.objects.size() == 1);
     CHECK(r->document.objects[0]->id == ObjectId{2});
+    // Migrated to version 2: identity rotation, same placement.
+    CHECK(r->document.objects[0]->transform.rotation == Quat{1.0, 0.0, 0.0, 0.0});
+    CHECK(r->document.objects[0]->transform.translation == Vec3{1.0, -1.0, 0.0});
 }
 
 TEST_CASE("scenario 9: invalid files are rejected and leave the open project intact") {
@@ -132,9 +137,13 @@ TEST_CASE("scenario 9: invalid files are rejected and leave the open project int
         {"not json", "{ nope"},
         {"array", "[1,2,3]"},
         {"wrong format", replace("pullform-project", "other-app")},
-        {"newer version", replace("\"version\": 1", "\"version\": 2")},
-        {"older version", replace("\"version\": 1", "\"version\": 0")},
-        {"string version", replace("\"version\": 1", "\"version\": \"1\"")},
+        {"newer version", replace("\"version\": 2", "\"version\": 3")},
+        {"older version", replace("\"version\": 2", "\"version\": 0")},
+        {"string version", replace("\"version\": 2", "\"version\": \"2\"")},
+        {"missing rotation", replace("\"rotation\"", "\"rotatio\"")},
+        {"rotation not unit", replace("\"rotation\": [\n            0.0", "\"rotation\": [\n            2.0")},
+        {"rotation wrong size", replace("\"rotation\": [", "\"rotation\": [1.0, ")},
+        {"rotation not a number", replace("\"rotation\": [\n            0.0", "\"rotation\": [\n            null")},
         {"bad length unit", replace("\"lengthUnit\": \"m\"", "\"lengthUnit\": \"mm\"")},
         {"bad display unit", replace("\"displayUnit\": \"mm\"", "\"displayUnit\": \"km\"")},
         {"bad id", replace("\"obj-1\"", "\"box-1\"")},
@@ -158,7 +167,7 @@ TEST_CASE("scenario 9: invalid files are rejected and leave the open project int
             MESSAGE(label << ": " << r.error());
         }
     }
-    const auto newer = parseProject(replace("\"version\": 1", "\"version\": 2"));
+    const auto newer = parseProject(replace("\"version\": 2", "\"version\": 3"));
     CHECK(newer.error().find("newer") != std::string::npos);
 
     // Duplicate IDs.

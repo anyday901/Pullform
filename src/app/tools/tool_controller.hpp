@@ -6,6 +6,7 @@
 #include "app/tools/snapper.hpp"
 #include "core/geometry/snap.hpp"
 
+#include <numbers>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -13,7 +14,7 @@
 
 namespace pf {
 
-enum class Tool { Select, Rectangle, PushPull, Move, Orbit, TapeMeasure, Dimension };
+enum class Tool { Select, Rectangle, PushPull, Move, Rotate, Scale, Orbit, TapeMeasure, Dimension };
 
 std::string_view toolName(Tool tool);
 
@@ -27,6 +28,8 @@ std::string_view toolName(Tool tool);
 class ToolController {
 public:
     static constexpr double kDragThresholdPx = 5.0;
+    static constexpr double kRotateSnapRadians = std::numbers::pi / 12.0; ///< 15 degrees with grid snap on
+    static constexpr double kScaleSnapStep = 0.1;                                ///< factor steps with grid snap on
 
     explicit ToolController(Editor& editor) : editor_(editor), snapper_(editor, snap_), measure_(editor) {}
 
@@ -36,9 +39,11 @@ public:
     [[nodiscard]] SnapSettings& snap() { return snap_; }
     [[nodiscard]] const SnapSettings& snap() const { return snap_; }
 
-    /// True while a gesture is in progress (first corner placed, push/pull, move or a measurement started).
+    /// True while a gesture is in progress (first corner placed, push/pull, move,
+    /// rotate, scale or a measurement started).
     [[nodiscard]] bool active() const {
-        return rect_.has_value() || push_.has_value() || move_.has_value() || measure_.active();
+        return rect_.has_value() || push_.has_value() || move_.has_value() || rotate_.has_value() || scale_.has_value() ||
+               measure_.active();
     }
 
     /// Escape: cancels the active gesture. Returns whether anything was cancelled.
@@ -81,6 +86,21 @@ public:
     /// Sets the total extrusion height of an object (properties panel).
     std::optional<std::string> setTotalHeight(ObjectId id, std::string_view height);
 
+    /// Rotation axis for the Rotate tool. Changing it during a gesture keeps the
+    /// centre and asks for a new reference direction.
+    void setRotateAxis(MoveAxis axis);
+    [[nodiscard]] MoveAxis rotateAxis() const { return rotateAxis_; }
+
+    /// Exact rotation in degrees. Turns the active gesture's object about its
+    /// centre, or else the selected object about the centre of its base. Positive
+    /// angles turn counter-clockwise looking down the axis; once a reference
+    /// direction is set, the typed angle follows the pointer's direction instead.
+    std::optional<std::string> submitRotateAngle(std::string_view angle);
+
+    /// Exact scale: one uniform factor or "width, depth, height" factors, about
+    /// the centre of the object's base. Applies to the active gesture's object or
+    /// the selected object.
+    std::optional<std::string> submitScaleFactors(std::string_view factors);
     /// Duplicates the selected object (Edit > Duplicate). The copy is placed
     /// beside the original along +X, one object width over, and becomes the
     /// selection, so repeating it builds a row. One undo entry.
@@ -132,6 +152,18 @@ private:
         bool pressed = false;
     };
 
+    struct RotateGesture {
+        ObjectId objectId;
+        Vec3 pivot{0.0};
+        Vec3 axis{0.0, 0.0, 1.0};
+        std::optional<Vec3> reference;
+    };
+    struct ScaleGesture {
+        ObjectId objectId;
+        Vec3 pivot{0.0};
+        Vec3 normal{0.0, 0.0, 1.0};
+        Vec3 start{0.0};
+    };
     struct MoveGesture {
         ObjectId objectId;
         Vec3 anchor{0.0};           ///< picked point the guide line starts from
@@ -169,11 +201,23 @@ private:
     bool commitMove(ObjectId id, const Vec3& offset);
     [[nodiscard]] std::string lastError(const char* fallback) const;
 
+    /// Selected object for Rotate/Scale; a click on an object selects it first.
+    const ProfileObject* transformTarget(const PointerInput& input);
+    void rotateDown(const PointerInput& input);
+    void rotateMove(const PointerInput& input);
+    bool commitRotation(ObjectId id, const Vec3& pivot, const Vec3& axis, double angle);
+    void scaleDown(const PointerInput& input);
+    void scaleMove(const PointerInput& input);
+    bool commitScale(ObjectId id, const Vec3& factors);
+
     Editor& editor_;
     Tool tool_ = Tool::Select;
     SnapSettings snap_;
     std::optional<RectGesture> rect_;
     std::optional<PushGesture> push_;
+    std::optional<RotateGesture> rotate_;
+    std::optional<ScaleGesture> scale_;
+    MoveAxis rotateAxis_ = MoveAxis::Z; ///< world axis Rotate turns about
     std::optional<MoveGesture> move_;
     std::optional<MoveAxis> axisLock_;
     bool moveCopy_ = false;
@@ -181,5 +225,8 @@ private:
     std::optional<SnapResult> indicator_;
     MeasureTool measure_;
 };
+
+/// World-space centre of an object's base (the default rotation and the scale centre).
+Vec3 baseCenter(const ProfileObject& object);
 
 } // namespace pf

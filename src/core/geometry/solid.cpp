@@ -9,29 +9,20 @@
 
 namespace pf {
 
-namespace {
-
-Vec3 toWorld(const ProfileObject& o, const Vec2& p, double offset, const Vec3& normal) {
-    const auto& plane = o.profile.plane;
-    return o.transform.translation + plane.origin + plane.xAxis * p.x + plane.yAxis * p.y + normal * offset;
-}
-
-} // namespace
-
 std::vector<FacePolygon> buildFaces(const ProfileObject& o, std::optional<double> heightOverride) {
     const auto& boundary = o.profile.boundary;
-    const Vec3 n = glm::normalize(glm::cross(o.profile.plane.xAxis, o.profile.plane.yAxis));
+    const Vec3 n = profileNormalWorld(o);
     std::optional<double> height = heightOverride;
     if (!height && o.extrusion) height = o.extrusion->height;
 
     std::vector<Vec3> bottom;
     bottom.reserve(boundary.size());
-    for (const auto& p : boundary) bottom.push_back(toWorld(o, p, 0.0, n));
+    for (const auto& p : boundary) bottom.push_back(profileToWorld(o, p, 0.0));
     if (!height) return {FacePolygon{FaceId::profile(), bottom, n}};
 
     std::vector<Vec3> top;
     top.reserve(boundary.size());
-    for (const auto& p : boundary) top.push_back(toWorld(o, p, *height, n));
+    for (const auto& p : boundary) top.push_back(profileToWorld(o, p, *height));
 
     std::vector<FacePolygon> faces;
     faces.push_back({FaceId::base(), {bottom.rbegin(), bottom.rend()}, -n});

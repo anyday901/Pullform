@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numbers>
 #include <initializer_list>
 
 namespace pf {
@@ -53,6 +54,19 @@ glm::vec4 axisColor(MoveAxis axis) {
     case MoveAxis::Z: return kAxisZ;
     }
     return kAxisX;
+}
+
+/// Colour of a world axis direction: red X, green Y, blue Z.
+glm::vec4 axisColor(const Vec3& axis) {
+    if (axis.x != 0.0) return kAxisX;
+    if (axis.y != 0.0) return kAxisY;
+    return kAxisZ;
+}
+
+/// A unit vector perpendicular to `n`.
+Vec3 perpendicular(const Vec3& n) {
+    const Vec3 helper = std::abs(n.z) < 0.9 ? Vec3{0, 0, 1} : Vec3{1, 0, 0};
+    return glm::normalize(glm::cross(n, helper));
 }
 
 } // namespace
@@ -214,6 +228,19 @@ void Viewport::drawFaceOverlay(const CachedMesh& cached, const FaceId& face, con
     }
 }
 
+void Viewport::drawTransformResult(const std::optional<ProfileObject>& result, bool error, const ProfileObject* original,
+                                   std::vector<LineSegment>& lines) {
+    if (result) {
+        const MeshData mesh = buildMesh(*result);
+        previewHandle_ = renderer_.createMesh(mesh);
+        renderer_.drawMesh(previewHandle_, glm::vec4(0.70f, 0.82f, 0.97f, 1.0f));
+        appendEdges(lines, mesh, kSelectedEdge);
+        if (original) appendEdges(lines, buildMesh(*original), dim(kEdge, 0.35f)); // where it was
+    } else if (error && original) {
+        appendEdges(lines, buildMesh(*original), kErrorEdge);
+    }
+}
+
 void Viewport::render(const Editor& editor, const ToolController& tools) {
     const Document& doc = editor.document();
     meshes_.sync(doc);
@@ -243,10 +270,9 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
 
     const auto* pushPreview = std::get_if<PushPullPreview>(&editor.preview());
     const auto* movePreview = std::get_if<MovePreview>(&editor.preview());
-    // The object a push/pull or move preview stands in for is drawn by the preview.
-    std::optional<ObjectId> previewed;
-    if (pushPreview) previewed = pushPreview->objectId;
-    else if (movePreview && !movePreview->copy) previewed = movePreview->objectId; // a copy leaves the original drawn
+    // The object a preview stands in for is drawn by the preview below.
+    std::optional<ObjectId> previewed = replacedObject(editor.preview());
+    if (!previewed && movePreview && !movePreview->copy) previewed = movePreview->objectId; // a copy leaves the original drawn
     const auto& selection = editor.selection();
     const auto& hover = editor.hover();
 
@@ -335,6 +361,31 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
             if (!valid) guide = kErrorEdge;
             lines.push_back({movePreview->from, movePreview->from + movePreview->offset, guide});
         }
+    }
+    if (const auto* rot = std::get_if<RotatePreview>(&editor.preview())) {
+        drawTransformResult(rot->result, rot->error.has_value(), doc.find(rot->objectId), lines);
+        const glm::vec4 color = axisColor(rot->axis);
+        // Protractor: a circle in the rotation plane, the reference and current spokes.
+        const auto spoke = rot->reference ? rot->reference : rot->current;
+        double radius = spoke ? glm::length(*spoke) : 0.0;
+        if (radius < 1e-9) radius = camera_.distance() * 0.05;
+        const Vec3 n = rot->axis;
+        const Vec3 u = spoke && glm::length(*spoke) > 1e-9 ? glm::normalize(*spoke) : perpendicular(n);
+        const Vec3 v = glm::cross(n, u);
+        constexpr int kSegments = 72;
+        for (int i = 0; i < kSegments; ++i) {
+            const double a0 = 2.0 * std::numbers::pi * i / kSegments;
+            const double a1 = 2.0 * std::numbers::pi * (i + 1) / kSegments;
+            lines.push_back({rot->pivot + (u * std::cos(a0) + v * std::sin(a0)) * radius,
+                             rot->pivot + (u * std::cos(a1) + v * std::sin(a1)) * radius, color});
+        }
+        lines.push_back({rot->pivot - n * radius * 0.25, rot->pivot + n * radius * 0.25, color});
+        if (rot->reference) lines.push_back({rot->pivot, rot->pivot + *rot->reference, kPreviewEdge});
+        if (rot->current) lines.push_back({rot->pivot, rot->pivot + *rot->current, rot->error ? kErrorEdge : kPreviewEdge});
+    } else if (const auto* sc = std::get_if<ScalePreview>(&editor.preview())) {
+        drawTransformResult(sc->result, sc->error.has_value(), doc.find(sc->objectId), lines);
+        if (sc->start) lines.push_back({sc->pivot, *sc->start, dim(kPreviewEdge, 0.5f)});
+        if (sc->current) lines.push_back({sc->pivot, *sc->current, sc->error ? kErrorEdge : kPreviewEdge});
     }
     // Dimensions and measurements draw on top so they stay readable.
     for (const auto& d : doc.dimensions) {
