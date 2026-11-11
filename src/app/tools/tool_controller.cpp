@@ -158,6 +158,35 @@ std::optional<std::string> ToolController::deleteGuides() {
     return std::nullopt;
 }
 
+std::optional<std::string> ToolController::intersectSelection(IntersectMode mode) {
+    const auto faces = selectedFaces(editor_.document(), editor_.selectionSet());
+    if (faces.empty()) return std::string{"Select the faces or objects to intersect first."};
+    cancel();
+    const auto before = editor_.document().objects;
+    const SelectionSet kept = editor_.selectionSet();
+    const char* label = mode == IntersectMode::Model ? "Intersect with model"
+                        : mode == IntersectMode::Selection ? "Intersect with selection"
+                                                           : "Intersect with context";
+    if (!editor_.commit(label, [&faces, mode](const Document& d) { return pf::intersectFaces(d, faces, mode); },
+                        [&kept](const OpResult& r) {
+                            // Face ids change where faces split: keep the objects, whole.
+                            std::vector<ObjectId> ids = kept.objects();
+                            for (const ObjectId id : r.objectIds) {
+                                if (std::ranges::find(ids, id) == ids.end()) ids.push_back(id);
+                            }
+                            return SelectionSet::ofObjects(ids);
+                        })) {
+        return ctx_.lastError("Could not intersect the faces.");
+    }
+    std::size_t changed = 0;
+    for (const auto& o : editor_.document().objects) {
+        if (std::ranges::none_of(before, [&o](const ObjectPtr& b) { return b == o; })) ++changed;
+    }
+    editor_.notify(Message{Message::Kind::Info, changed == 1 ? std::string("Intersected faces in 1 object.")
+                                                             : "Intersected faces in " + std::to_string(changed) + " objects."});
+    return std::nullopt;
+}
+
 std::optional<std::string> ToolController::duplicateSelection() {
     const auto selection = editor_.selection();
     if (!selection) return std::string{"Select an object to duplicate."};

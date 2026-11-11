@@ -1,5 +1,6 @@
 #include "core/commands/selection.hpp"
 
+#include "core/geometry/mesh.hpp"
 #include "core/geometry/solid.hpp"
 #include "core/geometry/topology.hpp"
 
@@ -171,6 +172,23 @@ SelectionSet applyRegion(const SelectionSet& current, const std::vector<ObjectId
         else if (!next.contains(id)) next.add(Selection{id, std::nullopt});
     }
     return next;
+}
+
+std::vector<ElementRef> selectedFaces(const Document& doc, const SelectionSet& selection) {
+    std::vector<ElementRef> faces;
+    for (const ObjectId id : selection.objects()) {
+        const auto* o = doc.find(id);
+        if (!o) continue;
+        if (selection.hasElements(id)) {
+            for (const ElementRef& r : selection.elements()) {
+                if (r.object == id && r.kind == ElementKind::Face) faces.push_back(r);
+            }
+            continue;
+        }
+        const auto m = mesh::objectMesh(*o); // keep the mesh alive while iterating
+        for (const auto& [fid, f] : m->faces()) faces.push_back(ElementRef{id, ElementKind::Face, fid});
+    }
+    return faces;
 }
 
 } // namespace pf

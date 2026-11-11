@@ -168,4 +168,23 @@ Expected<OpResult> drawArc(const Document& doc, std::optional<ObjectId> target, 
 Expected<OpResult> pushPullFace(const Document& doc, ObjectId id, mesh::FaceId face, double distance,
                                 mesh::FaceId* pushed = nullptr);
 
+
+/// What Intersect Faces cuts the chosen faces against.
+enum class IntersectMode {
+    Model,     ///< every face in the model: other objects and the faces' own object
+    Selection, ///< only the other chosen faces
+    Context,   ///< the other faces of the chosen faces' own objects (an object is its own
+               ///< editing context until groups can be opened for editing)
+};
+
+/// Intersect Faces: adds edges where the chosen faces (ElementRef faces; other
+/// kinds are ignored) cross the faces `mode` names, so the pieces can be
+/// erased or pushed separately. Each new edge goes into the mesh of every face
+/// it was found on, so both of two crossing objects are cut, and splits the
+/// face it runs across exactly as a drawn edge would. Rectangles and boxes are
+/// converted to mesh groups first (same corner ids). Parallel and coplanar
+/// faces are not cut. Fails, with nothing changed, when no face crosses
+/// another. OpResult::objectIds lists the objects that changed.
+Expected<OpResult> intersectFaces(const Document& doc, const std::vector<ElementRef>& faces, IntersectMode mode);
+
 } // namespace pf

@@ -3,6 +3,7 @@
 #include "core/document/tolerance.hpp"
 #include "core/document/validate.hpp"
 #include "core/geometry/measure.hpp"
+#include "core/geometry/intersect.hpp"
 #include "core/geometry/mesh.hpp"
 #include "core/geometry/solid.hpp"
 
@@ -15,6 +16,8 @@
 #include <format>
 #include <cmath>
 #include <iterator>
+#include <map>
+#include <set>
 #include <numbers>
 #include <string_view>
 
@@ -760,6 +763,96 @@ Expected<OpResult> drawArc(const Document& doc, std::optional<ObjectId> target, 
     OpResult result{doc, o.id, {}};
     result.document.nextId = doc.nextId + 1;
     result.document.objects.push_back(std::make_shared<const ProfileObject>(std::move(o)));
+    return result;
+}
+
+} // namespace pf
+
+namespace pf {
+
+Expected<OpResult> intersectFaces(const Document& doc, const std::vector<ElementRef>& faces, IntersectMode mode) {
+    struct Item {
+        ElementRef ref;
+        mesh::PlanarFace world;
+    };
+    const auto worldFace = [](const ProfileObject& o, const mesh::Mesh& m, mesh::FaceId f) {
+        mesh::PlanarFace p = mesh::planarFace(m, f);
+        const Mat3 r = rotationMatrix(o.transform);
+        for (auto& loop : p.loops) {
+            for (Vec3& q : loop) q = o.transform.translation + r * q;
+        }
+        p.normal = r * p.normal;
+        return p;
+    };
+    const auto facesOf = [&worldFace](const ProfileObject& o, std::vector<Item>& out) {
+        const auto m = mesh::objectMesh(o);
+        for (const auto& [fid, f] : m->faces()) {
+            out.push_back({ElementRef{o.id, ElementKind::Face, fid}, worldFace(o, *m, mesh::FaceId{fid})});
+        }
+    };
+
+    std::vector<Item> chosen;
+    for (const ElementRef& r : faces) {
+        if (r.kind != ElementKind::Face) continue;
+        if (std::ranges::any_of(chosen, [&r](const Item& c) { return c.ref == r; })) continue;
+        const auto* o = doc.find(r.object);
+        if (!o) return Error{"Object " + idString(r.object) + " no longer exists."};
+        const auto m = mesh::objectMesh(*o);
+        if (!m->face(mesh::FaceId{r.id})) return Error{"A selected face no longer exists."};
+        chosen.push_back({r, worldFace(*o, *m, mesh::FaceId{r.id})});
+    }
+    if (chosen.empty()) return Error{"Select the faces or objects to intersect first."};
+
+    // What the chosen faces are cut against.
+    std::vector<Item> pool;
+    if (mode == IntersectMode::Selection) {
+        pool = chosen;
+    } else if (mode == IntersectMode::Model) {
+        for (const auto& ptr : doc.objects) facesOf(*ptr, pool);
+    } else {
+        std::vector<ObjectId> owners;
+        for (const Item& c : chosen) {
+            if (std::ranges::find(owners, c.ref.object) == owners.end()) owners.push_back(c.ref.object);
+        }
+        for (const ObjectId id : owners) facesOf(*doc.find(id), pool);
+    }
+
+    // Segments found, per object (world space), from each unordered face pair once.
+    std::map<ObjectId, std::vector<mesh::Segment>> cuts;
+    std::set<std::pair<ElementRef, ElementRef>> done;
+    for (const Item& c : chosen) {
+        for (const Item& p : pool) {
+            if (p.ref == c.ref) continue;
+            if (!done.insert(std::minmax(c.ref, p.ref)).second) continue;
+            for (const auto& s : mesh::faceIntersection(c.world, p.world)) {
+                cuts[c.ref.object].push_back(s);
+                if (p.ref.object != c.ref.object) cuts[p.ref.object].push_back(s);
+            }
+        }
+    }
+
+    OpResult result{doc, std::nullopt, {}};
+    for (const auto& ptr : doc.objects) {
+        const auto it = cuts.find(ptr->id);
+        if (it == cuts.end()) continue;
+        ProfileObject changed = asMeshGroup(*ptr);
+        mesh::Mesh m = *changed.mesh;
+        for (const auto& [a, b] : it->second) m.addEdge(worldToLocal(changed, a), worldToLocal(changed, b));
+        if (m == *changed.mesh) continue; // every cut was an edge it already had
+        changed.mesh = std::make_shared<const mesh::Mesh>(std::move(m));
+        auto step = replaceObject(result.document, std::move(changed));
+        if (!step) return Error{step.error()};
+        result.document = std::move(step).value().document;
+        result.objectIds.push_back(ptr->id);
+    }
+    if (result.objectIds.empty()) {
+        switch (mode) {
+        case IntersectMode::Model: return Error{"The selection does not cross any other faces."};
+        case IntersectMode::Selection: return Error{"The selected faces do not cross each other."};
+        case IntersectMode::Context: return Error{"The selection does not cross other faces of its own object."};
+        }
+    }
+    result.objectId = result.objectIds.back();
     return result;
 }
 

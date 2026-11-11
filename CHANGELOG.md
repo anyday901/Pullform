@@ -9,6 +9,17 @@ include breaking changes, but project files will keep a migration path.
 
 ### Added
 
+- **Intersect Faces** (Edit > Intersect Faces > With Model, With Selection, With
+  Context). Adds edges where faces cross, so the pieces can be erased or pushed on their
+  own: select faces, or whole objects for all their faces, and pick what to cut them
+  against: every face in the model, only the rest of the selection, or the other faces of
+  their own object (the editing context, until groups can be opened). Both of two crossing
+  objects are cut, and each new edge splits the face it runs across as a drawn edge would.
+  Intersecting two overlapping boxes and erasing the parts inside each other leaves the
+  outline of their union. Rectangles and boxes that get cut become mesh groups. Parallel
+  and coplanar faces are not cut. One undo entry; nothing changes when no face crosses
+  another. The core gains `intersectFaces`, `selectedFaces` and `mesh::faceIntersection`,
+  and an edge lying in two crossing faces of one mesh now splits both.
 - **Freehand tool** (Tools > Freehand, or the toolbar). Press and drag to draw a curve; on
   release it is smoothed (within 3 screen pixels of the stroke) into a polyline of straight
   edges and committed as one undo entry. It draws on the horizontal plane through the press
