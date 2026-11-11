@@ -293,6 +293,16 @@ TEST_CASE("Up locks a horizontal plane through a box corner; Down locks the hove
         CHECK(nearVec(b.min, {5.0, 0.0, 2.0}, 1e-12));
         CHECK(nearVec(b.max, {6.0, 0.0, 3.0}, 1e-12));
     }
+    SUBCASE("Down, then a rectangle inside the wall: it goes into the wall") {
+        tools.pointerMove(atWall(editor, 3.5, 2.5));
+        CHECK(tools.key(ToolKey::ArrowDown));
+        click(tools, atWall(editor, 1.0, 1.0, {100, 100}));
+        click(tools, atWall(editor, 2.0, 2.0, {200, 50}));
+        REQUIRE(editor.document().objects.size() == 1);
+        CHECK(editor.document().objects[0]->isMeshGroup());
+        const Bounds b = faceBounds(*editor.document().objects[0], editor.selection()->face);
+        CHECK(nearVec(b.min, {1.0, 0.0, 1.0}, 1e-12));
+    }
     SUBCASE("Up over the wall's front: a horizontal plane at the pointer's height") {
         CHECK(tools.key(ToolKey::ArrowUp));
         click(tools, atWall(editor, 1.0, 1.0, {100, 100}));

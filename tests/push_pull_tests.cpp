@@ -408,3 +408,26 @@ TEST_CASE("push/pull: a face with rounding noise in its corners reads back from 
     REQUIRE(pushed);
     CHECK(sameContent(pushed->document, doc));
 }
+
+TEST_CASE("Push/Pull tool: tapping Ctrl during a push switches the gesture in progress") {
+    Editor editor;
+    ToolController tools(editor);
+    const ObjectId box = makeBox(editor, tools, "1000, 1000", "500");
+    tools.setTool(Tool::PushPull);
+    tools.pointerDown(downAt(editor, 0.5, 0.5, {100, 100})); // the cap: its height would change
+    REQUIRE(tools.active());
+    tools.togglePushNewFace(); // now a new starting face, through the mesh
+    const auto* p = std::get_if<PushPullPreview>(&editor.preview());
+    REQUIRE(p);
+    CHECK(p->face == FaceKind::Mesh);
+    REQUIRE_FALSE(tools.submitPushDistance("300").has_value());
+    CHECK(editor.document().find(box)->mesh->faces().size() == 10);
+
+    // Tapped off mid-gesture, the next pull stretches the walls again.
+    tools.pointerDown(downAt(editor, 0.5, 0.5, {100, 100}));
+    REQUIRE(tools.active());
+    tools.togglePushNewFace();
+    REQUIRE_FALSE(tools.submitPushDistance("200").has_value());
+    CHECK(editor.document().find(box)->mesh->faces().size() == 10);
+    CHECK(objectBounds(*editor.document().find(box)).size().z == doctest::Approx(1.0));
+}

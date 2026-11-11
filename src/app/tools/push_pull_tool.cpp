@@ -30,9 +30,40 @@ bool meshPush(const ProfileObject& o, FaceKind face, bool newFace) {
 
 void PushPullTool::toggleNewFace() {
     newFace_ = !newFace_;
-    if (gesture_ && gesture_->face == FaceKind::Mesh) {
-        if (const auto* p = std::get_if<PushPullPreview>(&editor().preview())) setPreview(p->delta);
+    if (!gesture_) return;
+    // The gesture in progress follows the mode at once, preview included.
+    const auto* p = std::get_if<PushPullPreview>(&editor().preview());
+    const double delta = p ? p->delta : 0.0;
+    gesture_->newFace = newFace_;
+    if (route()) setPreview(delta);
+}
+
+bool PushPullTool::route() {
+    const auto* o = editor().document().find(gesture_->objectId);
+    if (!o) {
+        gesture_.reset();
+        return false;
     }
+    if (meshPush(*o, gesture_->picked.kind, gesture_->newFace)) {
+        const mesh::FaceId meshFace = mesh::faceIdFor(gesture_->picked);
+        const auto m = mesh::objectMesh(*o);
+        const auto* f = m->face(meshFace);
+        if (!f) {
+            gesture_.reset();
+            return false;
+        }
+        gesture_->face = FaceKind::Mesh;
+        gesture_->meshFace = meshFace.value;
+        gesture_->normal = glm::normalize(rotationMatrix(o->transform) * f->normal);
+        gesture_->startHeight = 0.0;
+        gesture_->baseZ = gesture_->anchor.z;
+    } else {
+        // A rectangle's face or a box's cap: its profile height changes.
+        gesture_->face = gesture_->picked.kind;
+        gesture_->startHeight = o->extrusion ? o->extrusion->height : 0.0;
+        gesture_->baseZ = profileToWorld(*o, Vec2{0.0}, 0.0).z;
+    }
+    return true;
 }
 
 void PushPullTool::pointerDown(const PointerInput& input) {
@@ -52,25 +83,15 @@ void PushPullTool::pointerDown(const PointerInput& input) {
     }
     const auto& pick = *input.pick;
     editor().select(Selection{pick.objectId, pick.faceId});
-    const auto* o = editor().document().find(pick.objectId);
-    if (!o) return;
-    gesture_ = Gesture{pick.objectId, pick.faceId.kind, pick.point, o->extrusion ? o->extrusion->height : 0.0,
-                       profileToWorld(*o, Vec2{0.0}, 0.0).z, input.screen, true};
+    if (!editor().document().find(pick.objectId)) return;
+    gesture_ = Gesture{};
+    gesture_->objectId = pick.objectId;
+    gesture_->picked = pick.faceId;
+    gesture_->anchor = pick.point;
+    gesture_->pressScreen = input.screen;
+    gesture_->pressed = true;
     gesture_->newFace = newFace_ || input.ctrl;
-    if (meshPush(*o, pick.faceId.kind, gesture_->newFace)) {
-        const mesh::FaceId meshFace = mesh::faceIdFor(pick.faceId);
-        const auto m = mesh::objectMesh(*o);
-        const auto* f = m->face(meshFace);
-        if (!f) {
-            gesture_.reset();
-            return;
-        }
-        gesture_->face = FaceKind::Mesh;
-        gesture_->meshFace = meshFace.value;
-        gesture_->normal = glm::normalize(rotationMatrix(o->transform) * f->normal);
-        gesture_->startHeight = 0.0;
-        gesture_->baseZ = pick.point.z;
-    }
+    if (!route()) return;
     editor().notify(std::nullopt);
     setPreview(0.0);
 }

@@ -80,6 +80,8 @@ private:
     std::optional<MoveAxis> axis_;
     std::optional<PlaneBasis> faceLock_;
     std::optional<PlaneBasis> lastHovered_;
+    std::optional<ObjectId> lastHoveredObject_; ///< whose face lastHovered_ is, if any
+    std::optional<ObjectId> faceLockObject_;    ///< whose face faceLock_ is, if any
     std::optional<PlaneBasis> plane_;    ///< the gesture's plane
     std::optional<PlaneBasis> original_; ///< the plane begin() was given, for releasing a lock mid-gesture
     Vec3 anchor_{0.0};

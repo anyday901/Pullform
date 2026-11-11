@@ -123,6 +123,7 @@ bool DrawingPlane::key(ToolKey key) {
     } else if (lastHovered_) {
         axis_.reset();
         faceLock_ = lastHovered_;
+        faceLockObject_ = lastHoveredObject_;
     } else {
         return false;
     }
@@ -141,6 +142,7 @@ std::optional<DrawingPlane::Hit> DrawingPlane::hover(ToolContext& ctx, const Poi
         }
         const PlaneBasis plane = axisPlane(*axis_, s.point, input.ray.direction);
         lastHovered_ = plane;
+        lastHoveredObject_.reset();
         ctx.indicator = s;
         return Hit{s.point, plane, std::nullopt};
     }
@@ -148,6 +150,7 @@ std::optional<DrawingPlane::Hit> DrawingPlane::hover(ToolContext& ctx, const Poi
     std::optional<ObjectId> object;
     if (faceLock_) {
         plane = *faceLock_;
+        object = faceLockObject_; // a shape drawn there still goes into that face
     } else if (auto picked = pickedPlane(ctx.editor.document(), input)) {
         plane = *picked;
         object = input.pick->objectId;
@@ -156,6 +159,7 @@ std::optional<DrawingPlane::Hit> DrawingPlane::hover(ToolContext& ctx, const Poi
     ctx.indicator = s;
     if (!s) return std::nullopt;
     lastHovered_ = plane;
+    lastHoveredObject_ = object;
     return Hit{s->point, plane, object};
 }
 

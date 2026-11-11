@@ -58,6 +58,7 @@ private:
         std::uint32_t meshFace = 0;    ///< the drawn face (FaceKind::Mesh)
         Vec3 normal{0.0, 0.0, 1.0};    ///< world normal of the drawn face
         bool newFace = false;          ///< Ctrl: make a new starting face
+        FaceId picked;                 ///< the face clicked, as picking named it
     };
 
     void finish();
@@ -67,6 +68,9 @@ private:
     void moveMeshFace(const PointerInput& input);
     bool commitMeshFace(ObjectId id, std::uint32_t face, double distance, bool newFace);
     void repeatLast();
+    /// Sets the gesture's path for its picked face and mode: through the mesh
+    /// or by the profile's height. False (and no gesture) if the face is gone.
+    bool route();
 
     std::optional<Gesture> gesture_;
     bool newFace_ = false;
