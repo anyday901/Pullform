@@ -3,6 +3,7 @@
 #include "core/document/tolerance.hpp"
 #include "core/geometry/mesh.hpp"
 #include "core/geometry/solid.hpp"
+#include "core/geometry/guide_snap.hpp"
 
 #include <glm/geometric.hpp>
 
@@ -62,7 +63,10 @@ void PointSnapper::rememberEdge(const SnapEdge& e) {
     dropStaleReferences();
     std::erase(referenceEdges_, e);
     if (referenceEdges_.size() >= SnapSettings::kMaxReferenceEdges) referenceEdges_.resize(SnapSettings::kMaxReferenceEdges - 1);
-    referenceEdges_.insert(referenceEdges_.begin(), e);
+    // push_back and rotate rather than insert at the front: GCC 13 at -O3
+    // reports a false null dereference in the inlined insert.
+    referenceEdges_.push_back(e);
+    std::rotate(referenceEdges_.rbegin(), referenceEdges_.rbegin() + 1, referenceEdges_.rend());
 }
 
 void PointSnapper::remember(const SnapResult& hit) {
@@ -110,6 +114,7 @@ std::optional<SnapResult> PointSnapper::infer(const PointerInput& input, const I
         q.references = references_;
         q.referenceEdges = referenceEdges_;
         q.lock = lock_;
+        if (settings_.guides) q.guides = editor_.document().guides;
         res = inferPoint(index_, q);
         if (res && !res->locked) remember(*res);
     }
@@ -143,7 +148,16 @@ std::optional<SnapResult> PointSnapper::point(const PointerInput& input, std::op
     // the excluded object (the one being edited, drawn as a preview).
     std::optional<double> occluder;
     if (input.pick && !(exclude && input.pick->objectId == *exclude)) occluder = input.pick->distance;
-    auto hit = index_.nearest(input.ray, input.pixelAngle * settings_.radiusPx, occluder, exclude);
+    const double radius = input.pixelAngle * settings_.radiusPx;
+    auto hit = index_.nearest(input.ray, radius, occluder, exclude);
+    const auto& guides = editor_.document().guides;
+    if (settings_.guides && !guides.empty()) {
+        // Guide points and crossings compete with corners and midpoints.
+        if (auto g = nearestGuidePoint(guides, index_, input.ray, radius, occluder)) {
+            const auto score = hit ? snapScore(input.ray, *hit) : std::nullopt;
+            if (!score || g->score < *score) hit = std::move(g->snap);
+        }
+    }
     if (hit) remember(hit->featurePoint);
     return hit;
 }
@@ -156,6 +170,8 @@ std::optional<SnapResult> PointSnapper::ground(const PointerInput& input, std::o
         if (input.pick) occluder = input.pick->distance;
         hit = index_.nearestEdge(input.ray, input.pixelAngle * settings_.radiusPx, occluder);
         if (hit && hit->edge) rememberEdge(*hit->edge);
+        // Then a point on a guide line.
+        if (!hit && settings_.guides) hit = nearestOnGuide(editor_.document().guides, input.ray, input.pixelAngle * settings_.radiusPx, occluder);
     }
     if (hit) {
         // Rectangles are drawn on the ground: use the point straight below.

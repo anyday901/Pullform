@@ -1,6 +1,7 @@
 #include "core/geometry/inference.hpp"
 
 #include "core/document/tolerance.hpp"
+#include "core/geometry/guide_snap.hpp"
 
 #include <glm/geometric.hpp>
 
@@ -59,7 +60,15 @@ public:
         buildLines();
         if (q_.lock) return locked(*q_.lock);
 
-        if (auto hit = index_.nearest(q_.ray, q_.radius, q_.occluder, q_.exclude)) return onPlane(std::move(*hit));
+        auto hit = index_.nearest(q_.ray, q_.radius, q_.occluder, q_.exclude);
+        if (!q_.guides.empty()) {
+            // Guide points and guide crossings compete with corners and midpoints.
+            if (auto g = nearestGuidePoint(q_.guides, index_, q_.ray, q_.radius, q_.occluder)) {
+                const auto score = hit ? snapScore(q_.ray, *hit) : std::nullopt;
+                if (!score || g->score < *score) hit = std::move(g->snap);
+            }
+        }
+        if (hit) return onPlane(std::move(*hit));
 
         std::optional<SnapResult> second;
         auto edge = index_.nearestEdge(q_.ray, q_.radius, q_.occluder, q_.exclude, &second);
@@ -129,6 +138,10 @@ private:
             }
             for (const auto& e : refs) addEdgeLines(o, e);
         }
+        // Construction guide lines (only those in the drawing plane, if any).
+        for (const auto& g : q_.guides) {
+            if (g.kind == Guide::Kind::Line && inPlane(g.point)) addLine(Line{g.point, g.direction, SnapKind::OnGuide, -1, std::nullopt});
+        }
         for (const auto& r : q_.references) {
             if (q_.from && glm::length(r - *q_.from) <= tol::kWeldDistance) continue;
             const Vec3 o = toPlane(r);
@@ -162,6 +175,7 @@ private:
     static void lineGuides(const Line& l, const Vec3& p, std::vector<SnapGuide>& guides) {
         switch (l.kind) {
         case SnapKind::Inference: guides.emplace_back(l.origin, p, l.axis, GuideKind::Point); break;
+        case SnapKind::OnGuide: break; // the guide itself is drawn already
         case SnapKind::Parallel:
         case SnapKind::Perpendicular:
             guides.emplace_back(l.origin, p, -1, GuideKind::Parallel);

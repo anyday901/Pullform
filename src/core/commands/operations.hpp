@@ -68,6 +68,14 @@ Expected<OpResult> deleteObject(const Document& doc, ObjectId id);
 Expected<OpResult> addDimension(const Document& doc, const DimensionAnchor& a, const DimensionAnchor& b, const Vec3& offset);
 /// Removes a dimension.
 Expected<OpResult> deleteDimension(const Document& doc, DimensionId id);
+/// Adds a construction guide (a line or a point), allocating a new stable ID
+/// from nextId; the new guide is the last in Document::guides. A line's
+/// direction is normalized; a zero direction or a point outside the model
+/// range is rejected.
+Expected<OpResult> addGuide(const Document& doc, const Guide& guide);
+/// Removes every guide (Edit > Delete Guides). Fails when there are none, so
+/// a no-op never becomes an undo entry.
+Expected<OpResult> deleteGuides(const Document& doc);
 // Operations on several objects (a multi-selection). Each runs the
 // single-object operation on every object in turn and fails as a whole if any
 // one fails, so a selection always changes in one commit and one undo entry.

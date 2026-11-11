@@ -116,6 +116,8 @@ const char* snapKindName(SnapKind kind) {
     case OnEdge: return "On Edge";
     case Intersection: return "Intersection";
     case Center: return "Center";
+    case OnGuide: return "On Guide";
+    case GuidePoint: return "Guide Point";
     case Midpoint: return "Midpoint";
     case Endpoint: return "Endpoint";
     }

@@ -18,6 +18,30 @@
 
 namespace pf {
 
+Expected<OpResult> addGuide(const Document& doc, const Guide& guide) {
+    Guide g = guide;
+    g.id = GuideId{doc.nextId};
+    if (g.kind == Guide::Kind::Line) {
+        const double len = glm::length(g.direction);
+        if (!std::isfinite(len) || len < 1e-9) return Error{"A guide line needs a direction."};
+        g.direction /= len;
+    } else {
+        g.direction = Vec3{1.0, 0.0, 0.0};
+    }
+    if (validateGuide(g, "guide")) return Error{"The guide would be outside the supported range of +/-10 km."};
+    OpResult result{doc, std::nullopt, {}};
+    result.document.nextId = doc.nextId + 1;
+    result.document.guides.push_back(g);
+    return result;
+}
+
+Expected<OpResult> deleteGuides(const Document& doc) {
+    if (doc.guides.empty()) return Error{"There are no guides to delete."};
+    OpResult result{doc, std::nullopt, {}};
+    result.document.guides.clear();
+    return result;
+}
+
 namespace {
 
 Expected<OpResult> replaceObject(const Document& doc, ProfileObject changed) {

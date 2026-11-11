@@ -23,9 +23,11 @@ enum class SnapKind {
     Axis,          ///< on an axis line through the drawing start point
     Parallel,      ///< on a line through the drawing start, parallel to a reference edge
     Perpendicular, ///< on a line through the drawing start, perpendicular to a reference edge
+    OnGuide,       ///< on a construction guide line
     OnEdge,        ///< somewhere along an object edge
     Intersection,  ///< where an edge crosses another edge or an inference line
     Center,        ///< center of an arc or circle
+    GuidePoint,    ///< a construction guide point (feature = index into Document::guides)
     Midpoint,      ///< midpoint of an object edge
     Endpoint,      ///< corner (vertex) of an object
 };
@@ -116,6 +118,7 @@ struct SnapResult {
     std::optional<ObjectId> objectId;
     /// Endpoint: index into SnapFeatures::vertices. Midpoint: index into
     /// SnapFeatures::edges. Center: index into SnapFeatures::curveCenters.
+    /// GuidePoint: index into Document::guides.
     /// Otherwise -1.
     int feature = -1;
     /// The feature's own position before any projection (for example the top

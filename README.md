@@ -21,7 +21,11 @@ is not affiliated with SketchUp and does not read or write `.skp` files.
 5. Select an extrusion's top cap and change its height: drag it, type an incremental
    distance, or set the absolute **Total height**. The same object is updated.
 6. Measure between any two points with the **Tape Measure**, and add **Dimension**
-   annotations that stay attached to the corners and edge midpoints they measure.
+   annotations that stay attached to the corners and edge midpoints they measure. The
+   tape measure also places construction guides: from an edge a parallel guide line at a
+   typed or picked distance, from a point a guide point. The **Protractor** adds angled
+   guide lines. Guides snap, can be hidden (View > Guides) and are deleted together
+   (Edit > Delete Guides).
 7. Select and delete a whole object.
 8. Undo and redo every committed modeling operation.
 9. Save an editable, versioned project file (`.pullform.json`), reopen it, and keep editing.
@@ -128,6 +132,8 @@ tree, configure with `-DFETCHCONTENT_FULLY_DISCONNECTED=ON`.
 | Scale tool | S |
 | Orbit tool | O |
 | Tape Measure tool | T |
+| Tape Measure: add guides on or off | Tap Ctrl (Option on macOS) |
+| Protractor: lock its plane (again to release) | Right / Left / Up arrow (square to X / Y / Z) |
 | Dimension tool | D |
 | Fit view to model | F |
 | Toggle grid snap | G |
