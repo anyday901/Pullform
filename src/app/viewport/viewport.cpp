@@ -73,8 +73,16 @@ Vec3 perpendicular(const Vec3& n) {
 
 Viewport::Viewport(Renderer& renderer) : renderer_(renderer), meshes_(renderer) {}
 
-Viewport::~Viewport() {
-    if (previewHandle_ != kNoMesh) renderer_.destroyMesh(previewHandle_);
+Viewport::~Viewport() { releasePreviewMeshes(); }
+
+void Viewport::releasePreviewMeshes() {
+    for (const MeshHandle h : previewHandles_) renderer_.destroyMesh(h);
+    previewHandles_.clear();
+}
+
+MeshHandle Viewport::previewMesh(const MeshData& mesh) {
+    previewHandles_.push_back(renderer_.createMesh(mesh));
+    return previewHandles_.back();
 }
 
 void Viewport::setRect(const Vec2& origin, const Vec2& size, const Vec2& framebufferScale, int framebufferHeight) {
@@ -232,13 +240,26 @@ void Viewport::drawTransformResult(const std::optional<ProfileObject>& result, b
                                    std::vector<LineSegment>& lines) {
     if (result) {
         const MeshData mesh = buildMesh(*result);
-        previewHandle_ = renderer_.createMesh(mesh);
-        renderer_.drawMesh(previewHandle_, glm::vec4(0.70f, 0.82f, 0.97f, 1.0f));
+        renderer_.drawMesh(previewMesh(mesh), glm::vec4(0.70f, 0.82f, 0.97f, 1.0f));
         appendEdges(lines, mesh, kSelectedEdge);
         if (original) appendEdges(lines, buildMesh(*original), dim(kEdge, 0.35f)); // where it was
     } else if (error && original) {
         appendEdges(lines, buildMesh(*original), kErrorEdge);
     }
+}
+
+void Viewport::drawTransformGroup(const std::vector<ProfileObject>& group, const std::vector<ObjectId>& ids,
+                                  const std::optional<ProfileObject>& result, bool error, ObjectId primary,
+                                  const Document& doc, std::vector<LineSegment>& lines) {
+    if (ids.empty()) {
+        drawTransformResult(result, error, doc.find(primary), lines);
+        return;
+    }
+    if (group.empty()) { // invalid value: every original in red
+        for (const ObjectId id : ids) drawTransformResult(std::nullopt, error, doc.find(id), lines);
+        return;
+    }
+    for (const auto& o : group) drawTransformResult(o, false, doc.find(o.id), lines);
 }
 
 void Viewport::render(const Editor& editor, const ToolController& tools) {
@@ -270,20 +291,27 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
 
     const auto* pushPreview = std::get_if<PushPullPreview>(&editor.preview());
     const auto* movePreview = std::get_if<MovePreview>(&editor.preview());
-    // The object a preview stands in for is drawn by the preview below.
-    std::optional<ObjectId> previewed = replacedObject(editor.preview());
-    if (!previewed && movePreview && !movePreview->copy) previewed = movePreview->objectId; // a copy leaves the original drawn
+    // The objects a preview stands in for are drawn by the preview below
+    // (a move copy leaves the originals drawn).
+    const std::vector<ObjectId> replaced = replacedObjects(editor.preview());
+    const auto isPreviewed = [&replaced](ObjectId id) { return std::ranges::find(replaced, id) != replaced.end(); };
     const auto& selection = editor.selection();
+    const auto* box = std::get_if<SelectBoxPreview>(&editor.preview());
+    // While dragging a selection box, the objects it would select are shown selected.
+    const auto shownSelected = [&](ObjectId id) {
+        if (box) return std::ranges::find(box->found, id) != box->found.end();
+        return editor.isSelected(id);
+    };
     const auto& hover = editor.hover();
 
     // Solid fills.
     for (const auto& [id, cached] : meshes_.entries()) {
-        if (previewed == id) continue; // replaced by the preview below
+        if (isPreviewed(id)) continue; // replaced by the preview below
         renderer_.drawMesh(cached.handle, cached.mesh.closed ? kSolidFill : kSheetFill);
     }
     // Face highlights: one logical face, all of its triangles.
     for (const auto& [id, cached] : meshes_.entries()) {
-        if (previewed == id) continue;
+        if (isPreviewed(id)) continue;
         if (hover && hover->objectId == id && hover->face && !(selection && *selection == *hover)) {
             drawFaceOverlay(cached, *hover->face, kHoverFace);
         }
@@ -293,22 +321,19 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
     lines.clear();
     std::vector<LineSegment> selectedLines;
     for (const auto& [id, cached] : meshes_.entries()) {
-        if (previewed == id) {
+        if (isPreviewed(id)) {
             // A moving object leaves a faint outline where it started.
             if (movePreview) appendEdges(lines, cached.mesh, dim(kEdge, 0.25f));
             continue;
         }
-        const bool selected = selection && selection->objectId == id;
+        const bool selected = shownSelected(id);
         appendEdges(selected ? selectedLines : lines, cached.mesh, selected ? kSelectedEdge : kEdge);
     }
     renderer_.drawLines(lines, true);
     renderer_.drawLines(selectedLines, true);
 
     // Previews: transient, never part of the document.
-    if (previewHandle_ != kNoMesh) {
-        renderer_.destroyMesh(previewHandle_);
-        previewHandle_ = kNoMesh;
-    }
+    releasePreviewMeshes();
     lines.clear();
     if (const auto* rect = std::get_if<RectanglePreview>(&editor.preview())) {
         const Vec3 a = rect->start;
@@ -322,8 +347,7 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
             ProfileObject temp;
             temp.profile.boundary = rectangleBoundary(rect->placement->width, rect->placement->depth);
             temp.transform.translation = rect->placement->corner;
-            previewHandle_ = renderer_.createMesh(buildMesh(temp));
-            renderer_.drawMesh(previewHandle_, kPreviewFill);
+            renderer_.drawMesh(previewMesh(buildMesh(temp)), kPreviewFill);
         }
     } else if (pushPreview) {
         if (const auto* obj = doc.find(pushPreview->objectId)) {
@@ -331,24 +355,28 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
             const double shown = valid ? pushPreview->height : std::max(pushPreview->height, 1e-4);
             if (shown > 0.0) {
                 const MeshData mesh = buildMesh(*obj, shown);
-                previewHandle_ = renderer_.createMesh(mesh);
-                renderer_.drawMesh(previewHandle_, valid ? glm::vec4(0.70f, 0.82f, 0.97f, 1.0f) : kErrorFill);
+                renderer_.drawMesh(previewMesh(mesh), valid ? glm::vec4(0.70f, 0.82f, 0.97f, 1.0f) : kErrorFill);
                 appendEdges(lines, mesh, valid ? kSelectedEdge : kErrorEdge);
             } else {
                 appendEdges(lines, buildMesh(*obj), kErrorEdge);
             }
         }
     } else if (movePreview) {
-        if (const auto* obj = doc.find(movePreview->objectId)) {
-            const bool valid = !movePreview->error.has_value();
+        const bool valid = !movePreview->error.has_value();
+        const std::vector<ObjectId> moving =
+            movePreview->objectIds.empty() ? std::vector<ObjectId>{movePreview->objectId} : movePreview->objectIds;
+        for (const ObjectId id : moving) {
+            const auto* obj = doc.find(id);
+            if (!obj) continue;
             ProfileObject moved = *obj;
             moved.transform.translation += movePreview->offset;
             const MeshData mesh = buildMesh(moved);
-            previewHandle_ = renderer_.createMesh(mesh);
             glm::vec4 fill = mesh.closed ? kSolidFill : kSheetFill;
             if (!valid) fill = kErrorFill;
-            renderer_.drawMesh(previewHandle_, fill);
+            renderer_.drawMesh(previewMesh(mesh), fill);
             appendEdges(lines, mesh, valid ? kSelectedEdge : kErrorEdge);
+        }
+        if (doc.find(movePreview->objectId)) {
             // Guide from the picked point to where it is now, in the locked axis colour.
             glm::vec4 guide = kPreviewEdge;
             if (movePreview->axis) {
@@ -363,7 +391,7 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
         }
     }
     if (const auto* rot = std::get_if<RotatePreview>(&editor.preview())) {
-        drawTransformResult(rot->result, rot->error.has_value(), doc.find(rot->objectId), lines);
+        drawTransformGroup(rot->group, rot->objectIds, rot->result, rot->error.has_value(), rot->objectId, doc, lines);
         const glm::vec4 color = axisColor(rot->axis);
         // Protractor: a circle in the rotation plane, the reference and current spokes.
         const auto spoke = rot->reference ? rot->reference : rot->current;
@@ -383,7 +411,7 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
         if (rot->reference) lines.push_back({rot->pivot, rot->pivot + *rot->reference, kPreviewEdge});
         if (rot->current) lines.push_back({rot->pivot, rot->pivot + *rot->current, rot->error ? kErrorEdge : kPreviewEdge});
     } else if (const auto* sc = std::get_if<ScalePreview>(&editor.preview())) {
-        drawTransformResult(sc->result, sc->error.has_value(), doc.find(sc->objectId), lines);
+        drawTransformGroup(sc->group, sc->objectIds, sc->result, sc->error.has_value(), sc->objectId, doc, lines);
         if (sc->start) lines.push_back({sc->pivot, *sc->start, dim(kPreviewEdge, 0.5f)});
         if (sc->current) lines.push_back({sc->pivot, *sc->current, sc->error ? kErrorEdge : kPreviewEdge});
     }
