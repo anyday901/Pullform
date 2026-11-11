@@ -145,12 +145,14 @@ TEST_CASE("acceptance: a 600 mm circle with 48 sides extrudes to a cylinder whos
     CHECK(top.point.y == doctest::Approx(2.0));
     CHECK(top.point.z == doctest::Approx(1.0));
     CHECK(resolveSnapFeature(editor.document(), id, SnapKind::Center, top.feature) == top.point);
-    // A rectangle can start from the center (the ground point below it).
+    // A rectangle can start from the center (on the cap, the face under the pointer).
     tools.setTool(Tool::Rectangle);
     tools.pointerDown(snapDownAt(editor, 1.004, 2.003));
     const auto* rect = std::get_if<RectanglePreview>(&editor.preview());
     REQUIRE(rect);
-    CHECK(rect->start == Vec3{1.0, 2.0, 0.0});
+    CHECK(rect->start.x == doctest::Approx(1.0));
+    CHECK(rect->start.y == doctest::Approx(2.0));
+    CHECK(rect->start.z == doctest::Approx(1.0));
 }
 
 TEST_CASE("circle by click-click and by drag, with a pointer-set radius") {

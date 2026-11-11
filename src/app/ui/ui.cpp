@@ -41,10 +41,11 @@ const ImVec4 kMutedColor{0.40f, 0.43f, 0.48f, 1.0f};
 const ImVec4 kAccent{0.16f, 0.45f, 0.85f, 1.0f};
 
 constexpr const char* kLimitsText =
-    "This version supports rectangles, circles and polygons drawn on the ground plane and their straight extrusions.\n"
-    "- Push/Pull works on a rectangle, circle or polygon, or on an extrusion's top cap.\n"
+    "This version supports rectangles, circles and polygons drawn on any face or plane and their straight extrusions.\n"
+    "- Push/Pull works on a rectangle, circle or polygon (either way) or on an extrusion's top cap.\n"
     "- Side and base faces cannot be pushed yet.\n"
-    "- Heights must be positive: pushing below the base, holes and cutting are not supported.\n"
+    "- A rectangle drawn on a face is its own object: pushing it into a wall overlaps the wall\n"
+    "  rather than cutting it. Holes and cutting are not supported yet.\n"
     "- Touching or overlapping objects stay separate (no merging).\n"
     "- Move, Duplicate, Rotate and Scale work on whole objects; Rotate turns about the X, Y or Z\n"
     "  axis and Scale cannot mirror.\n"
@@ -188,11 +189,11 @@ std::string Ui::measurementLabel(const UiContext& ctx) const { return std::strin
 std::string Ui::measurementLive(const UiContext& ctx) const {
     const LengthUnit u = ctx.editor.document().displayUnit;
     if (const auto* r = std::get_if<RectanglePreview>(&ctx.editor.preview())) {
-        const double w = std::abs(r->end.x - r->start.x), d = std::abs(r->end.y - r->start.y);
-        return formatLength(w, u) + ", " + formatLength(d, u);
+        if (r->outline.size() == 2) return formatLength(r->width, u); // first side of a rotated rectangle
+        return formatLength(r->width, u) + ", " + formatLength(r->depth, u);
     }
     if (const auto* c = std::get_if<CirclePreview>(&ctx.editor.preview())) {
-        const double r = glm::length(Vec2{c->edge.x - c->center.x, c->edge.y - c->center.y});
+        const double r = c->placement ? c->placement->radius : glm::length(c->edge - c->center);
         return formatLength(r, u) + "   (" + std::to_string(c->segments) + (c->kind == ProfileKind::Circle ? " segments)" : " sides)");
     }
     if (const auto* p = std::get_if<PushPullPreview>(&ctx.editor.preview())) {
@@ -292,6 +293,7 @@ void Ui::menuBar(UiContext& ctx) {
         if (ImGui::MenuItem("Rectangle", shortcuts::kRectangle, t == Tool::Rectangle)) ctx.tools.setTool(Tool::Rectangle);
         if (ImGui::MenuItem("Circle", shortcuts::kCircle, t == Tool::Circle)) ctx.tools.setTool(Tool::Circle);
         if (ImGui::MenuItem("Polygon", shortcuts::kPolygon, t == Tool::Polygon)) ctx.tools.setTool(Tool::Polygon);
+        if (ImGui::MenuItem("Rotated Rectangle", nullptr, t == Tool::RotatedRectangle)) ctx.tools.setTool(Tool::RotatedRectangle);
         if (ImGui::MenuItem("Push/Pull", shortcuts::kPushPull, t == Tool::PushPull)) ctx.tools.setTool(Tool::PushPull);
         if (ImGui::MenuItem("Move", shortcuts::kMove, t == Tool::Move)) ctx.tools.setTool(Tool::Move);
         if (ImGui::MenuItem("Rotate", shortcuts::kRotate, t == Tool::Rotate)) ctx.tools.setTool(Tool::Rotate);
@@ -321,7 +323,9 @@ void Ui::toolbar(UiContext& ctx, float y, float height, float width) {
     const Tool t = ctx.tools.tool();
     if (toolButton("Select", t == Tool::Select, "Select (Space)\nClick an object or face. Click empty space to clear.")) ctx.tools.setTool(Tool::Select);
     ImGui::SameLine();
-    if (toolButton("Rectangle", t == Tool::Rectangle, "Rectangle (R)\nClick two corners on the ground, or type width, depth.")) ctx.tools.setTool(Tool::Rectangle);
+    if (toolButton("Rectangle", t == Tool::Rectangle, "Rectangle (R)\nClick two corners on a face or the ground, or type width, depth.\nArrow keys lock a plane: Right red, Left green, Up horizontal, Down the hovered face.")) ctx.tools.setTool(Tool::Rectangle);
+    ImGui::SameLine();
+    if (toolButton("Rotated", t == Tool::RotatedRectangle, "Rotated Rectangle\nClick the first corner, the end of the first side, then the depth.\nType the length after the first click and the depth after the second.")) ctx.tools.setTool(Tool::RotatedRectangle);
     ImGui::SameLine();
     if (toolButton("Circle", t == Tool::Circle, "Circle (C)\nClick the center, then a point on the circle, or type the radius.\nType 48s for 48 segments.")) ctx.tools.setTool(Tool::Circle);
     ImGui::SameLine();

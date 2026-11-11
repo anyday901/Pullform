@@ -59,7 +59,7 @@ std::optional<PickHit> MeshCache::pick(const Ray& ray) const {
     std::optional<PickHit> best;
     for (const auto& [id, cached] : entries_) {
         const auto hit = pickObject(ray, *cached.source, cached.mesh);
-        if (hit && (!best || hit->distance < best->distance)) best = hit;
+        if (hit && nearerHit(*hit, best)) best = hit;
     }
     return best;
 }

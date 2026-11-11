@@ -28,6 +28,12 @@ struct RectanglePreview {
     Vec3 start{0.0};
     Vec3 end{0.0};
     std::optional<RectanglePlacement> placement; ///< empty while degenerate
+    /// World points of the outline drawn so far, in order: four corners of a
+    /// rectangle on any plane, or the two ends of a rotated rectangle's first
+    /// side. Empty: the ground rectangle with corners `start` and `end`.
+    std::vector<Vec3> outline;
+    double width = 0.0; ///< shown in the measurements box
+    double depth = 0.0;
 };
 
 /// Live circle or polygon preview (center placed, pointer at `edge`).

@@ -50,6 +50,7 @@ Expected<OpResult> createRectangle(const Document& doc, const RectanglePlacement
     o.profile.kind = ProfileKind::Rectangle;
     o.profile.boundary = rectangleBoundary(placement.width, placement.depth);
     o.transform.translation = placement.corner;
+    o.transform.rotation = placement.rotation;
     if (auto e = validateObject(o, "rectangle")) return Error{*e};
     OpResult result{doc, o.id, {}};
     result.document.nextId = doc.nextId + 1;
@@ -59,7 +60,7 @@ Expected<OpResult> createRectangle(const Document& doc, const RectanglePlacement
 
 Expected<OpResult> createCircle(const Document& doc, const CirclePlacement& placement, ProfileKind kind) {
     if (kind != ProfileKind::Circle && kind != ProfileKind::Polygon) return Error{"Only circles and polygons are drawn from a center."};
-    auto checked = circleFromRadius(placement.center, placement.radius, placement.start, placement.segments);
+    auto checked = circleFromRadius(placement.center, placement.radius, placement.start, placement.segments, placement.rotation);
     if (!checked) return Error{checked.error()};
     ProfileObject o;
     o.id = ObjectId{doc.nextId};
@@ -67,6 +68,7 @@ Expected<OpResult> createCircle(const Document& doc, const CirclePlacement& plac
     o.profile.kind = kind;
     o.profile.boundary = regularBoundary(checked->radius, checked->segments, checked->start);
     o.transform.translation = checked->center;
+    o.transform.rotation = checked->rotation;
     if (auto e = validateObject(o, kind == ProfileKind::Circle ? "circle" : "polygon")) return Error{*e};
     OpResult result{doc, o.id, {}};
     result.document.nextId = doc.nextId + 1;
@@ -84,22 +86,66 @@ constexpr std::array<std::pair<std::string_view, std::string_view>, 3> kDefaultN
 }};
 
 } // namespace
+std::optional<std::string> checkProfileHeight(double height) {
+    if (std::isfinite(height) && height < 0.0) return checkHeight(-height);
+    return checkHeight(height);
+}
+
+int flippedCorner(ProfileKind kind, int count, int index) {
+    if (count <= 0 || index < 0 || index >= count) return index;
+    return kind == ProfileKind::Rectangle ? count - 1 - index : (count - index) % count;
+}
+
+ProfileObject flippedProfile(const ProfileObject& object) {
+    ProfileObject out = object;
+    if (object.isMeshGroup()) return out;
+    out.transform.rotation = glm::normalize(object.transform.rotation * Quat{0.0, 1.0, 0.0, 0.0});
+    if (object.profile.kind != ProfileKind::Rectangle) {
+        // A circle or polygon turns half a turn about its local X axis through
+        // its center: local (x, y) lands where (x, -y) was. Mirroring the start
+        // angle keeps every corner where it was (corner i is where corner
+        // (n - i) mod n was).
+        const auto shape = regularShape(object.profile.boundary);
+        if (!shape) return object;
+        out.profile.boundary = regularBoundary(shape->radius, shape->segments, -shape->start);
+        return out;
+    }
+    // Turn half a turn about the local X axis (local (x, y) -> (x, -y), normal
+    // reversed), then shift by the depth so the footprint stays where it is:
+    // local (x, y) lands where (x, d - y) was.
+    if (object.profile.boundary.size() != 4) return object;
+    const double depth = object.profile.boundary[3].y;
+    out.transform.translation = localToWorld(object, Vec3{0.0, depth, 0.0});
+    return out;
+}
 
 Expected<OpResult> extrudeProfile(const Document& doc, ObjectId id, double height) {
     const auto* o = doc.find(id);
     if (!o) return Error{"Object " + idString(id) + " no longer exists."};
     if (o->isMeshGroup()) return Error{"Push/pull of drawn faces is not supported yet."};
     if (o->extrusion) return Error{"This object is already extruded. Select its cap to change the height."};
-    if (auto e = checkHeight(height)) return Error{*e};
-    ProfileObject changed = *o;
-    changed.extrusion = Extrusion{height};
+    if (auto e = checkProfileHeight(height)) return Error{*e};
+    ProfileObject changed = height < 0.0 ? flippedProfile(*o) : *o;
+    changed.extrusion = Extrusion{std::abs(height)};
     for (const auto& [planar, extruded] : kDefaultNames) {
         if (changed.name.starts_with(planar)) {
             changed.name = std::string{extruded} + changed.name.substr(planar.size());
             break;
         }
     }
-    return replaceObject(doc, std::move(changed));
+    auto replaced = replaceObject(doc, std::move(changed));
+    if (!replaced || height >= 0.0) return replaced;
+    OpResult result = std::move(replaced).value();
+    // The flip renumbers the corners (flippedCorner), so dimensions attached
+    // to them keep measuring the same points.
+    const int count = static_cast<int>(o->profile.boundary.size());
+    for (auto& d : result.document.dimensions) {
+        for (DimensionAnchor* a : {&d.a, &d.b}) {
+            if (a->object != id) continue;
+            for (int& v : a->vertices) v = flippedCorner(o->profile.kind, count, v);
+        }
+    }
+    return result;
 }
 
 Expected<OpResult> setExtrusionHeight(const Document& doc, ObjectId id, double height) {

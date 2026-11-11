@@ -13,7 +13,6 @@
 #include "core/geometry/solid.hpp"
 
 #include <algorithm>
-#include <algorithm>
 #include <cassert>
 
 namespace pf {
@@ -33,6 +32,7 @@ ToolController::ToolController(Editor& editor) : editor_(editor), snapper_(edito
     rectangle_ = &add<RectangleTool>(Tool::Rectangle);
     add<CircleTool>(Tool::Circle, ProfileKind::Circle);
     add<CircleTool>(Tool::Polygon, ProfileKind::Polygon);
+    add<RectangleTool>(Tool::RotatedRectangle, RectangleTool::Mode::Rotated);
     move_ = &add<MoveTool>(Tool::Move);
     rotate_ = &add<RotateTool>(Tool::Rotate);
     scale_ = &add<ScaleTool>(Tool::Scale);

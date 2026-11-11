@@ -31,7 +31,20 @@ Expected<OpResult> createRectangle(const Document& doc, const RectanglePlacement
 /// Adds a planar circle or regular polygon (`kind` Circle or Polygon), centred
 /// on the placement's center, allocating a new stable ID.
 Expected<OpResult> createCircle(const Document& doc, const CirclePlacement& placement, ProfileKind kind = ProfileKind::Circle);
+/// Checks a push/pull of a planar face: like checkHeight, but a negative
+/// height (pushing the face backwards, into a wall) is allowed.
+std::optional<std::string> checkProfileHeight(double height);
+/// The same planar rectangle, circle or polygon facing the other way: the
+/// footprint stays put and the normal is reversed (see flippedCorner).
+ProfileObject flippedProfile(const ProfileObject& object);
+/// The corner index that corner `index` of a planar profile with `count`
+/// corners gets when flippedProfile turns it over: 3 - i for a rectangle,
+/// (n - i) mod n for a circle or polygon.
+int flippedCorner(ProfileKind kind, int count, int index);
 /// Turns a planar rectangle, circle or polygon into a closed prism of total height `height`.
+/// A negative height extrudes backwards (against the face's normal): the
+/// rectangle is flipped first, so the prism still has a positive height and
+/// its cap is the far face.
 Expected<OpResult> extrudeProfile(const Document& doc, ObjectId id, double height);
 /// Changes the total height of an existing extrusion (same object, same ID).
 Expected<OpResult> setExtrusionHeight(const Document& doc, ObjectId id, double height);

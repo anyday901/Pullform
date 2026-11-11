@@ -112,6 +112,7 @@ struct GpuMesh {
     gl::Buffer vertices;
     gl::Buffer indices;
     GLsizei indexCount = 0;
+    bool sheet = false; ///< a planar face (not a closed solid): drawn in front of faces it lies on
     Vec3 origin{0.0}; ///< positions are stored as float offsets from this point
 };
 
@@ -181,6 +182,7 @@ public:
         Bounds b;
         for (const auto& p : mesh.positions) b.extend(p);
         gpu.origin = b.valid ? b.min : Vec3{0.0};
+        gpu.sheet = !mesh.closed;
         std::vector<MeshVertex> vertices(mesh.positions.size());
         for (std::size_t i = 0; i < vertices.size(); ++i) {
             const glm::vec3 p(mesh.positions[i] - gpu.origin); // double -> float at the render boundary
@@ -210,7 +212,10 @@ public:
         if (it == meshes_.end()) return;
         useMeshProgram(it->second, color, 1.0f);
         glEnable(GL_POLYGON_OFFSET_FILL);
-        glPolygonOffset(1.0f, 1.0f);
+        // A rectangle drawn on a wall lies exactly on it: sheets get a smaller
+        // offset than solids so they win the depth test instead of flickering.
+        if (it->second.sheet) glPolygonOffset(1.0f, 1.0f);
+        else glPolygonOffset(2.0f, 2.0f);
         glDepthMask(color.a >= 1.0f ? GL_TRUE : GL_FALSE);
         glBindVertexArray(it->second.vao.get());
         glDrawElements(GL_TRIANGLES, it->second.indexCount, GL_UNSIGNED_INT, nullptr);

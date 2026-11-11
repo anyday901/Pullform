@@ -54,7 +54,9 @@ void PushPullTool::pointerUp(const PointerInput& input) {
 void PushPullTool::setPreview(double delta) {
     if (!gesture_) return;
     const double height = gesture_->startHeight + delta;
-    editor().setPreview(PushPullPreview{gesture_->objectId, gesture_->face, gesture_->startHeight, delta, height, checkHeight(height)});
+    // A planar face may be pushed backwards (into a wall); a cap stays above its base.
+    const auto error = gesture_->face == FaceKind::Profile ? checkProfileHeight(height) : checkHeight(height);
+    editor().setPreview(PushPullPreview{gesture_->objectId, gesture_->face, gesture_->startHeight, delta, height, error});
 }
 
 void PushPullTool::pointerMove(const PointerInput& input) {
@@ -159,7 +161,7 @@ std::optional<std::string> PushPullTool::submitDistance(std::string_view text) {
         start = o->extrusion ? o->extrusion->height : 0.0;
     }
     if (*parsed == 0.0) return std::string("Distance must not be zero.");
-    if (auto e = checkHeight(start + *parsed)) return e;
+    if (auto e = face == FaceKind::Profile ? checkProfileHeight(start + *parsed) : checkHeight(start + *parsed)) return e;
     if (!commitHeight(id, face, start + *parsed)) return ctx_.lastError("Push/pull failed.");
     return std::nullopt;
 }
@@ -177,7 +179,7 @@ std::optional<std::string> PushPullTool::setTotalHeight(ObjectId id, std::string
 
 std::string PushPullTool::hint() const {
     if (gesture_) return "Push/Pull: move to set the height and click, or type a distance and press Enter. Esc cancels.";
-    return "Push/Pull: click a rectangle, circle or polygon, or an extrusion's top cap, then move up. Side and base faces are not supported yet.";
+    return "Push/Pull: click a rectangle, circle or polygon and move either way, or an extrusion's top cap. Side and base faces are not supported yet.";
 }
 
 } // namespace pf

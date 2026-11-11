@@ -2,6 +2,7 @@
 
 #include "core/document/tolerance.hpp"
 #include "core/document/validate.hpp"
+#include "core/geometry/plane.hpp"
 #include "core/geometry/rectangle.hpp"
 
 #include <glm/geometric.hpp>
@@ -83,24 +84,43 @@ Expected<RegularShape> regularShape(const std::vector<Vec2>& b) {
     return shape;
 }
 
-Expected<CirclePlacement> circleFromRadius(const Vec3& center, double radius, double start, int segments) {
+Expected<CirclePlacement> circleFromRadius(const Vec3& center, double radius, double start, int segments, const Quat& rotation) {
     if (auto e = checkRectangleCorner(center)) return Error{"Center: " + *e};
     if (!std::isfinite(start)) return Error{"The circle's direction is not valid."};
     if (auto e = checkCircle(radius, segments)) return Error{*e};
-    if (std::abs(center.x) + radius > tol::kMaxCoordinate || std::abs(center.y) + radius > tol::kMaxCoordinate) {
-        return Error{"The circle would extend beyond the supported range of +/-10 km."};
+    for (int i = 0; i < 3; ++i) {
+        if (std::abs(center[i]) + radius > tol::kMaxCoordinate) {
+            return Error{"The circle would extend beyond the supported range of +/-10 km."};
+        }
     }
-    return CirclePlacement{center, radius, std::remainder(start, 2.0 * std::numbers::pi), segments};
+    return CirclePlacement{center, radius, std::remainder(start, 2.0 * std::numbers::pi), segments, rotation};
 }
 
-Expected<CirclePlacement> circleFromPoints(const Vec3& center, const Vec3& onCircle, int segments) {
-    const Vec2 d{onCircle.x - center.x, onCircle.y - center.y};
+Expected<CirclePlacement> circleOnPlane(const PlaneBasis& plane, const Vec3& center, const Vec3& onCircle, int segments) {
+    const Vec2 c = toPlane(plane, center);
+    const Vec2 d = toPlane(plane, onCircle) - c;
     const double r = glm::length(d);
     if (!std::isfinite(r)) return Error{"The circle's points must be finite."};
     if (r < tol::kMinDimension) {
         return Error{"The radius must be at least " + formatLength(tol::kMinDimension, LengthUnit::Millimeter) + "."};
     }
-    return circleFromRadius(center, r, std::atan2(d.y, d.x), segments);
+    return circleFromRadius(fromPlane(plane, c), r, std::atan2(d.y, d.x), segments, planeRotation(plane));
+}
+
+Expected<CirclePlacement> circleFromPoints(const Vec3& center, const Vec3& onCircle, int segments) {
+    // The horizontal plane through the center (the ground for a center at z = 0).
+    return circleOnPlane(PlaneBasis{Vec3{0.0, 0.0, center.z}, {1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}}, center, onCircle, segments);
+}
+
+std::vector<Vec3> circleCorners(const CirclePlacement& placement) {
+    std::vector<Vec3> out;
+    Transform t;
+    t.rotation = placement.rotation;
+    const Mat3 r = rotationMatrix(t);
+    for (const auto& p : regularBoundary(placement.radius, placement.segments, placement.start)) {
+        out.push_back(placement.center + r * Vec3{p.x, p.y, 0.0});
+    }
+    return out;
 }
 
 std::optional<Expected<int>> parseSegmentCount(std::string_view text) {

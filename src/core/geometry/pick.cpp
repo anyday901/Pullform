@@ -2,6 +2,7 @@
 
 #include <glm/geometric.hpp>
 
+#include <algorithm>
 #include <cmath>
 
 namespace pf {
@@ -39,11 +40,18 @@ std::optional<PickHit> pickObject(const Ray& ray, const ProfileObject& object, c
     return best;
 }
 
+bool nearerHit(const PickHit& hit, const std::optional<PickHit>& best) {
+    if (!best) return true;
+    const double tie = 1e-9 * std::max(1.0, best->distance);
+    if (std::abs(hit.distance - best->distance) <= tie) return hit.objectId > best->objectId;
+    return hit.distance < best->distance;
+}
+
 std::optional<PickHit> pickDocument(const Ray& ray, const Document& document) {
     std::optional<PickHit> best;
     for (const auto& o : document.objects) {
         const auto hit = pickObject(ray, *o, buildMesh(*o));
-        if (hit && (!best || hit->distance < best->distance)) best = hit;
+        if (hit && nearerHit(*hit, best)) best = hit;
     }
     return best;
 }
