@@ -16,6 +16,7 @@ add_executable(pullform_tests
   measure_tests.cpp
   mesh_cache_tests.cpp
   tool_interface_tests.cpp
+  selection_tests.cpp
   fake_renderer.hpp)
 target_link_libraries(pullform_tests PRIVATE pullform_app_logic doctest::doctest)
 pullform_set_warnings(pullform_tests)

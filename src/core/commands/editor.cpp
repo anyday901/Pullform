@@ -43,7 +43,7 @@ bool Editor::commit(const std::string& label, const Operation& op, const SelectA
         notify(Message{Message::Kind::Error, "Edit rejected: " + *e});
         return false;
     }
-    const std::optional<Selection> nextSelection =
+    const SelectionSet nextSelection =
         selectAfter ? sanitizeSelection(result->document, selectAfter(*result)) : sanitizeSelection(result->document, selection_);
 
     undo_.push_back(Snapshot{document_, selection_, stateId_, label});
@@ -91,7 +91,9 @@ bool Editor::redo() {
     return true;
 }
 
-void Editor::select(const std::optional<Selection>& selection) {
+void Editor::select(const std::optional<Selection>& selection) { setSelection(SelectionSet{selection}); }
+
+void Editor::setSelection(const SelectionSet& selection) {
     selection_ = sanitizeSelection(document_, selection);
     touch();
 }
@@ -124,7 +126,7 @@ void Editor::resetDocument(Document document) {
     document_ = std::move(document);
     undo_.clear();
     redo_.clear();
-    selection_.reset();
+    selection_.clear();
     hover_.reset();
     preview_ = std::monostate{};
     message_.reset();

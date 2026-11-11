@@ -122,12 +122,21 @@ public:
     static constexpr std::size_t kMaxHistory = 200;
 
     using Operation = std::function<Expected<OpResult>(const Document&)>;
-    using SelectAfter = std::function<std::optional<Selection>(const OpResult&)>;
+    /// The selection after a commit. A function returning one Selection (or
+    /// nothing) converts implicitly to a single-object SelectionSet.
+    using SelectAfter = std::function<SelectionSet(const OpResult&)>;
 
     Editor();
 
     [[nodiscard]] const Document& document() const { return document_; }
-    [[nodiscard]] const std::optional<Selection>& selection() const { return selection_; }
+    /// The primary selected object (the one most recently clicked, with its
+    /// face), or nothing. Single-object tools use this.
+    [[nodiscard]] const std::optional<Selection>& selection() const { return selection_.primary(); }
+    /// Every selected object (multi-selection); includes the primary.
+    [[nodiscard]] const SelectionSet& selectionSet() const { return selection_; }
+    /// The selected objects, primary last.
+    [[nodiscard]] const std::vector<ObjectId>& selectedObjects() const { return selection_.objects(); }
+    [[nodiscard]] bool isSelected(ObjectId id) const { return selection_.contains(id); }
     [[nodiscard]] const std::optional<Selection>& hover() const { return hover_; }
     [[nodiscard]] const Preview& preview() const { return preview_; }
     [[nodiscard]] const std::optional<Message>& message() const { return message_; }
@@ -146,7 +155,10 @@ public:
     [[nodiscard]] std::size_t undoDepth() const { return undo_.size(); }
     [[nodiscard]] std::size_t redoDepth() const { return redo_.size(); }
 
+    /// Selects just this object (or clears the selection).
     void select(const std::optional<Selection>& selection);
+    /// Replaces the whole selection (not model history).
+    void setSelection(const SelectionSet& selection);
     void setHover(const std::optional<Selection>& hover);
     void setPreview(Preview preview);
     void cancelPreview();
@@ -172,7 +184,7 @@ public:
 private:
     struct Snapshot {
         Document document;
-        std::optional<Selection> selection;
+        SelectionSet selection;
         std::uint64_t stateId = 0;
         std::string label;
     };
@@ -181,7 +193,7 @@ private:
     void touch() { ++changeCount_; }
 
     Document document_;
-    std::optional<Selection> selection_;
+    SelectionSet selection_;
     std::optional<Selection> hover_;
     Preview preview_;
     std::optional<Message> message_;
