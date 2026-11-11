@@ -1,6 +1,7 @@
 #include "core/document/validate.hpp"
 
 #include "core/document/tolerance.hpp"
+#include "core/geometry/measure.hpp"
 
 #include <cmath>
 #include <set>
@@ -82,6 +83,42 @@ std::optional<std::string> validateObject(const ProfileObject& o, std::string_vi
     return std::nullopt;
 }
 
+namespace {
+
+std::optional<std::string> validateAnchor(const DimensionAnchor& anchor, const Document& doc, std::string_view path) {
+    if (!anchor.object) {
+        if (!anchor.vertices.empty()) return join(path, ": a free point must not name corners");
+        if (!finiteInRange(anchor.point)) return join(path, ".point: values must be finite and within +/-10 km");
+        return std::nullopt;
+    }
+    const auto* o = doc.find(*anchor.object);
+    if (!o) return join(path, ".object: " + idString(*anchor.object) + " does not exist");
+    if (anchor.vertices.empty() || anchor.vertices.size() > 2) {
+        return join(path, ".vertices: must list one corner, or the two corners of an edge");
+    }
+    for (int v : anchor.vertices) {
+        if (v < 0 || v >= vertexCount(*o)) {
+            return join(path, ".vertices: corner " + std::to_string(v) + " does not exist on " + idString(o->id));
+        }
+    }
+    if (anchor.vertices.size() == 2 && anchor.vertices[0] == anchor.vertices[1]) {
+        return join(path, ".vertices: an edge needs two different corners");
+    }
+    return std::nullopt;
+}
+
+} // namespace
+
+std::optional<std::string> validateDimension(const Dimension& d, const Document& doc, std::string_view path) {
+    if (d.id.value == 0) return join(path, ".id: must be a positive dimension ID");
+    if (auto e = validateAnchor(d.a, doc, join(path, ".a"))) return e;
+    if (auto e = validateAnchor(d.b, doc, join(path, ".b"))) return e;
+    if (!finiteInRange(d.offset)) return join(path, ".offset: values must be finite and within +/-10 km");
+    // A zero length is allowed here: moving an object can bring a free end onto
+    // an attached one, and that must not make the move invalid.
+    return std::nullopt;
+}
+
 std::optional<std::string> validateDocument(const Document& doc) {
     if (doc.nextId < 1 || doc.nextId > (std::uint64_t{1} << 53)) return "document.nextId: must be a positive integer";
     std::set<std::uint64_t> seen;
@@ -93,6 +130,16 @@ std::optional<std::string> validateDocument(const Document& doc) {
         if (!seen.insert(o.id.value).second) return path + ".id: duplicate ID " + idString(o.id);
         if (o.id.value >= doc.nextId) {
             return "document.nextId: must be greater than the number in every object ID (found " + idString(o.id) + ")";
+        }
+    }
+    // Dimension IDs share the object allocator, so a number is never used twice.
+    for (std::size_t i = 0; i < doc.dimensions.size(); ++i) {
+        const std::string path = "document.dimensions[" + std::to_string(i) + "]";
+        const auto& d = doc.dimensions[i];
+        if (auto e = validateDimension(d, doc, path)) return e;
+        if (!seen.insert(d.id.value).second) return path + ".id: the number in " + idString(d.id) + " is already used";
+        if (d.id.value >= doc.nextId) {
+            return "document.nextId: must be greater than the number in every dimension ID (found " + idString(d.id) + ")";
         }
     }
     return std::nullopt;

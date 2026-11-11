@@ -43,6 +43,8 @@ std::string_view toolName(Tool tool) {
     case Tool::PushPull: return "Push/Pull";
     case Tool::Move: return "Move";
     case Tool::Orbit: return "Orbit";
+    case Tool::TapeMeasure: return "Tape Measure";
+    case Tool::Dimension: return "Dimension";
     }
     return "Select";
 }
@@ -55,6 +57,8 @@ void ToolController::setTool(Tool tool) {
     tool_ = tool;
     indicator_.reset();
     snapper_.clearReferences();
+    if (tool == Tool::TapeMeasure) measure_.start(MeasureTool::Mode::Tape);
+    if (tool == Tool::Dimension) measure_.start(MeasureTool::Mode::Dimension);
     editor_.setHover(std::nullopt);
     editor_.notify(std::nullopt);
 }
@@ -65,12 +69,26 @@ bool ToolController::cancel() {
     push_.reset();
     move_.reset();
     indicator_.reset();
+    measure_.cancel();
     editor_.cancelPreview();
     return had;
 }
 
 std::optional<SnapResult> ToolController::snapGround(const PointerInput& input) {
     return snapper_.ground(input, rect_ ? std::optional(rect_->start) : std::nullopt);
+}
+
+std::optional<SnapResult> ToolController::measureSnap(const PointerInput& input) {
+    SnapResult res = snapPointer(input);
+    // snapPointer reports a miss as SnapKind::None, but so is a plain ground
+    // point with grid snap off: only a ray that misses the ground is a miss.
+    if (res.kind == SnapKind::None && !intersectHorizontalPlane(input.ray, 0.0)) {
+        indicator_.reset();
+        return std::nullopt;
+    }
+    if (res.kind == SnapKind::None) indicator_.reset();
+    else indicator_ = res;
+    return res;
 }
 
 SnapResult ToolController::snapPointer(const PointerInput& input) {
@@ -96,6 +114,8 @@ void ToolController::pointerDown(const PointerInput& input) {
     case Tool::PushPull: pushDown(input); break;
     case Tool::Move: moveDown(input); break;
     case Tool::Orbit: break; // navigation owns the drag
+    case Tool::TapeMeasure:
+    case Tool::Dimension: measure_.pointerDown(input, measureSnap(input)); break;
     }
 }
 
@@ -109,12 +129,16 @@ void ToolController::pointerMove(const PointerInput& input) {
     case Tool::PushPull: pushMove(input); break;
     case Tool::Move: moveMove(input); break;
     case Tool::Orbit: break;
+    case Tool::TapeMeasure:
+    case Tool::Dimension: measure_.pointerMove(input, measureSnap(input)); break;
     }
 }
 
 void ToolController::pointerUp(const PointerInput& input) {
     const auto moved = [&](const Vec2& press) { return glm::length(input.screen - press) > kDragThresholdPx; };
-    if (rect_ && rect_->pressed) {
+    if (tool_ == Tool::TapeMeasure || tool_ == Tool::Dimension) {
+        measure_.pointerUp(input, measureSnap(input));
+    } else if (rect_ && rect_->pressed) {
         rect_->pressed = false;
         // Press-drag-release draws in one gesture; a plain click waits for the second corner.
         if (moved(rect_->pressScreen)) rectFinish(input);
@@ -566,7 +590,7 @@ std::optional<std::string> ToolController::setTotalHeight(ObjectId id, std::stri
 
 std::string ToolController::hint() const {
     std::string text = toolHint();
-    if (indicator_ && indicator_->kind >= SnapKind::OnFace && (tool_ == Tool::Rectangle || tool_ == Tool::PushPull)) {
+    if (indicator_ && indicator_->kind >= SnapKind::OnFace && tool_ != Tool::Select && tool_ != Tool::Orbit) {
         text = std::string("[") + snapKindName(indicator_->kind) + "] " + text;
     }
     return text;
@@ -599,6 +623,8 @@ std::string ToolController::toolHint() const {
     }
     case Tool::Orbit:
         return "Orbit: drag with the left button to orbit. Right-drag pans, the wheel zooms.";
+    case Tool::TapeMeasure:
+    case Tool::Dimension: return measure_.hint();
     }
     return {};
 }

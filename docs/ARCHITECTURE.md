@@ -53,8 +53,9 @@ input from the viewport, update a transient *preview*, and on completion call
 ```cpp
 struct Document {
     LengthUnit displayUnit;            // display/input unit; storage is always meters
-    uint64_t nextId;                   // allocator for stable object IDs (saved in files)
+    uint64_t nextId;                   // allocator for stable object and dimension IDs (saved in files)
     std::vector<ObjectPtr> objects;    // shared_ptr<const ProfileObject>
+    std::vector<Dimension> dimensions; // annotations (small values)
 };
 struct ProfileObject {
     ObjectId id;                       // stable: never reused; survives undo/redo/save/load
@@ -70,6 +71,18 @@ the local XY plane with a translation-only transform. The fields are already sha
 general polygon profile, other planes (a different `PlaneBasis`) and full transforms, so
 those can be added without changing what existing files mean. Validation
 (`core/document/validate.*`) enforces the current restrictions explicitly.
+
+A `Dimension` (`dim-<n>`, numbered from the same `nextId`, so a number is never used
+twice) measures between two `DimensionAnchor`s and is drawn displaced by a world `offset`.
+An anchor is either a free world point or attached to an object by corner index: one index
+is a corner, two are the midpoint of the edge between them. Corners are numbered by
+`objectVertex` (`core/geometry/measure.*`): boundary point i on the base is corner i, and
+the cap point above it is corner n + i, so the numbering is independent of face order and
+stays valid when the height changes or a planar profile is extruded. Attached ends are
+resolved from the object every time, so a dimension follows its object. Deleting an object
+deletes its dimensions in the same commit. A zero-length dimension is refused when it is
+added, but not by validation, so an edit that brings a free end onto an attached one is
+never rejected because of an annotation.
 
 Objects are immutable once in a document. Operations (`core/commands/operations.*`:
 `createRectangle`, `extrudeProfile`, `setExtrusionHeight`, `duplicateObject`, `deleteObject`,
@@ -170,6 +183,15 @@ with synthetic events and no window.
   viewport as a marker and dashed guides drawn on top. `snapPointer` and
   `resolveSnapFeature` let other tools (tape measure, dimensions) snap the same way and
   refer to a corner or midpoint by object and feature index.
+- Tape measure and dimensions (`app/tools/measure_tool.*`): `ToolController` snaps each
+  pointer event with `snapPointer` and passes the result to `MeasureTool`. An endpoint or
+  midpoint snap becomes an attached anchor through `anchorAt`, which matches the point
+  against the object's corners and edge midpoints, so the anchor does not depend on the
+  snap index's feature order. The dimension line offset comes from `offsetFromRay`: the
+  pointer ray meets the plane through the measured segment that faces the viewer, and the
+  offset is the part of that hit perpendicular to the segment. The viewport draws
+  dimensions and the live measurement on top of the model; their labels are drawn by the
+  UI at `Camera::project` of the line's middle.
 - Input ownership (`App::handleViewportInput`): Dear ImGui owns the pointer over panels,
   menus and popups (`WantCaptureMouse`); a drag that starts in the viewport belongs to the
   viewport until its button is released. Left button = active tool (or orbit with the
@@ -196,7 +218,12 @@ with synthetic events and no window.
                    "plane": { "origin": [0,0,0], "xAxis": [1,0,0], "yAxis": [0,1,0] },
                    "boundary": [[0,0],[2,0],[2,1],[0,1]] },
       "extrusion": { "height": 0.75 },
-      "transform": { "translation": [0,0,0] } }]
+      "transform": { "translation": [0,0,0] } }],
+    "dimensions": [{
+      "id": "dim-2",
+      "a": { "object": "obj-1", "vertices": [0] },
+      "b": { "point": [3, 0, 0] },
+      "offset": [0, -0.4, 0] }]
   },
   "view": { "position": [x, y, z], "target": [x, y, z] }
 }
@@ -204,6 +231,11 @@ with synthetic events and no window.
 
 - `document` is exactly the editable model; `view` (camera) is optional and ignored if
   invalid.
+- `document.dimensions` is optional and only written when the project has dimensions, so
+  files without annotations are unchanged. An anchor is `{"point": [x,y,z]}` or
+  `{"object": "obj-N", "vertices": [i]}` (a corner) / `[i, j]` (an edge midpoint). It is
+  part of file format version 2 together with rotation; until that version lands, readers
+  of version 1 that predate dimensions ignore the key.
 - Opening reads the file (max 50 MB), parses it, checks structure and types, then runs
   the same `validateDocument` used for every commit (ranges, rectangles, unique IDs,
   `nextId` greater than every used ID). Only then does it replace the open project.

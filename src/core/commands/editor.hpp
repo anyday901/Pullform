@@ -40,6 +40,17 @@ struct PushPullPreview {
     std::optional<std::string> error; ///< why the current height cannot be committed
 };
 
+/// Live tape measure or dimension placement. Points are world space.
+struct MeasurePreview {
+    enum class Mode { Tape, Dimension };
+    Mode mode = Mode::Tape;
+    std::optional<Vec3> start; ///< first point, once clicked
+    std::optional<Vec3> end;   ///< second point: live while measuring, then fixed
+    bool fixed = false;        ///< both points placed (tape: finished; dimension: placing the line)
+    std::optional<Vec3> offset; ///< dimension line offset while placing it
+    Vec3 cursor{0.0};          ///< snapped pointer point
+};
+
 /// A world axis that a gesture is locked to (Move: the direction of travel).
 enum class MoveAxis { X, Y, Z };
 
@@ -60,7 +71,7 @@ struct MovePreview {
 };
 
 /// Transient feedback drawn by the viewport. Never part of the document or history.
-using Preview = std::variant<std::monostate, RectanglePreview, PushPullPreview, MovePreview>;
+using Preview = std::variant<std::monostate, RectanglePreview, PushPullPreview, MovePreview, MeasurePreview>;
 
 /// The editing session: the current document, selection, transient preview and
 /// snapshot-based undo/redo.

@@ -20,9 +20,11 @@ is not affiliated with SketchUp and does not read or write `.skp` files.
 4. Push/pull a rectangle into a closed rectangular prism by pointer or exact distance.
 5. Select an extrusion's top cap and change its height: drag it, type an incremental
    distance, or set the absolute **Total height**. The same object is updated.
-6. Select and delete a whole object.
-7. Undo and redo every committed modeling operation.
-8. Save an editable, versioned project file (`.pullform.json`), reopen it, and keep editing.
+6. Measure between any two points with the **Tape Measure**, and add **Dimension**
+   annotations that stay attached to the corners and edge midpoints they measure.
+7. Select and delete a whole object.
+8. Undo and redo every committed modeling operation.
+9. Save an editable, versioned project file (`.pullform.json`), reopen it, and keep editing.
 
 ### Current limits
 
@@ -121,6 +123,8 @@ tree, configure with `-DFETCHCONTENT_FULLY_DISCONNECTED=ON`.
 | Lock Move to an axis (again to release) | X / Y / Z, or Right / Left / Up arrow |
 | Move: place a copy instead (again to stop) | Tap Ctrl (Option on macOS) |
 | Orbit tool | O |
+| Tape Measure tool | T |
+| Dimension tool | D |
 | Fit view to model | F |
 | Toggle grid snap | G |
 | Type an exact value | Start typing digits, then Enter (goes to the Measurements box) |

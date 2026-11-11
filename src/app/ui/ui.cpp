@@ -2,6 +2,7 @@
 
 #include "app/ui/shortcuts.hpp"
 #include "core/commands/operations.hpp"
+#include "core/geometry/measure.hpp"
 #include "core/geometry/solid.hpp"
 
 #include <glm/geometric.hpp>
@@ -25,7 +26,8 @@ constexpr const char* kLimitsText =
     "- Side and base faces cannot be pushed yet.\n"
     "- Heights must be positive: pushing below the base, holes and cutting are not supported.\n"
     "- Touching or overlapping objects stay separate (no merging).\n"
-    "- Move and Duplicate work on whole objects; no rotate or scale yet.";
+    "- Move and Duplicate work on whole objects; no rotate or scale yet.\n"
+    "- Dimensions are deleted with their object and listed in this panel for deleting.";
 
 #ifdef __APPLE__
 #define PF_COPY_KEY "Option"
@@ -62,6 +64,21 @@ const char* snapLabel(double step) {
 }
 
 } // namespace
+
+void Ui::drawLabels(const std::vector<ViewportLabel>& labels) {
+    ImDrawList* dl = ImGui::GetBackgroundDrawList();
+    const ImVec2 pad(4.0f * ImGui::GetFontSize() / 15.0f, 2.0f * ImGui::GetFontSize() / 15.0f);
+    for (const auto& label : labels) {
+        const ImVec2 size = ImGui::CalcTextSize(label.text.c_str());
+        const ImVec2 min(static_cast<float>(label.position.x) - size.x * 0.5f - pad.x,
+                         static_cast<float>(label.position.y) - size.y * 0.5f - pad.y);
+        const ImVec2 max(min.x + size.x + 2 * pad.x, min.y + size.y + 2 * pad.y);
+        const bool live = label.style == ViewportLabel::Style::Live;
+        dl->AddRectFilled(min, max, live ? IM_COL32(255, 244, 230, 240) : IM_COL32(255, 255, 255, 230), 3.0f);
+        dl->AddRect(min, max, live ? IM_COL32(242, 115, 20, 255) : IM_COL32(51, 61, 82, 200), 3.0f);
+        dl->AddText(ImVec2(min.x + pad.x, min.y + pad.y), IM_COL32(30, 34, 40, 255), label.text.c_str());
+    }
+}
 
 std::vector<UiAction> Ui::takeActions() { return std::exchange(actions_, {}); }
 
@@ -106,6 +123,8 @@ std::string Ui::measurementLabel(const UiContext& ctx) const {
     case Tool::Move: return "Distance, or x, y, z";
     case Tool::Select: return "Total height";
     case Tool::Orbit: return "Measurements";
+    case Tool::TapeMeasure: return "Distance";
+    case Tool::Dimension: return "Offset";
     }
     return "Measurements";
 }
@@ -118,6 +137,14 @@ std::string Ui::measurementLive(const UiContext& ctx) const {
     }
     if (const auto* p = std::get_if<PushPullPreview>(&ctx.editor.preview())) {
         return (p->delta >= 0 ? "+" : "") + formatLength(p->delta, u) + "   (total height " + formatLength(p->height, u) + ")";
+    }
+    if (const auto* m = std::get_if<MeasurePreview>(&ctx.editor.preview()); m && m->start && m->end) {
+        const Measurement d = measureBetween(*m->start, *m->end);
+        if (m->mode == MeasurePreview::Mode::Dimension && m->fixed) {
+            return formatLength(m->offset ? glm::length(*m->offset) : 0.0, u) + "   (dimension " + formatLength(d.length, u) + ")";
+        }
+        return formatLength(d.length, u) + "   (X " + formatLength(d.delta.x, u, false) + ", Y " + formatLength(d.delta.y, u, false) +
+               ", Z " + formatLength(d.delta.z, u, false) + ")";
     }
     if (const auto* m = std::get_if<MovePreview>(&ctx.editor.preview())) {
         std::string text = (m->copy ? "Copy " : "") + formatLength(glm::length(m->offset), u);
@@ -146,6 +173,8 @@ void Ui::submitMeasurement(UiContext& ctx) {
         else error = "Select an object first, or pick the Rectangle or Push/Pull tool.";
         break;
     case Tool::Orbit: error = "The Orbit tool takes no measurements."; break;
+    case Tool::TapeMeasure:
+    case Tool::Dimension: error = ctx.tools.submitMeasure(text); break;
     }
     // Clear the box either way: the error stays in the status bar, and a stale
     // value would otherwise keep capturing the single-key shortcuts.
@@ -206,6 +235,8 @@ void Ui::menuBar(UiContext& ctx) {
         if (ImGui::MenuItem("Push/Pull", shortcuts::kPushPull, t == Tool::PushPull)) ctx.tools.setTool(Tool::PushPull);
         if (ImGui::MenuItem("Move", shortcuts::kMove, t == Tool::Move)) ctx.tools.setTool(Tool::Move);
         if (ImGui::MenuItem("Orbit", shortcuts::kOrbit, t == Tool::Orbit)) ctx.tools.setTool(Tool::Orbit);
+        if (ImGui::MenuItem("Tape Measure", shortcuts::kTape, t == Tool::TapeMeasure)) ctx.tools.setTool(Tool::TapeMeasure);
+        if (ImGui::MenuItem("Dimension", shortcuts::kDimension, t == Tool::Dimension)) ctx.tools.setTool(Tool::Dimension);
         ImGui::Separator();
         ImGui::MenuItem("Grid snap", shortcuts::kSnap, &ctx.tools.snap().enabled);
         ImGui::MenuItem("Point snap", nullptr, &ctx.tools.snap().points);
@@ -235,6 +266,10 @@ void Ui::toolbar(UiContext& ctx, float y, float height, float width) {
     if (toolButton("Move", t == Tool::Move, "Move (M)\nClick an object and move it, or type a distance.\nX, Y, Z or the arrow keys lock an axis.\n" PF_COPY_KEY " (tap) places a copy instead.")) ctx.tools.setTool(Tool::Move);
     ImGui::SameLine();
     if (toolButton("Orbit", t == Tool::Orbit, "Orbit (O)\nLeft-drag to orbit. Middle-drag always orbits; right-drag pans.")) ctx.tools.setTool(Tool::Orbit);
+    ImGui::SameLine();
+    if (toolButton("Tape", t == Tool::TapeMeasure, "Tape Measure (T)\nClick two points to measure the distance between them.")) ctx.tools.setTool(Tool::TapeMeasure);
+    ImGui::SameLine();
+    if (toolButton("Dimension", t == Tool::Dimension, "Dimension (D)\nClick two points, then click to place the dimension line.")) ctx.tools.setTool(Tool::Dimension);
     ImGui::SameLine(0, 18);
     if (ImGui::Button("Fit")) action(UiAction::FitView);
     tooltip("Fit view to model (F)");
@@ -343,6 +378,27 @@ void Ui::properties(UiContext& ctx, float x, float y, float width, float height)
         ImGui::SameLine();
         if (ImGui::Button("Delete object")) action(UiAction::Delete);
         tooltip("Deletes the whole object (Delete). Faces cannot be deleted on their own yet.");
+    }
+
+    if (!doc.dimensions.empty()) {
+        ImGui::Separator();
+        ImGui::TextColored(kMutedColor, "Dimensions");
+        std::optional<DimensionId> remove;
+        for (const auto& d : doc.dimensions) {
+            ImGui::PushID(static_cast<int>(d.id.value));
+            const auto l = layoutDimension(doc, d);
+            const float right = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
+            ImGui::AlignTextToFramePadding();
+            ImGui::Text("%s  %s%s", idString(d.id).c_str(), l ? formatLength(l->length, u).c_str() : "?",
+                        d.a.object || d.b.object ? "" : "  (fixed points)");
+            ImGui::SameLine(right - ImGui::CalcTextSize("Delete").x - ImGui::GetStyle().FramePadding.x * 2);
+            if (ImGui::SmallButton("Delete")) remove = d.id;
+            ImGui::PopID();
+        }
+        if (remove) {
+            const DimensionId id = *remove;
+            ctx.editor.commit("Delete " + idString(id), [id](const Document& d) { return deleteDimension(d, id); });
+        }
     }
 
     ImGui::Separator();

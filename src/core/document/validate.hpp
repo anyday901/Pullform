@@ -27,8 +27,12 @@ Expected<RectangleSize> rectangleSize(const std::vector<Vec2>& boundary);
 /// rectangles and zero/negative heights.
 std::optional<std::string> validateObject(const ProfileObject& object, std::string_view path);
 
-/// Validates a whole document: every object, unique IDs, and nextId greater than
-/// every used ID. Used for every commit and before an opened file replaces the
+/// Validates one dimension annotation against the document (its anchors must
+/// name existing objects and corners).
+std::optional<std::string> validateDimension(const Dimension& dimension, const Document& document, std::string_view path);
+
+/// Validates a whole document: every object and dimension, unique IDs, and
+/// nextId greater than every used ID. Used for every commit and before an opened file replaces the
 /// current project.
 std::optional<std::string> validateDocument(const Document& document);
 

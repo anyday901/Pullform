@@ -55,6 +55,26 @@ Ray Camera::rayThrough(const Vec2& pixel, const Vec2& viewportSize) const {
     return Ray{position(), dir};
 }
 
+std::optional<Vec2> Camera::project(const Vec3& world, const Vec2& viewportSize) const {
+    const double w = std::max(viewportSize.x, 1.0);
+    const double h = std::max(viewportSize.y, 1.0);
+    const Vec3 f = forward();
+    const Vec3 right = glm::normalize(glm::cross(f, Vec3{0.0, 0.0, 1.0}));
+    const Vec3 up = glm::cross(right, f);
+    const Vec3 d = world - position();
+    const double depth = glm::dot(d, f);
+    if (depth <= nearPlane()) return std::nullopt;
+    const double tanHalf = std::tan(fovY_ * 0.5);
+    const double ndcX = glm::dot(d, right) / (depth * tanHalf * (w / h));
+    const double ndcY = glm::dot(d, up) / (depth * tanHalf);
+    return Vec2{(ndcX + 1.0) * 0.5 * w, (1.0 - ndcY) * 0.5 * h};
+}
+
+double Camera::worldPerPixel(const Vec3& world, const Vec2& viewportSize) const {
+    const double depth = std::max(glm::dot(world - position(), forward()), nearPlane());
+    return 2.0 * std::tan(fovY_ * 0.5) * depth / std::max(viewportSize.y, 1.0);
+}
+
 void Camera::orbit(const Vec2& delta) {
     constexpr double kRadiansPerPixel = 0.008;
     yaw_ -= delta.x * kRadiansPerPixel;

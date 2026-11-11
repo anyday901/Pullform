@@ -40,8 +40,14 @@ Expected<OpResult> moveObject(const Document& doc, ObjectId id, const Vec3& offs
 Expected<OpResult> duplicateObject(const Document& doc, ObjectId id, const Vec3& offset);
 /// Name for a copy of `name` that receives ID `newId`.
 std::string duplicateName(const std::string& name, ObjectId newId);
-/// Removes a whole object.
+/// Removes a whole object, with the dimensions attached to it.
 Expected<OpResult> deleteObject(const Document& doc, ObjectId id);
+/// Adds a dimension between two anchors (allocating a new stable ID from
+/// nextId; the new dimension is the last in Document::dimensions). Rejects
+/// ends closer than 0.1 mm.
+Expected<OpResult> addDimension(const Document& doc, const DimensionAnchor& a, const DimensionAnchor& b, const Vec3& offset);
+/// Removes a dimension.
+Expected<OpResult> deleteDimension(const Document& doc, DimensionId id);
 /// Changes the display unit (storage stays in meters).
 Expected<OpResult> setDisplayUnit(const Document& doc, LengthUnit unit);
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "app/tools/measure_tool.hpp"
 #include "core/commands/editor.hpp"
 #include "core/geometry/pick.hpp"
 #include "app/tools/snapper.hpp"
@@ -12,7 +13,7 @@
 
 namespace pf {
 
-enum class Tool { Select, Rectangle, PushPull, Move, Orbit };
+enum class Tool { Select, Rectangle, PushPull, Move, Orbit, TapeMeasure, Dimension };
 
 std::string_view toolName(Tool tool);
 
@@ -27,7 +28,7 @@ class ToolController {
 public:
     static constexpr double kDragThresholdPx = 5.0;
 
-    explicit ToolController(Editor& editor) : editor_(editor), snapper_(editor, snap_) {}
+    explicit ToolController(Editor& editor) : editor_(editor), snapper_(editor, snap_), measure_(editor) {}
 
     [[nodiscard]] Tool tool() const { return tool_; }
     void setTool(Tool tool);
@@ -35,8 +36,10 @@ public:
     [[nodiscard]] SnapSettings& snap() { return snap_; }
     [[nodiscard]] const SnapSettings& snap() const { return snap_; }
 
-    /// True while a gesture is in progress (first corner placed, push/pull or move started).
-    [[nodiscard]] bool active() const { return rect_.has_value() || push_.has_value() || move_.has_value(); }
+    /// True while a gesture is in progress (first corner placed, push/pull, move or a measurement started).
+    [[nodiscard]] bool active() const {
+        return rect_.has_value() || push_.has_value() || move_.has_value() || measure_.active();
+    }
 
     /// Escape: cancels the active gesture. Returns whether anything was cancelled.
     bool cancel();
@@ -82,6 +85,11 @@ public:
     /// beside the original along +X, one object width over, and becomes the
     /// selection, so repeating it builds a row. One undo entry.
     std::optional<std::string> duplicateSelection();
+
+    /// Typed value for the tape measure or dimension tool (the dimension line offset).
+    std::optional<std::string> submitMeasure(std::string_view text) { return measure_.submit(text); }
+
+    [[nodiscard]] MeasureTool& measureTool() { return measure_; }
 
     /// Explanation when a face cannot be push/pulled in this milestone.
     static std::optional<std::string> pushableReason(const FaceId& face);
@@ -137,6 +145,11 @@ private:
     [[nodiscard]] std::optional<Vec3> groundPoint(const PointerInput& input);
     std::optional<double> snapPushHeight(const PointerInput& input, std::optional<double> raw);
 
+    /// Snaps for the tape measure and dimension tools and shows the marker.
+    /// Empty when the pointer reaches neither the model nor the ground (an
+    /// unsnapped ground point, with grid snap off, is still a point).
+    std::optional<SnapResult> measureSnap(const PointerInput& input);
+
     void selectDown(const PointerInput& input);
     void rectDown(const PointerInput& input);
     void rectMove(const PointerInput& input);
@@ -166,6 +179,7 @@ private:
     bool moveCopy_ = false;
     PointSnapper snapper_; // after snap_, which it refers to
     std::optional<SnapResult> indicator_;
+    MeasureTool measure_;
 };
 
 } // namespace pf
