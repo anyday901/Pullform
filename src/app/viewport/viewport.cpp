@@ -135,7 +135,7 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
     // The object a push/pull or move preview stands in for is drawn by the preview.
     std::optional<ObjectId> previewed;
     if (pushPreview) previewed = pushPreview->objectId;
-    else if (movePreview) previewed = movePreview->objectId;
+    else if (movePreview && !movePreview->copy) previewed = movePreview->objectId; // a copy leaves the original drawn
     const auto& selection = editor.selection();
     const auto& hover = editor.hover();
 

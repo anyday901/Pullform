@@ -63,6 +63,7 @@ private:
     bool writeTo(const std::filesystem::path& path);
     void deleteSelection();
     void duplicateSelection();
+    void handleMoveCopyTap();
     void fitView();
     void updateTitle();
     [[nodiscard]] std::string projectName() const;
@@ -77,6 +78,7 @@ private:
     ToolController tools_{editor_};
     Ui ui_;
     BackspaceGuard backspaceGuard_;
+    bool copyTapArmed_ = false; ///< Move: copy-modifier pressed with no other key yet
 
     std::optional<std::filesystem::path> path_;
     Pending pending_ = Pending::None;

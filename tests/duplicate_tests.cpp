@@ -159,3 +159,98 @@ TEST_CASE("a copy saves and reopens with its own ID") {
     CHECK(loaded->document.find(b)->transform.translation == Vec3{1.0, 0.0, 0.0});
     CHECK(loaded->document.nextId == editor.document().nextId);
 }
+
+// ---- Copy while moving (Move tool copy mode) --------------------------------
+
+TEST_CASE("Move in copy mode places a copy at the destination and leaves the original") {
+    Editor editor;
+    ToolController tools(editor);
+    const ObjectId a = test::makeBox(editor, tools, "2000, 1000", "750");
+    const ProfileObject original = *editor.document().find(a);
+    const auto depth = editor.undoDepth();
+
+    tools.setTool(Tool::Move);
+    tools.toggleMoveCopy();
+    CHECK(tools.moveCopy());
+    CHECK(tools.hint().find("Copying") != std::string::npos);
+    tools.toggleAxisLock(MoveAxis::X);
+    REQUIRE_FALSE(tools.submitMoveDistance("3000").has_value());
+
+    CHECK(editor.undoDepth() == depth + 1);
+    CHECK(editor.undoLabel() == "Copy 3000 mm along X");
+    CHECK(editor.document().objects.size() == 2);
+    CHECK(*editor.document().find(a) == original); // original did not move
+    const ObjectId b = editor.selection()->objectId;
+    CHECK(b != a);
+    CHECK(editor.document().find(b)->transform.translation == Vec3{3.0, 0.0, 0.0});
+    CHECK_FALSE(tools.moveCopy()); // copy mode ends with the commit, like the axis lock
+
+    REQUIRE(editor.undo());
+    CHECK(editor.document().objects.size() == 1);
+    CHECK(*editor.document().find(a) == original);
+}
+
+TEST_CASE("drag-copy: the preview keeps the original, toggling mid-drag works, zero distance copies nothing") {
+    Editor editor;
+    ToolController tools(editor);
+    tools.snap().enabled = true;
+    tools.snap().step = 0.1;
+    const ObjectId a = test::makeBox(editor, tools, "1000, 1000", "500");
+    const auto depth = editor.undoDepth();
+    tools.setTool(Tool::Move);
+
+    // Zero-distance copy gesture is a no-op.
+    tools.toggleMoveCopy();
+    tools.pointerDown(downAt(editor, 0.5, 0.5, {100, 100}));
+    tools.pointerUp(downAt(editor, 0.5, 0.5, {100, 100}));
+    tools.pointerDown(downAt(editor, 0.5, 0.5, {100, 100}));
+    tools.pointerUp(downAt(editor, 0.5, 0.5, {100, 100}));
+    CHECK(editor.undoDepth() == depth);
+    CHECK(editor.document().objects.size() == 1);
+    tools.toggleMoveCopy(); // back off
+    CHECK_FALSE(tools.moveCopy());
+
+    // Start a plain move, switch to copy part-way through the drag.
+    tools.pointerDown(downAt(editor, 0.5, 0.5, {100, 100}));
+    tools.pointerMove(downAt(editor, 1.5, 0.5, {150, 100}));
+    const auto* p = std::get_if<MovePreview>(&editor.preview());
+    REQUIRE(p);
+    CHECK_FALSE(p->copy);
+    tools.toggleMoveCopy();
+    p = std::get_if<MovePreview>(&editor.preview());
+    REQUIRE(p);
+    CHECK(p->copy);
+    tools.pointerMove(downAt(editor, 2.52, 0.5, {200, 100}));
+    tools.pointerUp(downAt(editor, 2.52, 0.5, {200, 100}));
+
+    CHECK(editor.undoDepth() == depth + 1);
+    REQUIRE(editor.document().objects.size() == 2);
+    CHECK(editor.document().find(a)->transform.translation == Vec3{0.0});
+    const ObjectId b = editor.selection()->objectId;
+    CHECK(b != a);
+    CHECK(editor.document().find(b)->transform.translation.x == doctest::Approx(2.0));
+    CHECK(editor.selection()->face == FaceId::cap()); // picked on the cap; the copy keeps it
+
+    // Editing the copy leaves the original unchanged.
+    REQUIRE_FALSE(tools.setTotalHeight(b, "900").has_value());
+    CHECK(editor.document().find(a)->extrusion->height == doctest::Approx(0.5));
+}
+
+TEST_CASE("Move copy mode clears on tool change and an out-of-range copy is refused") {
+    Editor editor;
+    ToolController tools(editor);
+    test::makeBox(editor, tools, "1000, 1000", "500");
+    tools.setTool(Tool::Move);
+    tools.toggleMoveCopy();
+    tools.setTool(Tool::Select);
+    tools.setTool(Tool::Move);
+    CHECK_FALSE(tools.moveCopy());
+
+    tools.toggleMoveCopy();
+    const auto depth = editor.undoDepth();
+    const Document before = editor.document();
+    CHECK(tools.submitMoveDistance("20000000, 0, 0").has_value()); // 20 km
+    CHECK(sameContent(editor.document(), before));
+    CHECK(editor.undoDepth() == depth);
+    CHECK(tools.moveCopy()); // still armed for the next try
+}
