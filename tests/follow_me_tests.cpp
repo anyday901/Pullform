@@ -238,6 +238,16 @@ TEST_CASE("acceptance: a lathe-turned vase from a profile swept around a circle"
     const std::vector<Vec3> outline{{0, 0, 0},       {0.1, 0, 0},     {0.14, 0, 0.08}, {0.13, 0, 0.16},
                                     {0.08, 0, 0.24}, {0.05, 0, 0.3},  {0.07, 0, 0.34}, {0, 0, 0.34}};
     const auto [vase, face] = drawProfile(editor, outline);
+    // A dimension on the profile's height, between its two axis corners, which the sweep removes.
+    std::vector<int> axisCorners;
+    for (const auto& [id, v] : editor.document().find(vase)->mesh->vertices()) {
+        if (std::abs(v.position.x) < 1e-12 && std::abs(v.position.y) < 1e-12) axisCorners.push_back(static_cast<int>(id) - 1);
+    }
+    REQUIRE(axisCorners.size() == 2);
+    REQUIRE(editor.commit("Dimension", [&](const Document& d) {
+        return addDimension(d, DimensionAnchor{{}, vase, {axisCorners[0]}}, DimensionAnchor{{}, vase, {axisCorners[1]}}, {0.2, 0, 0});
+    }));
+    REQUIRE(editor.document().dimensions.size() == 1);
 
     // A click on one edge of the circle picks the whole circle.
     const auto path = followMePath(editor.document(), ElementRef{circle, ElementKind::Edge, 1});
@@ -266,6 +276,8 @@ TEST_CASE("acceptance: a lathe-turned vase from a profile swept around a circle"
     CHECK(b.min.x == doctest::Approx(-0.14));
     // Round the circle the edges between the segments are smooth.
     CHECK(softEdges(m) == 24 * 5);
+    // The dimension on the removed axis corners went with them.
+    CHECK(editor.document().dimensions.empty());
     // The circle is left as it was.
     CHECK(editor.document().find(circle)->profile.kind == ProfileKind::Circle);
 }

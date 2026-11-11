@@ -513,6 +513,27 @@ Expected<OpResult> eraseEdge(const Document& doc, ObjectId id, mesh::EdgeId edge
     return eraseEdges(doc, id, {edge});
 }
 
+namespace {
+
+/// Replaces the object, first dropping dimensions on its corners that no longer exist.
+Expected<OpResult> replaceDroppingDimensions(const Document& doc, ProfileObject changed) {
+    const ObjectId id = changed.id;
+    OpResult partial{doc, id, {}};
+    const ProfileObject& probe = changed;
+    std::erase_if(partial.document.dimensions, [id, &probe](const Dimension& d) {
+        for (const auto* anchor : {&d.a, &d.b}) {
+            if (anchor->object != id) continue;
+            for (int v : anchor->vertices) {
+                if (!objectVertex(probe, v)) return true;
+            }
+        }
+        return false;
+    });
+    return replaceObject(partial.document, std::move(changed));
+}
+
+} // namespace
+
 Expected<OpResult> eraseEdges(const Document& doc, ObjectId id, const std::vector<mesh::EdgeId>& edges) {
     const auto* o = doc.find(id);
     if (!o) return Error{"Object " + idString(id) + " no longer exists."};
@@ -526,19 +547,7 @@ Expected<OpResult> eraseEdges(const Document& doc, ObjectId id, const std::vecto
     if (!any) return Error{edges.size() == 1 ? "That edge no longer exists." : "Those edges no longer exist."};
     if (m.empty()) return deleteObject(doc, id); // nothing left: the group goes, with its dimensions
     changed.mesh = std::make_shared<const mesh::Mesh>(std::move(m));
-    // Dimensions on corners that disappeared go with them.
-    OpResult partial{doc, id, {}};
-    const ProfileObject& probe = changed;
-    std::erase_if(partial.document.dimensions, [id, &probe](const Dimension& d) {
-        for (const auto* anchor : {&d.a, &d.b}) {
-            if (anchor->object != id) continue;
-            for (int v : anchor->vertices) {
-                if (!objectVertex(probe, v)) return true;
-            }
-        }
-        return false;
-    });
-    return replaceObject(partial.document, std::move(changed));
+    return replaceDroppingDimensions(doc, std::move(changed));
 }
 
 namespace {
@@ -668,7 +677,8 @@ Expected<OpResult> followMe(const Document& doc, const ElementRef& profile, cons
     if (!swept) return Error{swept.error()};
     if (created) *created = swept->createdFaces;
     changed.mesh = std::make_shared<const mesh::Mesh>(std::move(m));
-    return replaceObject(doc, std::move(changed));
+    // A closed sweep can remove profile corners (a lathe profile's axis ends); their dimensions go too.
+    return replaceDroppingDimensions(doc, std::move(changed));
 }
 
 std::vector<ElementRef> followMePath(const Document& doc, const ElementRef& element) {
