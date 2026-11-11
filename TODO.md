@@ -67,7 +67,7 @@ Suggested order is top to bottom.
 ## Feature milestones (one or more PRs each; see docs/ROADMAP.md)
 
 - [ ] **PR 7: Move tool** with typed distance and axis locking.
-- [ ] **PR 8: Endpoint and midpoint snapping** with inference guides.
+- [x] **PR 8: Endpoint and midpoint snapping** with inference guides.
 - [ ] **PR 9: Duplicate** objects (depends on Move).
 - [ ] **PR 10: Tape measure** and dimension annotations (depends on snapping).
 - [ ] **PR 11: Rotate and scale**, file format version 2 with a migration from version 1.

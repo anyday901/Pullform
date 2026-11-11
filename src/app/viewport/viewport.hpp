@@ -46,6 +46,9 @@ private:
 
     void drawGrid(std::vector<LineSegment>& lines);
     static void appendEdges(std::vector<LineSegment>& lines, const MeshData& mesh, const glm::vec4& color);
+    /// Radians per pixel: world size of one pixel at unit distance from the eye.
+    [[nodiscard]] double pixelAngle() const;
+    void drawSnap(std::vector<LineSegment>& lines, const SnapResult& snap) const;
     void drawFaceOverlay(const CachedMesh& cached, const FaceId& face, const glm::vec4& color);
 
     Renderer& renderer_;

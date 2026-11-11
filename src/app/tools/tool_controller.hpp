@@ -2,10 +2,12 @@
 
 #include "core/commands/editor.hpp"
 #include "core/geometry/pick.hpp"
+#include "core/geometry/snap.hpp"
 
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace pf {
 
@@ -19,11 +21,19 @@ struct PointerInput {
     Ray ray;                     ///< world-space pick ray through the cursor
     std::optional<PickHit> pick; ///< logical face under the cursor, if any
     Vec2 screen{0.0};            ///< cursor position in window pixels (tells clicks from drags)
+    /// Size of one screen pixel at unit distance along the ray (radians per
+    /// pixel), so snap tolerances can be given in pixels. The viewport fills
+    /// it from the camera; 0 turns endpoint, midpoint and inference snapping
+    /// off for this event (grid snap still applies).
+    double pixelAngle = 0.0;
 };
 
 struct SnapSettings {
-    bool enabled = true;
-    double step = 0.1; ///< meters (100 mm)
+    bool enabled = true;  ///< grid snap
+    double step = 0.1;    ///< grid increment in meters (100 mm)
+    bool points = true;   ///< endpoint, midpoint and inference snapping
+    double radiusPx = 12; ///< how close (screen pixels) the pointer must be to a point
+    static constexpr std::size_t kMaxReferences = 4; ///< remembered inference reference points
 };
 
 /// Interaction state machines for the modeling tools.
@@ -71,6 +81,25 @@ public:
     /// Explanation when a face cannot be push/pulled in this milestone.
     static std::optional<std::string> pushableReason(const FaceId& face);
 
+    /// Snaps a pointer to a 3D point for any tool, in priority order: an
+    /// endpoint or midpoint of an object near the pointer, a point on the face
+    /// under the pointer, then the ground (with inference and grid snap as for
+    /// snapGround). Points snapped to are remembered as inference references.
+    SnapResult snapPointer(const PointerInput& input);
+
+    /// Snaps a pointer to the ground plane (z = 0): an endpoint or midpoint
+    /// projected straight down (with a vertical guide), else alignment with a
+    /// reference point along X or Y (inference guides), else the grid.
+    /// Nothing when the ray does not reach the ground.
+    std::optional<SnapResult> snapGround(const PointerInput& input);
+
+    /// The snap shown in the viewport for the last pointer event (marker and
+    /// inference guides), if any.
+    [[nodiscard]] const std::optional<SnapResult>& snapIndicator() const { return indicator_; }
+
+    /// Points recently snapped to; inference guides align with these.
+    [[nodiscard]] const std::vector<Vec3>& inferenceReferences() const { return references_; }
+
     /// Status bar hint for the current tool and gesture state.
     [[nodiscard]] std::string hint() const;
 
@@ -85,12 +114,18 @@ private:
         FaceKind face = FaceKind::Profile;
         Vec3 anchor{0.0};
         double startHeight = 0.0;
+        double baseZ = 0.0; ///< world height of the profile plane
         Vec2 pressScreen{0.0};
         bool pressed = false;
     };
 
+    [[nodiscard]] std::string toolHint() const;
     [[nodiscard]] Vec3 snapPoint(const Vec3& p) const;
-    [[nodiscard]] std::optional<Vec3> groundPoint(const PointerInput& input) const;
+    [[nodiscard]] std::optional<Vec3> groundPoint(const PointerInput& input);
+    [[nodiscard]] double tolerance(const PointerInput& input, const Vec3& at) const;
+    std::optional<SnapResult> pointSnap(const PointerInput& input, std::optional<ObjectId> exclude = std::nullopt);
+    void remember(const Vec3& p);
+    std::optional<double> snapPushHeight(const PointerInput& input, std::optional<double> raw);
 
     void selectDown(const PointerInput& input);
     void rectDown(const PointerInput& input);
@@ -109,6 +144,9 @@ private:
     SnapSettings snap_;
     std::optional<RectGesture> rect_;
     std::optional<PushGesture> push_;
+    SnapIndex snapIndex_;
+    std::optional<SnapResult> indicator_;
+    std::vector<Vec3> references_;
 };
 
 } // namespace pf

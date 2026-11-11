@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <initializer_list>
 
 namespace pf {
 
@@ -25,6 +26,10 @@ constexpr glm::vec4 kPreviewEdge{0.95f, 0.45f, 0.08f, 1.0f};
 constexpr glm::vec4 kPreviewFill{0.95f, 0.55f, 0.15f, 0.35f};
 constexpr glm::vec4 kErrorFill{0.90f, 0.15f, 0.12f, 0.40f};
 constexpr glm::vec4 kErrorEdge{0.85f, 0.10f, 0.08f, 1.0f};
+constexpr glm::vec4 kSnapEndpoint{0.10f, 0.65f, 0.20f, 1.0f};
+constexpr glm::vec4 kSnapMidpoint{0.05f, 0.62f, 0.80f, 1.0f};
+constexpr glm::vec4 kSnapOther{0.70f, 0.20f, 0.75f, 1.0f};
+constexpr glm::vec4 kGuideFree{0.45f, 0.45f, 0.50f, 1.0f};
 
 glm::vec4 dim(glm::vec4 c, float a) { return {c.r, c.g, c.b, a}; }
 
@@ -53,7 +58,46 @@ PointerInput Viewport::pointerAt(const Vec2& windowPos, const Document& document
     in.screen = windowPos;
     in.ray = camera_.rayThrough(toLocal(windowPos), size_);
     in.pick = meshes_.pick(in.ray);
+    in.pixelAngle = pixelAngle();
     return in;
+}
+
+double Viewport::pixelAngle() const { return 2.0 * std::tan(camera_.fovY() * 0.5) / std::max(size_.y, 1.0); }
+
+void Viewport::drawSnap(std::vector<LineSegment>& lines, const SnapResult& snap) const {
+    const Vec3 eye = camera_.position();
+    const Vec3 f = camera_.forward();
+    const Vec3 right = glm::normalize(glm::cross(f, Vec3{0.0, 0.0, 1.0}));
+    const Vec3 up = glm::cross(right, f);
+    const auto pixels = [&](const Vec3& at, double px) { return px * pixelAngle() * glm::length(at - eye); };
+
+    // Inference guides: dashed lines in the color of their axis.
+    for (const auto& g : snap.guides) {
+        const glm::vec4 color = g.axis == 0 ? kAxisX : g.axis == 1 ? kAxisY : g.axis == 2 ? kAxisZ : kGuideFree;
+        const double len = glm::length(g.to - g.from);
+        if (len <= 0.0) continue;
+        const double dash = std::max(pixels((g.from + g.to) * 0.5, 6.0), len / 400.0);
+        const Vec3 dir = (g.to - g.from) / len;
+        for (double s = 0.0; s < len; s += 2.0 * dash) lines.push_back({g.from + dir * s, g.from + dir * std::min(s + dash, len), color});
+    }
+
+    // Marker at the snapped point, facing the camera: a square on an endpoint,
+    // a triangle on a midpoint, a diamond for an inference or face point.
+    const Vec3 p = snap.point;
+    const double r = pixels(p, 6.0);
+    const auto poly = [&](std::initializer_list<Vec2> corners, const glm::vec4& color) {
+        std::vector<Vec3> pts;
+        for (const auto& c : corners) pts.push_back(p + right * (c.x * r) + up * (c.y * r));
+        for (std::size_t i = 0; i < pts.size(); ++i) lines.push_back({pts[i], pts[(i + 1) % pts.size()], color});
+    };
+    switch (snap.kind) {
+    case SnapKind::Endpoint: poly({{-1, -1}, {1, -1}, {1, 1}, {-1, 1}}, kSnapEndpoint); break;
+    case SnapKind::Midpoint: poly({{-1.1, -0.8}, {1.1, -0.8}, {0, 1.1}}, kSnapMidpoint); break;
+    case SnapKind::Inference:
+    case SnapKind::OnFace: poly({{0, -1.2}, {1.2, 0}, {0, 1.2}, {-1.2, 0}}, kSnapOther); break;
+    case SnapKind::Grid:
+    case SnapKind::None: break;
+    }
 }
 
 void Viewport::drawGrid(std::vector<LineSegment>& lines) {
@@ -184,8 +228,8 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
             }
         }
     }
+    if (const auto& snap = tools.snapIndicator()) drawSnap(lines, *snap);
     renderer_.drawLines(lines, false);
-    (void)tools;
     renderer_.endFrame();
 }
 

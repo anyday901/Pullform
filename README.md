@@ -14,7 +14,9 @@ is not affiliated with SketchUp and does not read or write `.skp` files.
 1. An empty scene with an adaptive ground grid and red/green/blue X/Y/Z axes.
 2. Orbit, pan, zoom toward the cursor, and **Fit** the camera to the model.
 3. Draw a rectangle on the ground plane with the mouse (click-click or press-drag) in any
-   direction, or type an exact width and depth. Optional grid snap with a visible state.
+   direction, or type an exact width and depth. Optional grid snap with a visible state;
+   corners and heights snap to other objects' corners and edge midpoints, with inference
+   guides along X, Y and Z.
 4. Push/pull a rectangle into a closed rectangular prism by pointer or exact distance.
 5. Select an extrusion's top cap and change its height: drag it, type an incremental
    distance, or set the absolute **Total height**. The same object is updated.

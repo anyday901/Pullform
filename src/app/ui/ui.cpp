@@ -191,6 +191,7 @@ void Ui::menuBar(UiContext& ctx) {
         if (ImGui::MenuItem("Orbit", shortcuts::kOrbit, t == Tool::Orbit)) ctx.tools.setTool(Tool::Orbit);
         ImGui::Separator();
         ImGui::MenuItem("Grid snap", shortcuts::kSnap, &ctx.tools.snap().enabled);
+        ImGui::MenuItem("Point snap", nullptr, &ctx.tools.snap().points);
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Help")) {
@@ -245,6 +246,10 @@ void Ui::toolbar(UiContext& ctx, float y, float height, float width) {
         ImGui::EndCombo();
     }
     tooltip("Snap increment");
+    ImGui::SameLine();
+    ImGui::Checkbox("Point snap", &ctx.tools.snap().points);
+    tooltip("Snap to corners (endpoints) and edge midpoints, and show inference guides\n"
+            "that line points up along X and Y, or heights with other objects");
     ImGui::End();
 }
 

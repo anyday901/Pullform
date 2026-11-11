@@ -147,6 +147,22 @@ with synthetic events and no window.
   (closest point between two lines). The **total** height snaps to the grid increment when
   snap is on. Invalid heights (at or below the base) show as a red preview and cannot be
   committed; the gesture stays active.
+- Snapping (`core/geometry/snap.*`, used by `ToolController`): a `SnapIndex` holds each
+  object's `snapFeatures` (unique corners in `buildFaces` order, and unique edges as
+  corner index pairs), kept in step with the document like the mesh cache. Tolerances are
+  in screen pixels: the viewport puts the angle of one pixel in `PointerInput::pixelAngle`,
+  and a point counts when its angular distance from the pointer ray is within
+  `radiusPx * pixelAngle` (0 turns point snapping off, as in most tests). Priority:
+  endpoint, then midpoint (an endpoint wins unless the midpoint is clearly nearer; among
+  points at the same screen position the one nearest the eye wins; points behind the face
+  under the pointer are ignored), then inference, then the grid. The rectangle tool
+  projects a snapped point to the ground. Inference aligns the ground point with one of the
+  last four snapped points along X or Y (never with the rectangle's own first corner, which
+  would give zero width); push/pull aligns the height with any other object's corner. The
+  result (`SnapResult`: point, kind, object, feature index, guides) is shown by the
+  viewport as a marker and dashed guides drawn on top. `snapPointer` and
+  `resolveSnapFeature` let other tools (tape measure, dimensions) snap the same way and
+  refer to a corner or midpoint by object and feature index.
 - Input ownership (`App::handleViewportInput`): Dear ImGui owns the pointer over panels,
   menus and popups (`WantCaptureMouse`); a drag that starts in the viewport belongs to the
   viewport until its button is released. Left button = active tool (or orbit with the

@@ -32,6 +32,19 @@ include breaking changes, but project files will keep a migration path.
 
 ### Added
 
+- Endpoint and midpoint snapping. Rectangle corners and push/pull heights snap to the
+  corners and edge midpoints of existing objects (within 12 pixels; corners win over
+  nearby midpoints, and points hidden behind the face under the pointer are ignored). A
+  green square marks an endpoint and a blue triangle a midpoint. A box's top corner snaps a
+  rectangle to the ground point straight below it, with a vertical guide.
+- Inference guides. Points you hover are remembered (the last four); moving in line with
+  one along X or Y locks that coordinate and shows a dashed guide in the axis color. A
+  push/pull height locks to the height of another object's corner (for example its cap)
+  with a guide to that corner. The snap in use is shown at the start of the status hint.
+- **Point snap** toggle in the toolbar and the Tools menu, next to Grid snap.
+- `SnapIndex`, `snapFeatures` and `resolveSnapFeature` in `core/geometry/snap.*`, and
+  `ToolController::snapPointer`, so other tools can snap to the same points and keep a
+  stable (object, feature) reference.
 - `pullform_bench`, a hover benchmark for large models; results in `docs/VERIFICATION.md`.
 
 ## [0.2.0] - 2026-11-10
