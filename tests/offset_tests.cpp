@@ -13,6 +13,7 @@
 
 #include <cmath>
 #include <numbers>
+#include <string>
 
 using namespace pf;
 using pf::mesh::Mesh;
@@ -327,7 +328,7 @@ TEST_CASE("offset tool: Accept: offset a wall's top face by 20 mm and push the r
     const std::size_t depth = editor.undoDepth();
 
     tools.setTool(Tool::Offset);
-    CHECK(toolName(Tool::Offset) == std::string("Offset"));
+    CHECK(std::string(toolName(Tool::Offset)) == "Offset"); // as std::string: MSVC cannot print string_view
     // Click the top face near its front edge, then type the distance.
     tools.pointerDown(test::downAt(editor, 1.0, 0.001, {100, 100}));
     tools.pointerUp(test::downAt(editor, 1.0, 0.001, {100, 100}));
