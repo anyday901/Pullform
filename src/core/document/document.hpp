@@ -2,6 +2,8 @@
 
 #include "core/document/units.hpp"
 
+#include <glm/ext/quaternion_double.hpp>
+#include <glm/mat3x3.hpp>
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 
@@ -22,6 +24,8 @@ namespace pf {
 
 using Vec2 = glm::dvec2;
 using Vec3 = glm::dvec3;
+using Quat = glm::dquat; ///< unit quaternion; glm stores (w, x, y, z), files store [x, y, z, w]
+using Mat3 = glm::dmat3;
 
 /// Stable object identifier. Never reused within a document; survives undo,
 /// redo, save and reload. Serialized as "obj-<n>".
@@ -60,11 +64,25 @@ struct Extrusion {
     friend bool operator==(const Extrusion&, const Extrusion&) = default;
 };
 
-/// Object placement. Milestone 1 uses translation only.
+/// Object placement: a rigid transform. A local point p maps to
+/// translation + rotation * p (rotation about the local origin, then the
+/// translation). Scale is not part of the transform: the Scale tool changes the
+/// object's real dimensions (boundary and height), so sizes shown and typed are
+/// always true lengths.
 struct Transform {
     Vec3 translation{0.0, 0.0, 0.0};
-    friend bool operator==(const Transform&, const Transform&) = default;
+    Quat rotation{1.0, 0.0, 0.0, 0.0}; ///< unit quaternion (w, x, y, z); identity = no rotation
+    friend bool operator==(const Transform& a, const Transform& b) {
+        return a.translation == b.translation && a.rotation == b.rotation;
+    }
 };
+
+/// Rotation matrix of a transform. Entries within 1e-15 of -1, 0 or 1 are made
+/// exact, so quarter turns map grid-aligned corners to exact coordinates.
+Mat3 rotationMatrix(const Transform& transform);
+
+/// A rotation of `radians` about the unit `axis` (right-hand rule).
+Quat axisAngle(const Vec3& axis, double radians);
 
 struct ProfileObject {
     ObjectId id;
@@ -79,6 +97,13 @@ struct ProfileObject {
 /// versions (undo snapshots), so an unchanged object costs one pointer per
 /// snapshot. Edits replace the pointer.
 using ObjectPtr = std::shared_ptr<const ProfileObject>;
+
+/// Object-local point (profile plane coordinates already applied) to world space.
+Vec3 localToWorld(const ProfileObject& object, const Vec3& local);
+/// Profile point (u, v) lifted by `offset` along the profile normal, in world space.
+Vec3 profileToWorld(const ProfileObject& object, const Vec2& point, double offset = 0.0);
+/// World-space unit normal of the profile plane (the extrusion direction).
+Vec3 profileNormalWorld(const ProfileObject& object);
 
 struct Document {
     LengthUnit displayUnit = LengthUnit::Millimeter; ///< display and unitless input; storage is meters

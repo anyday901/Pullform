@@ -61,18 +61,30 @@ struct ProfileObject {
     std::string name;
     Profile profile;                   // kind, plane basis, ordered CCW boundary (plane coords)
     std::optional<Extrusion> extrusion;// total height along the plane normal; > 0
-    Transform transform;               // translation (milestone 1)
+    Transform transform;               // rigid: translation + rotation (unit quaternion)
 };
 ```
 
-Milestone 1 restricts the profile to an axis-aligned rectangle `[0,0],[w,0],[w,d],[0,d]` on
-the local XY plane with a translation-only transform. The fields are already shaped for a
-general polygon profile, other planes (a different `PlaneBasis`) and full transforms, so
-those can be added without changing what existing files mean. Validation
-(`core/document/validate.*`) enforces the current restrictions explicitly.
+The profile is restricted to an axis-aligned rectangle `[0,0],[w,0],[w,d],[0,d]` on the
+local XY plane. The fields are already shaped for a general polygon profile and other
+planes (a different `PlaneBasis`), so those can be added without changing what existing
+files mean. Validation (`core/document/validate.*`) enforces the current restrictions
+explicitly, including that every placed corner stays inside the 10 km range.
+
+**Transforms are rigid.** A local point `p` maps to `translation + R * p`, where `R` comes
+from a unit quaternion (`localToWorld`, `profileToWorld`, `profileNormalWorld` in
+`document.hpp`; `buildFaces` and therefore meshes, picking, bounds and snapping all go
+through them). `rotationMatrix` makes entries within 1e-15 of -1, 0 or 1 exact, so quarter
+turns keep grid-aligned corners exact. **Scale is not stored in the transform:**
+`scaleObject` bakes factors into the real dimensions (rectangle width/depth, extrusion
+height) and shifts the translation so the base centre stays put. Sizes shown and typed
+therefore stay true lengths, push/pull heights need no unscaling, and vertex indices (used
+by dimension anchors) do not change. A scale field belongs with component instances
+later, when a definition is shared and cannot be resized in place.
 
 Objects are immutable once in a document. Operations (`core/commands/operations.*`:
-`createRectangle`, `extrudeProfile`, `setExtrusionHeight`, `deleteObject`,
+`createRectangle`, `extrudeProfile`, `setExtrusionHeight`, `rotateObject`, `scaleObject`,
+`deleteObject`,
 `setDisplayUnit`) are pure functions that return a new document sharing unchanged objects,
 or an `Error` with a user-facing message.
 
@@ -163,7 +175,7 @@ with synthetic events and no window.
 ```json
 {
   "format": "pullform-project",
-  "version": 1,
+  "version": 2,
   "generator": "Pullform 0.2.0",
   "document": {
     "lengthUnit": "m", "displayUnit": "mm", "nextId": 2,
@@ -173,7 +185,7 @@ with synthetic events and no window.
                    "plane": { "origin": [0,0,0], "xAxis": [1,0,0], "yAxis": [0,1,0] },
                    "boundary": [[0,0],[2,0],[2,1],[0,1]] },
       "extrusion": { "height": 0.75 },
-      "transform": { "translation": [0,0,0] } }]
+      "transform": { "translation": [0,0,0], "rotation": [0,0,0,1] } }]
   },
   "view": { "position": [x, y, z], "target": [x, y, z] }
 }
@@ -184,13 +196,20 @@ with synthetic events and no window.
 - Opening reads the file (max 50 MB), parses it, checks structure and types, then runs
   the same `validateDocument` used for every commit (ranges, rectangles, unique IDs,
   `nextId` greater than every used ID). Only then does it replace the open project.
-- An unknown `format`, or a `version` other than 1, is rejected; a newer version asks the
-  user to update. Future versions add explicit migrations from older versions here.
+- `transform.rotation` is a unit quaternion in glTF order `[x, y, z, w]`. Values within
+  1e-4 of unit length (hand-edited files) are accepted and normalized.
+- An unknown `format` or a version newer than 2 is rejected (a newer version asks the user
+  to update). Older versions are migrated on the parsed JSON, one version at a time
+  (`migrateProject`), before the reader runs, so the reader only knows the current schema.
+  **Version 1 -> 2:** every object gains the identity rotation `[0,0,0,1]` (version 1
+  transforms were translation only). The app says when it opened an older file; saving
+  writes version 2, which Pullform 0.2.0 and earlier cannot open. Each future version adds
+  one migration and a test that opens a file of every previous version.
 - Saving writes to `<file>.tmp-N` beside the target, flushes, and renames over the target
   (`MoveFileExW(MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)` on Windows,
   `rename(2)` elsewhere).
-- This schema is identical to the one written by the earlier TypeScript prototype, so its
-  files still open.
+- Files written by the earlier TypeScript prototype are version 1 and open through the
+  migration.
 
 ## Geometry boundaries (what this design does not do yet)
 

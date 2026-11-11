@@ -94,6 +94,19 @@ void Viewport::drawFaceOverlay(const CachedMesh& cached, const FaceId& face, con
     }
 }
 
+void Viewport::drawTransformResult(const std::optional<ProfileObject>& result, bool error, const ProfileObject* original,
+                                   std::vector<LineSegment>& lines) {
+    if (result) {
+        const MeshData mesh = buildMesh(*result);
+        previewHandle_ = renderer_.createMesh(mesh);
+        renderer_.drawMesh(previewHandle_, glm::vec4(0.70f, 0.82f, 0.97f, 1.0f));
+        appendEdges(lines, mesh, kSelectedEdge);
+        if (original) appendEdges(lines, buildMesh(*original), dim(kEdge, 0.35f)); // where it was
+    } else if (error && original) {
+        appendEdges(lines, buildMesh(*original), kErrorEdge);
+    }
+}
+
 void Viewport::render(const Editor& editor, const ToolController& tools) {
     const Document& doc = editor.document();
     meshes_.sync(doc);
@@ -122,17 +135,18 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
     renderer_.drawLines(lines, true);
 
     const auto* pushPreview = std::get_if<PushPullPreview>(&editor.preview());
+    const std::optional<ObjectId> hidden = replacedObject(editor.preview()); // drawn by the preview below
     const auto& selection = editor.selection();
     const auto& hover = editor.hover();
 
     // Solid fills.
     for (const auto& [id, cached] : meshes_.entries()) {
-        if (pushPreview && pushPreview->objectId == id) continue; // replaced by the preview below
+        if (hidden == id) continue;
         renderer_.drawMesh(cached.handle, cached.mesh.closed ? kSolidFill : kSheetFill);
     }
     // Face highlights: one logical face, all of its triangles.
     for (const auto& [id, cached] : meshes_.entries()) {
-        if (pushPreview && pushPreview->objectId == id) continue;
+        if (hidden == id) continue;
         if (hover && hover->objectId == id && hover->face && !(selection && *selection == *hover)) {
             drawFaceOverlay(cached, *hover->face, kHoverFace);
         }
@@ -142,7 +156,7 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
     lines.clear();
     std::vector<LineSegment> selectedLines;
     for (const auto& [id, cached] : meshes_.entries()) {
-        if (pushPreview && pushPreview->objectId == id) continue;
+        if (hidden == id) continue;
         const bool selected = selection && selection->objectId == id;
         appendEdges(selected ? selectedLines : lines, cached.mesh, selected ? kSelectedEdge : kEdge);
     }
@@ -183,6 +197,32 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
                 appendEdges(lines, buildMesh(*obj), kErrorEdge);
             }
         }
+    }
+    if (const auto* rot = std::get_if<RotatePreview>(&editor.preview())) {
+        drawTransformResult(rot->result, rot->error.has_value(), doc.find(rot->objectId), lines);
+        const glm::vec4 axisColor = rot->axis.x != 0.0 ? kAxisX : rot->axis.y != 0.0 ? kAxisY : kAxisZ;
+        // Protractor: a circle in the rotation plane, the reference and current spokes.
+        const auto spoke = rot->reference ? rot->reference : rot->current;
+        double radius = spoke ? glm::length(*spoke) : 0.0;
+        if (radius < 1e-9) radius = camera_.distance() * 0.05;
+        const Vec3 n = rot->axis;
+        const Vec3 u = spoke && glm::length(*spoke) > 1e-9 ? glm::normalize(*spoke)
+                                                            : glm::normalize(glm::cross(n, std::abs(n.z) < 0.9 ? Vec3{0, 0, 1} : Vec3{1, 0, 0}));
+        const Vec3 v = glm::cross(n, u);
+        constexpr int kSegments = 72;
+        for (int i = 0; i < kSegments; ++i) {
+            const double a0 = 2.0 * 3.14159265358979323846 * i / kSegments;
+            const double a1 = 2.0 * 3.14159265358979323846 * (i + 1) / kSegments;
+            lines.push_back({rot->pivot + (u * std::cos(a0) + v * std::sin(a0)) * radius,
+                             rot->pivot + (u * std::cos(a1) + v * std::sin(a1)) * radius, axisColor});
+        }
+        lines.push_back({rot->pivot - n * radius * 0.25, rot->pivot + n * radius * 0.25, axisColor});
+        if (rot->reference) lines.push_back({rot->pivot, rot->pivot + *rot->reference, kPreviewEdge});
+        if (rot->current) lines.push_back({rot->pivot, rot->pivot + *rot->current, rot->error ? kErrorEdge : kPreviewEdge});
+    } else if (const auto* sc = std::get_if<ScalePreview>(&editor.preview())) {
+        drawTransformResult(sc->result, sc->error.has_value(), doc.find(sc->objectId), lines);
+        if (sc->start) lines.push_back({sc->pivot, *sc->start, dim(kPreviewEdge, 0.5f)});
+        if (sc->current) lines.push_back({sc->pivot, *sc->current, sc->error ? kErrorEdge : kPreviewEdge});
     }
     renderer_.drawLines(lines, false);
     (void)tools;

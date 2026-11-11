@@ -26,6 +26,18 @@ Expected<OpResult> createRectangle(const Document& doc, const RectanglePlacement
 Expected<OpResult> extrudeProfile(const Document& doc, ObjectId id, double height);
 /// Changes the total height of an existing extrusion (same object, same ID).
 Expected<OpResult> setExtrusionHeight(const Document& doc, ObjectId id, double height);
+/// Rotates an object by `radians` about the world-space line through `pivot`
+/// along `axis` (right-hand rule). Same object, same ID; only the transform
+/// changes. A quarter turn about a grid point keeps grid-aligned corners exact.
+Expected<OpResult> rotateObject(const Document& doc, ObjectId id, const Vec3& pivot, const Vec3& axis, double radians);
+
+/// Scales an object by `factors` along its own axes (x = width, y = depth,
+/// z = height) about the centre of its base, so a box on the ground stays on
+/// the ground and centred. The result is baked into the real dimensions
+/// (rectangle width/depth and extrusion height); the transform stays rigid.
+/// Factors must be positive; the z factor is ignored for a planar rectangle.
+Expected<OpResult> scaleObject(const Document& doc, ObjectId id, const Vec3& factors);
+
 /// Removes a whole object.
 Expected<OpResult> deleteObject(const Document& doc, ObjectId id);
 /// Changes the display unit (storage stays in meters).

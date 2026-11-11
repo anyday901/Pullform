@@ -352,7 +352,9 @@ void App::handleViewportInput() {
 
     // Cursor feedback.
     if (drag_ == DragMode::Orbit || drag_ == DragMode::Pan) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
-    else if (hovering && tools_.tool() == Tool::PushPull && editor_.hover()) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    else if (hovering && (tools_.tool() == Tool::PushPull || tools_.tool() == Tool::Rotate || tools_.tool() == Tool::Scale) &&
+             editor_.hover() && !tools_.active())
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
     else if (hovering && tools_.tool() == Tool::Orbit) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
 }
 
@@ -413,7 +415,14 @@ void App::handleShortcuts() {
     if (ImGui::IsKeyPressed(ImGuiKey_Space, false)) tools_.setTool(Tool::Select);
     if (ImGui::IsKeyPressed(ImGuiKey_R, false)) tools_.setTool(Tool::Rectangle);
     if (ImGui::IsKeyPressed(ImGuiKey_P, false)) tools_.setTool(Tool::PushPull);
+    if (ImGui::IsKeyPressed(ImGuiKey_Q, false)) tools_.setTool(Tool::Rotate);
+    if (ImGui::IsKeyPressed(ImGuiKey_S, false)) tools_.setTool(Tool::Scale);
     if (ImGui::IsKeyPressed(ImGuiKey_O, false)) tools_.setTool(Tool::Orbit);
+    if (tools_.tool() == Tool::Rotate) {
+        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) tools_.setRotateAxis(RotateAxis::X);
+        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) tools_.setRotateAxis(RotateAxis::Y);
+        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, false)) tools_.setRotateAxis(RotateAxis::Z);
+    }
     if (ImGui::IsKeyPressed(ImGuiKey_F, false)) fitView();
     if (ImGui::IsKeyPressed(ImGuiKey_G, false)) tools_.snap().enabled = !tools_.snap().enabled;
     // Backspace also erases typed values: right after the last character is
@@ -493,7 +502,12 @@ void App::openFile(const std::filesystem::path& path) {
     path_ = path;
     if (project->view) viewport_->camera().setFromView(*project->view);
     else fitView();
-    editor_.notify(Message{Message::Kind::Info, "Opened " + pathToUtf8(path.filename())});
+    std::string opened = "Opened " + pathToUtf8(path.filename());
+    if (project->fileVersion < kProjectVersion) {
+        opened += " (file version " + std::to_string(project->fileVersion) + "; saving will write version " +
+                  std::to_string(kProjectVersion) + ", which older Pullform releases cannot open)";
+    }
+    editor_.notify(Message{Message::Kind::Info, opened});
 }
 
 bool App::save(Pending then) {

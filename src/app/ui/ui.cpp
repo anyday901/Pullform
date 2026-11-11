@@ -2,11 +2,13 @@
 
 #include "app/ui/shortcuts.hpp"
 #include "core/commands/operations.hpp"
+#include "core/document/validate.hpp"
 #include "core/geometry/solid.hpp"
 
 #include <imgui.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -24,7 +26,22 @@ constexpr const char* kLimitsText =
     "- Side and base faces cannot be pushed yet.\n"
     "- Heights must be positive: pushing below the base, holes and cutting are not supported.\n"
     "- Touching or overlapping objects stay separate (no merging).\n"
-    "- No move, rotate, scale or copy yet.";
+    "- Rotate turns objects about the X, Y or Z axis; Scale resizes them (no mirroring).\n"
+    "- No move or copy yet.";
+
+/// "30°" for a turn about the vertical axis, "none", or "tilted" for anything else.
+std::string rotationLabel(const Transform& t) {
+    const Quat& q = t.rotation;
+    if (std::abs(q.x) < 1e-12 && std::abs(q.y) < 1e-12) {
+        if (std::abs(q.z) < 1e-12) return "None";
+        constexpr double kPi = 3.14159265358979323846;
+        double a = 2.0 * std::atan2(q.z, q.w);
+        if (a > kPi) a -= 2.0 * kPi;
+        if (a <= -kPi) a += 2.0 * kPi;
+        return formatAngle(a) + " about Z";
+    }
+    return "Tilted (rotated about X or Y)";
+}
 
 void tooltip(const char* text) {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", text);
@@ -96,6 +113,8 @@ std::string Ui::measurementLabel(const UiContext& ctx) const {
     switch (ctx.tools.tool()) {
     case Tool::Rectangle: return "Dimensions (width, depth)";
     case Tool::PushPull: return "Distance (incremental)";
+    case Tool::Rotate: return "Angle (degrees)";
+    case Tool::Scale: return "Scale (factor, or w, d, h)";
     case Tool::Select: return "Total height";
     case Tool::Orbit: return "Measurements";
     }
@@ -110,6 +129,10 @@ std::string Ui::measurementLive(const UiContext& ctx) const {
     }
     if (const auto* p = std::get_if<PushPullPreview>(&ctx.editor.preview())) {
         return (p->delta >= 0 ? "+" : "") + formatLength(p->delta, u) + "   (total height " + formatLength(p->height, u) + ")";
+    }
+    if (const auto* r = std::get_if<RotatePreview>(&ctx.editor.preview()); r && r->reference) return formatAngle(r->angle);
+    if (const auto* s = std::get_if<ScalePreview>(&ctx.editor.preview())) {
+        return formatLength(s->factor * 100.0, LengthUnit::Meter, false) + "%";
     }
     if (ctx.tools.tool() == Tool::Select && ctx.editor.selection()) {
         if (const auto* o = ctx.editor.document().find(ctx.editor.selection()->objectId); o && o->extrusion) {
@@ -126,6 +149,8 @@ void Ui::submitMeasurement(UiContext& ctx) {
     switch (ctx.tools.tool()) {
     case Tool::Rectangle: error = ctx.tools.submitRectangleSize(text); break;
     case Tool::PushPull: error = ctx.tools.submitPushDistance(text); break;
+    case Tool::Rotate: error = ctx.tools.submitRotateAngle(text); break;
+    case Tool::Scale: error = ctx.tools.submitScaleFactors(text); break;
     case Tool::Select:
         if (ctx.editor.selection()) error = ctx.tools.setTotalHeight(ctx.editor.selection()->objectId, text);
         else error = "Select an object first, or pick the Rectangle or Push/Pull tool.";
@@ -188,6 +213,8 @@ void Ui::menuBar(UiContext& ctx) {
         if (ImGui::MenuItem("Select", shortcuts::kSelect, t == Tool::Select)) ctx.tools.setTool(Tool::Select);
         if (ImGui::MenuItem("Rectangle", shortcuts::kRectangle, t == Tool::Rectangle)) ctx.tools.setTool(Tool::Rectangle);
         if (ImGui::MenuItem("Push/Pull", shortcuts::kPushPull, t == Tool::PushPull)) ctx.tools.setTool(Tool::PushPull);
+        if (ImGui::MenuItem("Rotate", shortcuts::kRotate, t == Tool::Rotate)) ctx.tools.setTool(Tool::Rotate);
+        if (ImGui::MenuItem("Scale", shortcuts::kScale, t == Tool::Scale)) ctx.tools.setTool(Tool::Scale);
         if (ImGui::MenuItem("Orbit", shortcuts::kOrbit, t == Tool::Orbit)) ctx.tools.setTool(Tool::Orbit);
         ImGui::Separator();
         ImGui::MenuItem("Grid snap", shortcuts::kSnap, &ctx.tools.snap().enabled);
@@ -213,6 +240,10 @@ void Ui::toolbar(UiContext& ctx, float y, float height, float width) {
     if (toolButton("Rectangle", t == Tool::Rectangle, "Rectangle (R)\nClick two corners on the ground, or type width, depth.")) ctx.tools.setTool(Tool::Rectangle);
     ImGui::SameLine();
     if (toolButton("Push/Pull", t == Tool::PushPull, "Push/Pull (P)\nClick a rectangle or a top cap and move up, or type a distance.")) ctx.tools.setTool(Tool::PushPull);
+    ImGui::SameLine();
+    if (toolButton("Rotate", t == Tool::Rotate, "Rotate (Q)\nClick the object, then the centre, a reference direction and the angle.\nOr type degrees. Arrow keys pick the axis.")) ctx.tools.setTool(Tool::Rotate);
+    ImGui::SameLine();
+    if (toolButton("Scale", t == Tool::Scale, "Scale (S)\nClick the object, then a grip point, and move. Or type a factor (2, 50%) or w, d, h factors.")) ctx.tools.setTool(Tool::Scale);
     ImGui::SameLine();
     if (toolButton("Orbit", t == Tool::Orbit, "Orbit (O)\nLeft-drag to orbit. Middle-drag always orbits; right-drag pans.")) ctx.tools.setTool(Tool::Orbit);
     ImGui::SameLine(0, 18);
@@ -280,8 +311,10 @@ void Ui::properties(UiContext& ctx, float x, float y, float width, float height)
             row("Target face", faceLabel(sel->face));
             row("Position X", formatLength(b.min.x, u));
             row("Position Y", formatLength(b.min.y, u));
-            row("Width (X)", formatLength(b.size().x, u));
-            row("Depth (Y)", formatLength(b.size().y, u));
+            const auto size = rectangleSize(o->profile.boundary);
+            row("Width", size ? formatLength(size->width, u) : std::string("-"));
+            row("Depth", size ? formatLength(size->depth, u) : std::string("-"));
+            row("Rotation", rotationLabel(o->transform));
             ImGui::EndTable();
         }
         ImGui::Spacing();
@@ -359,7 +392,7 @@ void Ui::bottomBar(UiContext& ctx, float y, float width, float height) {
     measureEditing_ = ImGui::IsItemActive();
     tooltip("Type here, or just start typing in the viewport.\nUnits: mm (default), cm, m, in or \", ft or '. "
             "Unitless values use the display unit.\nRectangle: width, depth. Push/Pull: distance from the current face. "
-            "Select: total height.");
+            "Select: total height.\nRotate: angle in degrees. Scale: factor (2, 50%) or width, depth, height factors.");
     if (enter) submitMeasurement(ctx);
     if (!live.empty() && measure_[0] != '\0') {
         ImGui::SameLine();

@@ -40,8 +40,38 @@ struct PushPullPreview {
     std::optional<std::string> error; ///< why the current height cannot be committed
 };
 
+/// Live rotate preview. `reference` and `current` are offsets from `pivot` in
+/// the rotation plane (perpendicular to `axis`). `result` is the rotated object
+/// the viewport draws in place of the real one.
+struct RotatePreview {
+    ObjectId objectId;
+    Vec3 pivot{0.0};
+    Vec3 axis{0.0, 0.0, 1.0};
+    std::optional<Vec3> reference; ///< set by the second click (the angle's zero direction)
+    std::optional<Vec3> current;   ///< pointer, projected onto the rotation plane
+    double angle = 0.0;            ///< radians, right-hand rule about `axis`
+    std::optional<ProfileObject> result;
+    std::optional<std::string> error;
+};
+
+/// Live scale preview: uniform factor from the ratio of pointer distances to
+/// `pivot` (the base centre).
+struct ScalePreview {
+    ObjectId objectId;
+    Vec3 pivot{0.0};
+    std::optional<Vec3> start;
+    std::optional<Vec3> current;
+    double factor = 1.0;
+    std::optional<ProfileObject> result;
+    std::optional<std::string> error;
+};
+
 /// Transient feedback drawn by the viewport. Never part of the document or history.
-using Preview = std::variant<std::monostate, RectanglePreview, PushPullPreview>;
+using Preview = std::variant<std::monostate, RectanglePreview, PushPullPreview, RotatePreview, ScalePreview>;
+
+/// The object a preview draws in place of the document's version (push/pull,
+/// rotate and scale), if any. The viewport hides the original while it is set.
+std::optional<ObjectId> replacedObject(const Preview& preview);
 
 /// The editing session: the current document, selection, transient preview and
 /// snapshot-based undo/redo.

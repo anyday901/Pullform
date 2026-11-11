@@ -35,6 +35,10 @@ std::optional<PickHit> pickDocument(const Ray& ray, const Document& document);
 /// Intersection with the horizontal plane z = `z`, in front of the ray origin.
 std::optional<Vec3> intersectHorizontalPlane(const Ray& ray, double z);
 
+/// Intersection with the plane through `point` with unit `normal`, in front of
+/// the ray origin; nothing when the ray is (nearly) parallel to the plane.
+std::optional<Vec3> intersectPlane(const Ray& ray, const Vec3& point, const Vec3& normal);
+
 /// Parameter t of the point on the line `origin + t * axis` closest to the ray,
 /// or nothing when the ray is (nearly) parallel to the axis.
 std::optional<double> closestParameterOnAxis(const Vec3& origin, const Vec3& axis, const Ray& ray);

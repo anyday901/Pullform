@@ -32,7 +32,21 @@ include breaking changes, but project files will keep a migration path.
 
 ### Added
 
+- **Rotate tool** (Q): click the object, a centre, a reference direction and the angle, or
+  type degrees. Arrow keys pick the axis (Right X, Left Y, Up Z); grid snap gives 15 degree
+  steps. Quarter turns about grid points keep corners exact.
+- **Scale tool** (S): drag from a grip point or type a uniform factor (`2`, `150%`) or
+  width, depth, height factors (`2, 1, 1`), about the centre of the base. Scaling changes
+  the object's real dimensions, so sizes shown and typed stay true lengths.
+- The Properties panel shows an object's true width, depth and rotation.
+- Push/pull follows a rotated object's own direction.
 - `pullform_bench`, a hover benchmark for large models; results in `docs/VERIFICATION.md`.
+
+### Changed
+
+- **Project file format version 2**: object transforms gain `rotation`, a unit quaternion
+  `[x, y, z, w]`. Version 1 files open through a migration (identity rotation) and the
+  status bar says so; saving writes version 2, which Pullform 0.2.0 cannot open.
 
 ## [0.2.0] - 2026-11-10
 

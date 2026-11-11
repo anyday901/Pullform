@@ -57,6 +57,16 @@ std::optional<Vec3> intersectHorizontalPlane(const Ray& ray, double z) {
     return p;
 }
 
+std::optional<Vec3> intersectPlane(const Ray& ray, const Vec3& point, const Vec3& normal) {
+    const double denom = glm::dot(ray.direction, normal);
+    if (std::abs(denom) < 1e-9) return std::nullopt;
+    const double t = glm::dot(point - ray.origin, normal) / denom;
+    if (t <= 0.0) return std::nullopt;
+    const Vec3 p = ray.origin + ray.direction * t;
+    // Remove the residual distance from the plane so points lie exactly on it.
+    return p - normal * glm::dot(p - point, normal);
+}
+
 std::optional<double> closestParameterOnAxis(const Vec3& origin, const Vec3& axis, const Ray& ray) {
     // Closest points between lines P(t) = origin + t*axis and Q(s) = ray.origin + s*dir.
     const Vec3 w0 = origin - ray.origin;

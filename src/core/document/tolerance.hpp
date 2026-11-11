@@ -14,6 +14,7 @@ namespace pf::tol {
 inline constexpr double kLengthEpsilon = 1e-9;   // coordinate equality (1 nm)
 inline constexpr double kMinDimension = 1e-4;    // smallest width/depth/height: 0.1 mm
 inline constexpr double kMaxCoordinate = 1e4;    // largest |coordinate| or dimension: 10 km
+inline constexpr double kRotationLengthTolerance = 1e-6; // |rotation quaternion| must be 1 within this
 inline constexpr double kMinArea = kMinDimension * kMinDimension;
 
 inline bool isFinite(double v) { return std::isfinite(v); }
