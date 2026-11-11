@@ -2,6 +2,7 @@
 
 #include "core/document/document.hpp"
 #include "core/document/result.hpp"
+#include "core/geometry/circle.hpp"
 #include "core/geometry/mesh.hpp"
 #include "core/geometry/rectangle.hpp"
 
@@ -27,7 +28,10 @@ std::optional<std::string> checkHeight(double height);
 
 /// Adds a planar rectangle (allocating a new stable ID).
 Expected<OpResult> createRectangle(const Document& doc, const RectanglePlacement& placement);
-/// Turns a planar rectangle into a closed prism of total height `height`.
+/// Adds a planar circle or regular polygon (`kind` Circle or Polygon), centred
+/// on the placement's center, allocating a new stable ID.
+Expected<OpResult> createCircle(const Document& doc, const CirclePlacement& placement, ProfileKind kind = ProfileKind::Circle);
+/// Turns a planar rectangle, circle or polygon into a closed prism of total height `height`.
 Expected<OpResult> extrudeProfile(const Document& doc, ObjectId id, double height);
 /// Changes the total height of an existing extrusion (same object, same ID).
 Expected<OpResult> setExtrusionHeight(const Document& doc, ObjectId id, double height);
@@ -43,7 +47,8 @@ Vec3 objectBaseCenter(const ProfileObject& object);
 /// z = height) about the centre of its base, so a box on the ground stays on
 /// the ground and centred. The result is baked into the real dimensions
 /// (rectangle width/depth and extrusion height); the transform stays rigid.
-/// Factors must be positive; the z factor is ignored for a planar rectangle.
+/// Factors must be positive; the z factor is ignored for a planar profile. A
+/// circle or polygon stays regular, so its width and depth factors must match.
 Expected<OpResult> scaleObject(const Document& doc, ObjectId id, const Vec3& factors);
 
 /// Checks a move of `object` by `offset`: finite, and the new position stays

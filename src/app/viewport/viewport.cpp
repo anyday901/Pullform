@@ -1,5 +1,6 @@
 #include "app/viewport/viewport.hpp"
 
+#include "core/geometry/circle.hpp"
 #include "core/geometry/measure.hpp"
 
 #include <glm/geometric.hpp>
@@ -33,6 +34,7 @@ constexpr glm::vec4 kErrorFill{0.90f, 0.15f, 0.12f, 0.40f};
 constexpr glm::vec4 kErrorEdge{0.85f, 0.10f, 0.08f, 1.0f};
 constexpr glm::vec4 kSnapEndpoint{0.10f, 0.65f, 0.20f, 1.0f};
 constexpr glm::vec4 kSnapMidpoint{0.05f, 0.62f, 0.80f, 1.0f};
+constexpr glm::vec4 kSnapCenter{0.10f, 0.65f, 0.20f, 1.0f}; // same green as an endpoint: a point of the curve itself
 constexpr glm::vec4 kSnapOther{0.70f, 0.20f, 0.75f, 1.0f};
 constexpr glm::vec4 kGuideFree{0.45f, 0.45f, 0.50f, 1.0f};
 constexpr glm::vec4 kDimension{0.20f, 0.24f, 0.32f, 1.0f};
@@ -139,7 +141,7 @@ void Viewport::drawSnap(std::vector<LineSegment>& lines, const SnapResult& snap)
     }
 
     // Marker at the snapped point, facing the camera: a square on an endpoint,
-    // a triangle on a midpoint, a diamond for an inference or face point.
+    // a triangle on a midpoint, a circle on a center, a diamond for an inference or face point.
     const Vec3 p = snap.point;
     const double r = pixels(p, 6.0);
     const auto poly = [&](std::initializer_list<Vec2> corners, const glm::vec4& color) {
@@ -150,6 +152,9 @@ void Viewport::drawSnap(std::vector<LineSegment>& lines, const SnapResult& snap)
     switch (snap.kind) {
     case SnapKind::Endpoint: poly({{-1, -1}, {1, -1}, {1, 1}, {-1, 1}}, kSnapEndpoint); break;
     case SnapKind::Midpoint: poly({{-1.1, -0.8}, {1.1, -0.8}, {0, 1.1}}, kSnapMidpoint); break;
+    case SnapKind::Center: // a small circle (octagon)
+        poly({{1, 0}, {0.71, 0.71}, {0, 1}, {-0.71, 0.71}, {-1, 0}, {-0.71, -0.71}, {0, -1}, {0.71, -0.71}}, kSnapCenter);
+        break;
     case SnapKind::Inference:
     case SnapKind::OnFace: poly({{0, -1.2}, {1.2, 0}, {0, 1.2}, {-1.2, 0}}, kSnapOther); break;
     case SnapKind::Grid:
@@ -455,6 +460,18 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
             temp.profile.boundary = rectangleBoundary(rect->placement->width, rect->placement->depth);
             temp.transform.translation = rect->placement->corner;
             renderer_.drawMesh(previewMesh(buildMesh(temp)), kPreviewFill);
+        }
+    } else if (const auto* circle = std::get_if<CirclePreview>(&editor.preview())) {
+        const glm::vec4 color = circle->placement ? kPreviewEdge : kErrorEdge;
+        lines.push_back({circle->center, {circle->edge.x, circle->edge.y, circle->center.z}, color}); // the radius
+        if (circle->placement) {
+            ProfileObject temp;
+            temp.profile.kind = circle->kind;
+            temp.profile.boundary = regularBoundary(circle->placement->radius, circle->placement->segments, circle->placement->start);
+            temp.transform.translation = circle->placement->center;
+            const MeshData mesh = buildMesh(temp);
+            renderer_.drawMesh(previewMesh(mesh), kPreviewFill);
+            appendEdges(lines, mesh, color);
         }
     } else if (pushPreview) {
         if (const auto* obj = doc.find(pushPreview->objectId)) {

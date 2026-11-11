@@ -31,6 +31,8 @@ inline constexpr const char* kSelectAll = PF_MOD "A";
 inline constexpr const char* kFit = "F";
 inline constexpr const char* kSelect = "Space";
 inline constexpr const char* kRectangle = "R";
+inline constexpr const char* kCircle = "C";
+inline constexpr const char* kPolygon = "Shift+C";
 inline constexpr const char* kPushPull = "P";
 inline constexpr const char* kMove = "M";
 inline constexpr const char* kRotate = "Q";
@@ -40,7 +42,7 @@ inline constexpr const char* kTape = "T";
 inline constexpr const char* kDimension = "D";
 inline constexpr const char* kSnap = "G";
 
-inline constexpr std::array<std::pair<const char*, const char*>, 31> kTable = {{
+inline constexpr std::array<std::pair<const char*, const char*>, 34> kTable = {{
     {"Left button", "Use the active tool"},
     {"Middle drag", "Orbit"},
     {"Shift + middle drag", "Pan"},
@@ -52,6 +54,9 @@ inline constexpr std::array<std::pair<const char*, const char*>, 31> kTable = {{
     {"Drag right / left", "Select: window (inside) / crossing (touching)"},
     {PF_MOD "A", "Select all"},
     {"R", "Rectangle tool"},
+    {"C", "Circle tool"},
+    {"Shift+C", "Polygon tool"},
+    {"Type 24s, Enter", "Circle / Polygon: number of segments or sides"},
     {"P", "Push/Pull tool"},
     {"M", "Move tool"},
     {"X / Y / Z or arrows", "Move: lock to an axis (again to release)"},

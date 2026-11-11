@@ -66,10 +66,13 @@ struct ProfileObject {
 };
 ```
 
-The profile is restricted to an axis-aligned rectangle `[0,0],[w,0],[w,d],[0,d]` on the
-local XY plane. The fields are already shaped for a general polygon profile and other
-planes (a different `PlaneBasis`), so those can be added without changing what existing
-files mean. Validation (`core/document/validate.*`) enforces the current restrictions
+The profile lies on the local XY plane and is one of three kinds (`ProfileKind`): an
+axis-aligned rectangle `[0,0],[w,0],[w,d],[0,d]`, or a **circle** or **polygon**, both a
+regular polygon centred on the local origin (vertex i at radius r and angle
+start + 2*pi*i/n; `core/geometry/circle.*`). The object's translation is the circle's
+center, so its base centre is exactly the origin. The fields are already shaped for a
+general polygon profile and other planes (a different `PlaneBasis`), so those can be added
+without changing what existing files mean. Validation (`core/document/validate.*`) enforces the current restrictions
 explicitly, including that every placed corner stays inside the 10 km range.
 
 **Transforms are rigid.** A local point `p` maps to `translation + R * p`, where `R` comes
@@ -96,7 +99,7 @@ added, but not by validation, so an edit that brings a free end onto an attached
 never rejected because of an annotation.
 
 Objects are immutable once in a document. Operations (`core/commands/operations.*`:
-`createRectangle`, `extrudeProfile`, `setExtrusionHeight`, `rotateObject`, `scaleObject`,
+`createRectangle`, `createCircle`, `extrudeProfile`, `setExtrusionHeight`, `rotateObject`, `scaleObject`,
 `duplicateObject`, `deleteObject`,
 `setDisplayUnit`) are pure functions that return a new document sharing unchanged objects,
 or an `Error` with a user-facing message.
@@ -272,6 +275,17 @@ a new file pair, and one `add<...>(Tool::...)` registration line in the
 `ToolController` constructor. The controller receives a `PointerInput` (world ray,
 resolved pick, screen position), so tests drive it with synthetic events and no window.
 
+- Circle and Polygon (`app/tools/circle_tool.*`, one class for both): click the center
+  on the ground, then a point on the circle, or type the radius; the first vertex points
+  at the second click, so that point is on the shape. A typed count such as `24s` sets the
+  segments (circle, default 24) or sides (polygon, default 6), before or during drawing,
+  and is kept for the next one. Both call `createCircle`. **True curves:**
+  `meshFromProfile` gives a circle or polygon a `Curve` per loop (curve 1 = base edges
+  1..n, curve 2 = cap edges n+1..2n; kind Circle or Polygon), so the shape survives
+  conversion to a mesh group and its center snaps (`SnapKind::Center`, from every curve in
+  `objectMesh`, so drawn arcs get it too). A cylinder's side edges are soft and smooth: not
+  drawn or picked, and `buildMesh` shades the sides with radial normals. Scale keeps a
+  circle or polygon regular (equal width and depth factors only).
 - Rectangle: ground-plane intersection, optional grid snap, normalization of any drawing
   direction to a positive-size, counter-clockwise rectangle. Typed sizes follow the
   pointer's direction from the first corner. Mouse and numeric entry call the same
@@ -396,5 +410,5 @@ resolved pick, screen position), so tests drive it with synthetic events and no 
 The edge/face mesh exists in the core, but there is no Line or Eraser tool yet (the
 `drawEdge`/`eraseEdge` operations are ready for them), push/pull works only on profile
 groups, there are no booleans, no healing of collinear edges left after an erase, and no
-arc tool (curves are in the schema only). Dimension anchors still name corners by index
+arc tool (curves exist for circles and polygons only). Dimension anchors still name corners by index
 (vertex id - 1) rather than by vertex id. See docs/GEOMETRY.md and the roadmap.

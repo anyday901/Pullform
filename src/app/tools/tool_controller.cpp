@@ -1,5 +1,6 @@
 #include "app/tools/tool_controller.hpp"
 
+#include "app/tools/circle_tool.hpp"
 #include "app/tools/measure_tool.hpp"
 #include "app/tools/move_tool.hpp"
 #include "app/tools/orbit_tool.hpp"
@@ -30,6 +31,8 @@ ToolController::ToolController(Editor& editor) : editor_(editor), snapper_(edito
     pushPull_ = &add<PushPullTool>(Tool::PushPull);
     add<SelectTool>(Tool::Select, *pushPull_);
     rectangle_ = &add<RectangleTool>(Tool::Rectangle);
+    add<CircleTool>(Tool::Circle, ProfileKind::Circle);
+    add<CircleTool>(Tool::Polygon, ProfileKind::Polygon);
     move_ = &add<MoveTool>(Tool::Move);
     rotate_ = &add<RotateTool>(Tool::Rotate);
     scale_ = &add<ScaleTool>(Tool::Scale);

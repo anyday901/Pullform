@@ -30,6 +30,15 @@ struct RectanglePreview {
     std::optional<RectanglePlacement> placement; ///< empty while degenerate
 };
 
+/// Live circle or polygon preview (center placed, pointer at `edge`).
+struct CirclePreview {
+    ProfileKind kind = ProfileKind::Circle;
+    Vec3 center{0.0};
+    Vec3 edge{0.0};
+    int segments = kDefaultCircleSegments;
+    std::optional<CirclePlacement> placement; ///< empty while the radius is too small
+};
+
 /// Live push/pull preview. `delta` is the incremental drag distance; `height`
 /// is the resulting total height (what is committed).
 struct PushPullPreview {
@@ -120,7 +129,7 @@ struct SelectBoxPreview {
 
 /// Transient feedback drawn by the viewport. Never part of the document or history.
 using Preview =
-    std::variant<std::monostate, RectanglePreview, PushPullPreview, MovePreview, RotatePreview, ScalePreview, MeasurePreview,
+    std::variant<std::monostate, RectanglePreview, CirclePreview, PushPullPreview, MovePreview, RotatePreview, ScalePreview, MeasurePreview,
                  SelectBoxPreview>;
 
 /// The object a preview draws in place of the document's version (push/pull,
