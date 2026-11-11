@@ -1,6 +1,6 @@
 # Geometry model decision
 
-Status: **decided** (Phase 1, step 3). This document has no product code. It sets the
+Status: **accepted** by the project owner on 2026-11-11 (Phase 1, step 3). This document has no product code. It sets the
 model that Phase 1 step 4 (edge/face mesh and file format version 3) and step 5 (render
 and pick edges and faces) build on.
 
