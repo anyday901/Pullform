@@ -36,6 +36,7 @@ void MoveTool::toggleAxisLock(MoveAxis axis) {
 
 void MoveTool::toggleCopy() {
     copy_ = !copy_;
+    lastCopy_.reset(); // a new copy starts; typed values no longer edit the last one
     if (const auto* p = std::get_if<MovePreview>(&editor().preview())) {
         MovePreview next = *p;
         next.copy = copy_;

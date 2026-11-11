@@ -426,9 +426,12 @@ void App::handleShortcuts() {
     if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, false)) tools_.key(ToolKey::ArrowUp);
     if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, false)) tools_.key(ToolKey::ArrowDown);
     const bool typing = ui_.hasMeasurementText();
+    // Move and Rotate also take "/5" and "*5" (array copies); "x5" needs the
+    // box, since X alone locks the Move axis, but "5x" works anywhere.
+    const bool arrays = tools_.tool() == Tool::Move || tools_.tool() == Tool::Rotate;
     for (int i = 0; i < io.InputQueueCharacters.Size; ++i) {
         const unsigned int c = io.InputQueueCharacters[i];
-        const bool starts = (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '+';
+        const bool starts = (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '+' || (arrays && (c == '/' || c == '*'));
         // Recheck per character: a digit earlier in this same batch starts the value.
         if (ui_.hasMeasurementText() || starts) {
             ui_.typeMeasurement(c);

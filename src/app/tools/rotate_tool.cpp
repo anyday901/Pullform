@@ -54,6 +54,7 @@ void RotateTool::setAxis(MoveAxis axis) {
 
 void RotateTool::toggleCopy() {
     copy_ = !copy_;
+    lastCopy_.reset(); // a new copy starts; typed values no longer edit the last one
     if (const auto* p = std::get_if<RotatePreview>(&editor().preview())) {
         RotatePreview next = *p;
         next.copy = copy_;

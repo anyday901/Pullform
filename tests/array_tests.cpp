@@ -184,6 +184,18 @@ TEST_CASE("array editing ends with another edit, undo and a tool change") {
         CHECK(tools.submitMoveDistance("5x").has_value());
         CHECK(editor.document().objects.size() == 2);
     }
+    SUBCASE("tapping Ctrl for another copy") {
+        copyAlongX(tools);
+        copyAlongX(tools); // a second typed copy extends the row instead of editing the first
+        CHECK(editor.document().objects.size() == 3);
+        CHECK_FALSE(tools.moveCopy());
+        tools.setTool(Tool::Rotate);
+        tools.toggleRotateCopy();
+        REQUIRE_FALSE(tools.submitRotateAngle("90").has_value());
+        tools.toggleRotateCopy();
+        REQUIRE_FALSE(tools.submitRotateAngle("90").has_value());
+        CHECK(editor.document().objects.size() == 5);
+    }
     SUBCASE("a plain move is not a copy") {
         tools.setTool(Tool::Move);
         tools.toggleAxisLock(MoveAxis::X);
