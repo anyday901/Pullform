@@ -98,8 +98,10 @@ Expected<OpResult> addDimension(const Document& doc, const DimensionAnchor& a, c
 
 Expected<OpResult> deleteDimension(const Document& doc, DimensionId id) {
     OpResult result{doc, std::nullopt};
-    const auto removed = std::erase_if(result.document.dimensions, [id](const Dimension& d) { return d.id == id; });
-    if (removed == 0) return Error{"Dimension " + idString(id) + " no longer exists."};
+    if (const auto removed = std::erase_if(result.document.dimensions, [id](const Dimension& d) { return d.id == id; });
+        removed == 0) {
+        return Error{"Dimension " + idString(id) + " no longer exists."};
+    }
     return result;
 }
 

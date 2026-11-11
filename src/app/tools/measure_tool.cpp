@@ -124,7 +124,7 @@ bool MeasureTool::commitDimension(const Vec3& offset) {
     const LengthUnit u = editor_.document().displayUnit;
     const double length = measureBetween(start_->point, end_->point).length;
     const bool ok = editor_.commit("Add dimension " + formatLength(length, u),
-                                   [&](const Document& doc) { return addDimension(doc, a, b, offset); });
+                                   [&a, &b, &offset](const Document& doc) { return addDimension(doc, a, b, offset); });
     if (ok) {
         const MeasurePoint keep = cursor_;
         cancel();

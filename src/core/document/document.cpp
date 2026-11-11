@@ -26,7 +26,7 @@ std::optional<std::uint64_t> parsePrefixedId(std::string_view text, std::string_
 
 std::optional<ObjectId> parseObjectId(std::string_view text) {
     const auto v = parsePrefixedId(text, "obj-");
-    if (!v) return std::nullopt;
+    if (!v.has_value()) return std::nullopt;
     return ObjectId{*v};
 }
 
@@ -34,7 +34,7 @@ std::string idString(DimensionId id) { return "dim-" + std::to_string(id.value);
 
 std::optional<DimensionId> parseDimensionId(std::string_view text) {
     const auto v = parsePrefixedId(text, "dim-");
-    if (!v) return std::nullopt;
+    if (!v.has_value()) return std::nullopt;
     return DimensionId{*v};
 }
 

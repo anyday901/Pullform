@@ -20,19 +20,19 @@ Vec3 toWorld(const ProfileObject& o, const Vec2& p, double offset) {
 } // namespace
 
 int vertexCount(const ProfileObject& o) {
-    const int n = static_cast<int>(o.profile.boundary.size());
+    const auto n = static_cast<int>(o.profile.boundary.size());
     return o.extrusion ? 2 * n : n;
 }
 
 std::optional<Vec3> objectVertex(const ProfileObject& o, int index) {
-    const int n = static_cast<int>(o.profile.boundary.size());
+    const auto n = static_cast<int>(o.profile.boundary.size());
     if (index < 0 || index >= vertexCount(o)) return std::nullopt;
     if (index < n) return toWorld(o, o.profile.boundary[static_cast<std::size_t>(index)], 0.0);
     return toWorld(o, o.profile.boundary[static_cast<std::size_t>(index - n)], o.extrusion->height);
 }
 
 std::vector<std::pair<int, int>> objectEdges(const ProfileObject& o) {
-    const int n = static_cast<int>(o.profile.boundary.size());
+    const auto n = static_cast<int>(o.profile.boundary.size());
     std::vector<std::pair<int, int>> edges;
     for (int i = 0; i < n; ++i) edges.emplace_back(i, (i + 1) % n);
     if (o.extrusion) {
@@ -55,7 +55,7 @@ std::optional<Vec3> resolveAnchor(const Document& doc, const DimensionAnchor& an
 }
 
 DimensionAnchor anchorAt(const Document& doc, const Vec3& point, std::optional<ObjectId> preferred, double tolerance) {
-    const auto attachTo = [&](const ProfileObject& o) -> std::optional<DimensionAnchor> {
+    const auto attachTo = [&](const ProfileObject& o) {
         double best = tolerance;
         std::optional<DimensionAnchor> found;
         const auto consider = [&](const Vec3& p, std::vector<int> vertices) {
