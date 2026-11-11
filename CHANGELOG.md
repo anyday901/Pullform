@@ -18,6 +18,11 @@ include breaking changes, but project files will keep a migration path.
   duplicate at the destination (dragged or typed, with axis locks) and leaves the original
   where it was, as one undo entry. Tap again to go back to a plain move.
 
+### Changed
+
+- Internal: each tool is now its own class behind a small interface (`app/tools/tool.hpp`),
+  with snapping, axis locks and numeric entry in shared helpers. No behavior change.
+
 ### Fixed
 
 - An extra Backspace after clearing a typed value no longer deletes the selected object.

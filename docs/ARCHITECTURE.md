@@ -160,9 +160,22 @@ same interface.
 
 ## Tools and input
 
-`app/tools/tool_controller.*` contains the select, rectangle, push/pull and move state machines.
-It receives a `PointerInput` (world ray, resolved pick, screen position), so tests drive it
-with synthetic events and no window.
+Each tool is its own class behind the small `ToolBase` interface in `app/tools/tool.hpp`:
+pointer down/move/up, `key` (arrow and X/Y/Z keys), `submit` (the typed value), `cancel`,
+`active`, `hint` (status bar) and `measurementLabel`. Tools publish their live preview to the
+editor (`Editor::setPreview`) and commit one operation per gesture. One file pair per tool:
+`select_tool`, `rectangle_tool`, `push_pull_tool`, `move_tool`, `rotate_tool`, `scale_tool`,
+`orbit_tool` and `measure_tool` (tape measure and dimension are two instances of it).
+Shared parts live in `ToolContext` (editor, snap settings, the point snapper, the snap
+indicator, ground and pointer snapping) and `app/tools/tool_support.*` (axis keys and
+locks, grid steps, numeric-entry trimming, drag threshold, `baseCenter`).
+
+`app/tools/tool_controller.*` owns the tools and routes events, keys and typed values to the
+current one; its tool-specific entry points (`submitMoveDistance`, `toggleAxisLock`, ...)
+forward to the matching tool. Adding a tool means a new `Tool` value with its `toolName`,
+a new file pair, and one `add<...>(Tool::...)` registration line in the
+`ToolController` constructor. The controller receives a `PointerInput` (world ray,
+resolved pick, screen position), so tests drive it with synthetic events and no window.
 
 - Rectangle: ground-plane intersection, optional grid snap, normalization of any drawing
   direction to a positive-size, counter-clockwise rectangle. Typed sizes follow the
@@ -176,7 +189,7 @@ with synthetic events and no window.
   with an axis lock (X/Y/Z keys or Right/Left/Up arrows), along the world axis through
   that point (the same closest-point projection as push/pull). With snap on, the object's
   corner (its translation) lands on the grid along each moving component. Every move,
-  dragged or typed, commits through `ToolController::commitMove` and the pure
+  dragged or typed, commits through `MoveTool::commit` and the pure
   `moveObject` operation, which changes only the translation. The lock is released after
   a commit or a tool change. Out-of-range positions preview red and cannot be committed.
 - Snapping (`core/geometry/snap.*`, used through `app/tools/snapper.*` by `ToolController`): a `SnapIndex` holds each
@@ -195,8 +208,8 @@ with synthetic events and no window.
   viewport as a marker and dashed guides drawn on top. `snapPointer` and
   `resolveSnapFeature` let other tools (tape measure, dimensions) snap the same way and
   refer to a corner or midpoint by object and feature index.
-- Tape measure and dimensions (`app/tools/measure_tool.*`): `ToolController` snaps each
-  pointer event with `snapPointer` and passes the result to `MeasureTool`. An endpoint or
+- Tape measure and dimensions (`app/tools/measure_tool.*`): `MeasureTool` snaps each
+  pointer event with `ToolContext::measureSnap` (built on `snapPointer`). An endpoint or
   midpoint snap becomes an attached anchor through `anchorAt`, which matches the point
   against the object's corners and edge midpoints, so the anchor does not depend on the
   snap index's feature order. The dimension line offset comes from `offsetFromRay`: the
