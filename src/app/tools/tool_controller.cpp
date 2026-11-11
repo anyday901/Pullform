@@ -61,7 +61,15 @@ double ToolController::tolerance(const PointerInput& input, const Vec3& at) cons
     return input.pixelAngle * snap_.radiusPx * glm::length(at - input.ray.origin);
 }
 
+void ToolController::dropStaleReferences() {
+    // New / Open replace the project: points from the old one must not guide the new one.
+    if (referencesGeneration_ == editor_.projectGeneration()) return;
+    references_.clear();
+    referencesGeneration_ = editor_.projectGeneration();
+}
+
 void ToolController::remember(const Vec3& p) {
+    dropStaleReferences();
     // Most recent first, no duplicates, at most kMaxReferences.
     const Vec3 point = p;
     std::erase(references_, point);
@@ -97,6 +105,7 @@ std::optional<SnapResult> ToolController::snapGround(const PointerInput& input) 
     res.featurePoint = res.point;
     if (!snap_.points || !(input.pixelAngle > 0.0)) return res;
 
+    dropStaleReferences();
     // Inference: line up with a remembered point along X or Y. The first
     // corner of the rectangle is no use as a reference (it would give a zero
     // width or depth), so it is skipped.

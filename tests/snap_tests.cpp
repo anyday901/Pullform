@@ -182,6 +182,17 @@ TEST_CASE("midpoint snap and inference guides from a remembered point") {
     CHECK(tools.snapIndicator()->kind == SnapKind::Grid);
     CHECK(tools.snapIndicator()->guides.empty());
 
+    // Replacing the project (New / Open) forgets the old project's references.
+    tools.pointerMove(snapAt(editor, 1.04, 1.03)); // remember the midpoint again
+    editor.resetDocument(Document{});
+    tools.pointerMove(snapAt(editor, 1.12, 4.04));
+    REQUIRE(tools.snapIndicator());
+    CHECK(tools.snapIndicator()->kind == SnapKind::Grid);
+    CHECK(test::near(tools.snapIndicator()->point.x, 1.1, 1e-12));
+    CHECK(tools.inferenceReferences().empty());
+    test::makeBox(editor, tools, "2000, 1000", nullptr);
+    tools.setTool(Tool::Rectangle);
+
     // Point snap off: grid only, even right on a corner.
     tools.snap().points = false;
     tools.pointerMove(snapAt(editor, 2.04, 1.03));

@@ -125,6 +125,7 @@ private:
     [[nodiscard]] double tolerance(const PointerInput& input, const Vec3& at) const;
     std::optional<SnapResult> pointSnap(const PointerInput& input, std::optional<ObjectId> exclude = std::nullopt);
     void remember(const Vec3& p);
+    void dropStaleReferences();
     std::optional<double> snapPushHeight(const PointerInput& input, std::optional<double> raw);
 
     void selectDown(const PointerInput& input);
@@ -147,6 +148,7 @@ private:
     SnapIndex snapIndex_;
     std::optional<SnapResult> indicator_;
     std::vector<Vec3> references_;
+    std::uint64_t referencesGeneration_ = 0; ///< Editor::projectGeneration the references belong to
 };
 
 } // namespace pf
