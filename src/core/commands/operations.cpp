@@ -2,6 +2,9 @@
 
 #include "core/document/tolerance.hpp"
 #include "core/document/validate.hpp"
+#include "core/geometry/measure.hpp"
+
+#include <algorithm>
 
 #include <glm/geometric.hpp>
 
@@ -198,6 +201,33 @@ Expected<OpResult> deleteObject(const Document& doc, ObjectId id) {
     if (index < 0) return Error{"Object " + idString(id) + " no longer exists."};
     OpResult result{doc, std::nullopt};
     result.document.objects.erase(result.document.objects.begin() + index);
+    // A dimension measures geometry; without its object it has nothing to measure.
+    std::erase_if(result.document.dimensions,
+                  [id](const Dimension& d) { return anchorUses(d.a, id) || anchorUses(d.b, id); });
+    return result;
+}
+
+Expected<OpResult> addDimension(const Document& doc, const DimensionAnchor& a, const DimensionAnchor& b, const Vec3& offset) {
+    const auto pa = resolveAnchor(doc, a);
+    const auto pb = resolveAnchor(doc, b);
+    if (!pa || !pb) return Error{"The measured object no longer exists."};
+    if (measureBetween(*pa, *pb).length < tol::kMinDimension) {
+        return Error{"The two points are the same. Pick two different points to dimension."};
+    }
+    Dimension d{DimensionId{doc.nextId}, a, b, offset};
+    if (auto e = validateDimension(d, doc, "dimension")) return Error{*e};
+    OpResult result{doc, std::nullopt};
+    result.document.nextId = doc.nextId + 1;
+    result.document.dimensions.push_back(std::move(d));
+    return result;
+}
+
+Expected<OpResult> deleteDimension(const Document& doc, DimensionId id) {
+    OpResult result{doc, std::nullopt};
+    if (const auto removed = std::erase_if(result.document.dimensions, [id](const Dimension& d) { return d.id == id; });
+        removed == 0) {
+        return Error{"Dimension " + idString(id) + " no longer exists."};
+    }
     return result;
 }
 

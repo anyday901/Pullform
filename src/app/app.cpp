@@ -288,6 +288,8 @@ void App::frame() {
         ui_.clearMeasurement(); // a value typed for one tool never applies to another
     }
     updateTitle();
+    // Labels after input, so they match this frame's preview and document.
+    ui_.drawLabels(viewport_->labels(editor_));
 
     ImGui::Render();
     glViewport(0, 0, fbw, fbh);
@@ -441,6 +443,8 @@ void App::handleShortcuts() {
         if (ImGui::IsKeyPressed(ImGuiKey_Y, false)) tools_.toggleAxisLock(MoveAxis::Y);
         if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) tools_.toggleAxisLock(MoveAxis::Z);
     }
+    if (ImGui::IsKeyPressed(ImGuiKey_T, false)) tools_.setTool(Tool::TapeMeasure);
+    if (ImGui::IsKeyPressed(ImGuiKey_D, false)) tools_.setTool(Tool::Dimension);
     if (ImGui::IsKeyPressed(ImGuiKey_F, false)) fitView();
     if (ImGui::IsKeyPressed(ImGuiKey_G, false)) tools_.snap().enabled = !tools_.snap().enabled;
     // Backspace also erases typed values: right after the last character is

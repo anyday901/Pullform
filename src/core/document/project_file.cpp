@@ -127,6 +127,49 @@ ProfileObject readObject(const json& v, const std::string& path) {
     return o;
 }
 
+DimensionAnchor readAnchor(const json& v, const std::string& path) {
+    if (!v.is_object()) fail(path, "must be an object");
+    DimensionAnchor a;
+    const auto object = v.find("object");
+    if (object == v.end()) {
+        a.point = vec3(*member(v, "point", path), path + ".point");
+        return a;
+    }
+    if (!object->is_string()) fail(path + ".object", "must look like \"obj-1\"");
+    const auto id = parseObjectId(object->get<std::string>());
+    if (!id) fail(path + ".object", "must look like \"obj-1\"");
+    a.object = *id;
+    const auto& vertices = *member(v, "vertices", path);
+    if (!vertices.is_array()) fail(path + ".vertices", "must be an array of corner numbers");
+    for (std::size_t i = 0; i < vertices.size(); ++i) {
+        const auto& n = vertices[i];
+        if (!n.is_number_integer() || n.get<std::int64_t>() < 0 || n.get<std::int64_t>() > 1'000'000) {
+            fail(path + ".vertices[" + std::to_string(i) + "]", "must be a corner number");
+        }
+        a.vertices.push_back(static_cast<int>(n.get<std::int64_t>()));
+    }
+    return a;
+}
+
+json anchorToJson(const DimensionAnchor& a) {
+    if (!a.object) return {{"point", vec3ToJson(a.point)}};
+    return {{"object", idString(*a.object)}, {"vertices", a.vertices}};
+}
+
+Dimension readDimension(const json& v, const std::string& path) {
+    if (!v.is_object()) fail(path, "must be an object");
+    Dimension d;
+    const auto& id = *member(v, "id", path);
+    if (!id.is_string()) fail(path + ".id", "must look like \"dim-1\"");
+    const auto parsed = parseDimensionId(id.get<std::string>());
+    if (!parsed) fail(path + ".id", "must look like \"dim-1\"");
+    d.id = *parsed;
+    d.a = readAnchor(*member(v, "a", path), path + ".a");
+    d.b = readAnchor(*member(v, "b", path), path + ".b");
+    d.offset = vec3(*member(v, "offset", path), path + ".offset");
+    return d;
+}
+
 Document readDocument(const json& v) {
     if (!v.is_object()) fail("document", "must be an object");
     const auto& lengthUnit = *member(v, "lengthUnit", "document");
@@ -148,6 +191,14 @@ Document readDocument(const json& v) {
     for (std::size_t i = 0; i < objects.size(); ++i) {
         doc.objects.push_back(std::make_shared<const ProfileObject>(
             readObject(objects[i], "document.objects[" + std::to_string(i) + "]")));
+    }
+    // Optional: files without annotations omit it. Version 1 files written while
+    // dimensions were new may carry it too; the v1 -> v2 migration keeps it as is.
+    if (const auto dims = v.find("dimensions"); dims != v.end()) {
+        if (!dims->is_array()) fail("document.dimensions", "must be an array");
+        for (std::size_t i = 0; i < dims->size(); ++i) {
+            doc.dimensions.push_back(readDimension((*dims)[i], "document.dimensions[" + std::to_string(i) + "]"));
+        }
     }
     return doc;
 }
@@ -233,6 +284,13 @@ std::string serializeProject(const Document& doc, const std::optional<CameraView
           {"nextId", doc.nextId},
           {"objects", objects}}},
     };
+    if (!doc.dimensions.empty()) {
+        json dims = json::array();
+        for (const auto& d : doc.dimensions) {
+            dims.push_back({{"id", idString(d.id)}, {"a", anchorToJson(d.a)}, {"b", anchorToJson(d.b)}, {"offset", vec3ToJson(d.offset)}});
+        }
+        file["document"]["dimensions"] = std::move(dims);
+    }
     if (view) file["view"] = {{"position", vec3ToJson(view->position)}, {"target", vec3ToJson(view->target)}};
     return file.dump(2) + "\n";
 }

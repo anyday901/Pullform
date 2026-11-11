@@ -40,6 +40,17 @@ struct PushPullPreview {
     std::optional<std::string> error; ///< why the current height cannot be committed
 };
 
+/// Live tape measure or dimension placement. Points are world space.
+struct MeasurePreview {
+    enum class Mode { Tape, Dimension };
+    Mode mode = Mode::Tape;
+    std::optional<Vec3> start; ///< first point, once clicked
+    std::optional<Vec3> end;   ///< second point: live while measuring, then fixed
+    bool fixed = false;        ///< both points placed (tape: finished; dimension: placing the line)
+    std::optional<Vec3> offset; ///< dimension line offset while placing it
+    Vec3 cursor{0.0};          ///< snapped pointer point
+};
+
 /// A world axis that a gesture is locked to (Move: the direction of travel).
 enum class MoveAxis { X, Y, Z };
 
@@ -59,7 +70,6 @@ struct MovePreview {
     bool copy = false;                ///< committing places a copy; the original stays put
 };
 
-/// Transient feedback drawn by the viewport. Never part of the document or history.
 /// Live rotate preview. `reference` and `current` are offsets from `pivot` in
 /// the rotation plane (perpendicular to `axis`). `result` is the rotated object
 /// the viewport draws in place of the real one.
@@ -88,7 +98,7 @@ struct ScalePreview {
 
 /// Transient feedback drawn by the viewport. Never part of the document or history.
 using Preview =
-    std::variant<std::monostate, RectanglePreview, PushPullPreview, MovePreview, RotatePreview, ScalePreview>;
+    std::variant<std::monostate, RectanglePreview, PushPullPreview, MovePreview, RotatePreview, ScalePreview, MeasurePreview>;
 
 /// The object a preview draws in place of the document's version (push/pull,
 /// rotate and scale), if any. The viewport hides the original while it is set.

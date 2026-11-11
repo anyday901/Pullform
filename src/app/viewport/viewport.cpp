@@ -1,5 +1,7 @@
 #include "app/viewport/viewport.hpp"
 
+#include "core/geometry/measure.hpp"
+
 #include <glm/geometric.hpp>
 
 #include <algorithm>
@@ -31,6 +33,8 @@ constexpr glm::vec4 kSnapEndpoint{0.10f, 0.65f, 0.20f, 1.0f};
 constexpr glm::vec4 kSnapMidpoint{0.05f, 0.62f, 0.80f, 1.0f};
 constexpr glm::vec4 kSnapOther{0.70f, 0.20f, 0.75f, 1.0f};
 constexpr glm::vec4 kGuideFree{0.45f, 0.45f, 0.50f, 1.0f};
+constexpr glm::vec4 kDimension{0.20f, 0.24f, 0.32f, 1.0f};
+constexpr glm::vec4 kMeasure{0.95f, 0.45f, 0.08f, 1.0f};
 
 glm::vec4 dim(glm::vec4 c, float a) { return {c.r, c.g, c.b, a}; }
 
@@ -166,6 +170,56 @@ void Viewport::drawGrid(std::vector<LineSegment>& lines) {
 
 void Viewport::appendEdges(std::vector<LineSegment>& lines, const MeshData& mesh, const glm::vec4& color) {
     for (std::size_t i = 0; i + 1 < mesh.edges.size(); i += 2) lines.push_back({mesh.edges[i], mesh.edges[i + 1], color});
+}
+
+std::optional<Vec2> Viewport::toWindow(const Vec3& world) const {
+    const auto p = camera_.project(world, size_);
+    if (!p) return std::nullopt;
+    return origin_ + *p;
+}
+
+void Viewport::appendDimension(std::vector<LineSegment>& lines, const Vec3& a, const Vec3& b, const Vec3& offset,
+                               const glm::vec4& color) const {
+    const DimensionLayout l = layoutDimension(a, b, offset);
+    const double px = camera_.worldPerPixel(l.label, size_);
+    const double offLen = glm::length(offset);
+    const Vec3 offDir = offLen > 1e-12 ? offset / offLen : Vec3{0.0};
+    // Extension lines from the measured points, running a few pixels past the
+    // dimension line; a small gap keeps them off the model's own edges.
+    if (offLen > 1e-12) {
+        const double gap = std::min(4.0 * px, offLen * 0.5);
+        lines.push_back({l.a + offDir * gap, l.lineA + offDir * (6.0 * px), color});
+        lines.push_back({l.b + offDir * gap, l.lineB + offDir * (6.0 * px), color});
+    }
+    lines.push_back({l.lineA, l.lineB, color});
+    // 45-degree ticks at both ends of the dimension line.
+    if (l.length > 1e-12) {
+        const Vec3 u = (l.b - l.a) / l.length;
+        Vec3 side = offLen > 1e-12 ? offDir : glm::cross(u, camera_.forward());
+        if (glm::length(side) < 1e-9) side = Vec3{0.0, 0.0, 1.0};
+        const Vec3 tick = glm::normalize(u + glm::normalize(side)) * (5.0 * px);
+        lines.push_back({l.lineA - tick, l.lineA + tick, color});
+        lines.push_back({l.lineB - tick, l.lineB + tick, color});
+    }
+}
+
+std::vector<ViewportLabel> Viewport::labels(const Editor& editor) const {
+    std::vector<ViewportLabel> out;
+    const Document& doc = editor.document();
+    const LengthUnit u = doc.displayUnit;
+    for (const auto& d : doc.dimensions) {
+        const auto l = layoutDimension(doc, d);
+        if (!l) continue;
+        if (const auto p = toWindow(l->label)) out.push_back({*p, formatLength(l->length, u), ViewportLabel::Style::Dimension});
+    }
+    if (const auto* m = std::get_if<MeasurePreview>(&editor.preview()); m && m->start && m->end) {
+        const Vec3 offset = m->offset.value_or(Vec3{0.0});
+        const DimensionLayout l = layoutDimension(*m->start, *m->end, m->mode == MeasurePreview::Mode::Dimension ? offset : Vec3{0.0});
+        if (l.length > 0.0) {
+            if (const auto p = toWindow(l.label)) out.push_back({*p, formatLength(l.length, u), ViewportLabel::Style::Live});
+        }
+    }
+    return out;
 }
 
 void Viewport::drawFaceOverlay(const CachedMesh& cached, const FaceId& face, const glm::vec4& color) {
@@ -332,6 +386,21 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
         drawTransformResult(sc->result, sc->error.has_value(), doc.find(sc->objectId), lines);
         if (sc->start) lines.push_back({sc->pivot, *sc->start, dim(kPreviewEdge, 0.5f)});
         if (sc->current) lines.push_back({sc->pivot, *sc->current, sc->error ? kErrorEdge : kPreviewEdge});
+    }
+    // Dimensions and measurements draw on top so they stay readable.
+    for (const auto& d : doc.dimensions) {
+        const auto a = resolveAnchor(doc, d.a);
+        const auto b = resolveAnchor(doc, d.b);
+        if (a && b) appendDimension(lines, *a, *b, d.offset, kDimension);
+    }
+    if (const auto* m = std::get_if<MeasurePreview>(&editor.preview())) {
+        if (m->start && m->end) {
+            if (m->mode == MeasurePreview::Mode::Dimension && m->fixed) {
+                appendDimension(lines, *m->start, *m->end, m->offset.value_or(Vec3{0.0}), kMeasure);
+            } else {
+                lines.push_back({*m->start, *m->end, kMeasure});
+            }
+        }
     }
     if (const auto& snap = tools.snapIndicator()) drawSnap(lines, *snap);
     renderer_.drawLines(lines, false);

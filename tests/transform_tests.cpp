@@ -5,6 +5,7 @@
 #include "core/commands/operations.hpp"
 #include "core/document/project_file.hpp"
 #include "core/document/validate.hpp"
+#include "core/geometry/measure.hpp"
 #include "core/geometry/solid.hpp"
 
 #include <glm/geometric.hpp>
@@ -469,4 +470,50 @@ TEST_CASE("moving a rotated object keeps its rotation and survives save/reopen")
     const auto reopened = parseProject(serializeProject(moved->document, std::nullopt));
     REQUIRE(reopened.ok());
     CHECK(reopened->document.find(id)->transform == o.transform);
+}
+
+TEST_CASE("dimension anchors follow a rotated object and survive version 2 save/reopen") {
+    auto [doc, id] = boxDoc(2.0, 1.0, 0.5);
+    auto turned = rotateObject(doc, id, {0, 0, 0}, {0, 0, 1}, degrees(90));
+    REQUIRE(turned.ok());
+    Document d = turned->document;
+    const auto& o = *d.find(id);
+    // Every anchorable corner is the corner the mesh and picking use.
+    const auto c = baseCorners(o);
+    for (int i = 0; i < 4; ++i) CHECK(*objectVertex(o, i) == c[static_cast<std::size_t>(i)]);
+    CHECK(*objectVertex(o, 6) == profileToWorld(o, o.profile.boundary[2], 0.5));
+    CHECK(*objectVertex(o, 1) == Vec3{0, 2, 0});
+
+    d.dimensions.push_back(Dimension{DimensionId{d.nextId}, DimensionAnchor{{}, id, {0}}, DimensionAnchor{{}, id, {1}}, {-0.4, 0, 0}});
+    d.nextId += 1;
+    REQUIRE_FALSE(validateDocument(d).has_value());
+    CHECK(*resolveAnchor(d, d.dimensions[0].b) == Vec3{0, 2, 0});
+
+    const auto loaded = parseProject(serializeProject(d, std::nullopt));
+    REQUIRE_MESSAGE(loaded.ok(), (loaded.ok() ? "" : loaded.error()));
+    CHECK(loaded->fileVersion == 2);
+    REQUIRE(loaded->document.dimensions.size() == 1);
+    CHECK(loaded->document.dimensions[0] == d.dimensions[0]);
+    CHECK(*resolveAnchor(loaded->document, loaded->document.dimensions[0].b) == Vec3{0, 2, 0});
+}
+
+TEST_CASE("a version 1 file with dimensions migrates and keeps them") {
+    const char* v1 = R"({
+  "format": "pullform-project", "version": 1, "generator": "Pullform 0.2.0",
+  "document": { "lengthUnit": "m", "displayUnit": "m", "nextId": 3, "objects": [
+    { "id": "obj-1", "type": "profile", "name": "Box 1",
+      "profile": { "kind": "rectangle",
+        "plane": { "origin": [0,0,0], "xAxis": [1,0,0], "yAxis": [0,1,0] },
+        "boundary": [[0,0],[2,0],[2,1],[0,1]] },
+      "extrusion": { "height": 0.75 }, "transform": { "translation": [0, 0, 0] } } ],
+    "dimensions": [{ "id": "dim-2", "a": { "object": "obj-1", "vertices": [0] },
+      "b": { "point": [3, 0, 0] }, "offset": [0, -0.4, 0] }] } })";
+    const auto r = parseProject(v1);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error()));
+    CHECK(r->fileVersion == 1);
+    REQUIRE(r->document.dimensions.size() == 1);
+    CHECK(*resolveAnchor(r->document, r->document.dimensions[0].b) == Vec3{3, 0, 0});
+    const auto saved = serializeProject(r->document, std::nullopt);
+    CHECK(saved.find("\"version\": 2") != std::string::npos);
+    CHECK(saved.find("\"dimensions\"") != std::string::npos);
 }

@@ -13,6 +13,7 @@ add_executable(pullform_tests
   project_file_tests.cpp
   transform_tests.cpp
   camera_tests.cpp
+  measure_tests.cpp
   mesh_cache_tests.cpp
   fake_renderer.hpp)
 target_link_libraries(pullform_tests PRIVATE pullform_app_logic doctest::doctest)

@@ -68,6 +68,17 @@ include breaking changes, but project files will keep a migration path.
 - `SnapIndex`, `snapFeatures` and `resolveSnapFeature` in `core/geometry/snap.*`, and
   `ToolController::snapPointer`, so other tools can snap to the same points and keep a
   stable (object, feature) reference.
+- **Tape Measure** tool (T). Click two points to see the distance and its X, Y and Z parts
+  in the measurements box, the status bar and a label in the view. Points snap to corners
+  and edge midpoints, so a corner-to-corner distance is exactly the model's. Nothing is
+  added to the model or the undo history.
+- **Dimension** tool (D). Click two points, move to pull the dimension line away from them
+  and click, or type the offset and press Enter. One undo entry. Ends placed on a corner or
+  an edge midpoint stay attached: the dimension follows when the object's height changes
+  or the object is moved. Dimensions are listed in the Properties
+  panel, where each can be deleted, and are deleted with their object.
+- Projects store dimensions in an optional `document.dimensions` array (omitted when there
+  are none, so other files are unchanged). See `docs/ARCHITECTURE.md`.
 - `pullform_bench`, a hover benchmark for large models; results in `docs/VERIFICATION.md`.
 
 ### Changed
