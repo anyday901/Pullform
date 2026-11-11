@@ -13,6 +13,10 @@ include breaking changes, but project files will keep a migration path.
   selected object with a new stable ID and places it beside the original along +X. The copy
   becomes the selection, so repeating it builds a row. Editing either object leaves the
   other unchanged. One undo entry per duplicate.
+- **Copy while moving:** with the Move tool, tap Ctrl (Option on macOS) to switch to copy
+  mode, before the first click or in the middle of a move. Committing then places a
+  duplicate at the destination (dragged or typed, with axis locks) and leaves the original
+  where it was, as one undo entry. Tap again to go back to a plain move.
 
 ### Fixed
 

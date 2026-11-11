@@ -35,7 +35,7 @@ inline constexpr const char* kMove = "M";
 inline constexpr const char* kOrbit = "O";
 inline constexpr const char* kSnap = "G";
 
-inline constexpr std::array<std::pair<const char*, const char*>, 21> kTable = {{
+inline constexpr std::array<std::pair<const char*, const char*>, 22> kTable = {{
     {"Left button", "Use the active tool"},
     {"Middle drag", "Orbit"},
     {"Shift + middle drag", "Pan"},
@@ -46,6 +46,11 @@ inline constexpr std::array<std::pair<const char*, const char*>, 21> kTable = {{
     {"P", "Push/Pull tool"},
     {"M", "Move tool"},
     {"X / Y / Z or arrows", "Move: lock to an axis (again to release)"},
+#ifdef __APPLE__
+    {"Option (tap)", "Move: place a copy instead (again to stop)"},
+#else
+    {"Ctrl (tap)", "Move: place a copy instead (again to stop)"},
+#endif
     {"O", "Orbit tool (left-drag orbits)"},
     {"F", "Fit view to model"},
     {"G", "Toggle grid snap"},

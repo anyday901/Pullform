@@ -27,6 +27,12 @@ constexpr const char* kLimitsText =
     "- Touching or overlapping objects stay separate (no merging).\n"
     "- Move and Duplicate work on whole objects; no rotate or scale yet.";
 
+#ifdef __APPLE__
+#define PF_COPY_KEY "Option"
+#else
+#define PF_COPY_KEY "Ctrl"
+#endif
+
 void tooltip(const char* text) {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", text);
 }
@@ -114,7 +120,7 @@ std::string Ui::measurementLive(const UiContext& ctx) const {
         return (p->delta >= 0 ? "+" : "") + formatLength(p->delta, u) + "   (total height " + formatLength(p->height, u) + ")";
     }
     if (const auto* m = std::get_if<MovePreview>(&ctx.editor.preview())) {
-        std::string text = formatLength(glm::length(m->offset), u);
+        std::string text = (m->copy ? "Copy " : "") + formatLength(glm::length(m->offset), u);
         if (m->axis) text += std::string(" along ") + axisName(*m->axis);
         return text + "   (" + formatLength(m->offset.x, u, false) + ", " + formatLength(m->offset.y, u, false) + ", " +
                formatLength(m->offset.z, u, false) + ")";
@@ -225,7 +231,7 @@ void Ui::toolbar(UiContext& ctx, float y, float height, float width) {
     ImGui::SameLine();
     if (toolButton("Push/Pull", t == Tool::PushPull, "Push/Pull (P)\nClick a rectangle or a top cap and move up, or type a distance.")) ctx.tools.setTool(Tool::PushPull);
     ImGui::SameLine();
-    if (toolButton("Move", t == Tool::Move, "Move (M)\nClick an object and move it, or type a distance.\nX, Y, Z or the arrow keys lock an axis.")) ctx.tools.setTool(Tool::Move);
+    if (toolButton("Move", t == Tool::Move, "Move (M)\nClick an object and move it, or type a distance.\nX, Y, Z or the arrow keys lock an axis.\n" PF_COPY_KEY " (tap) places a copy instead.")) ctx.tools.setTool(Tool::Move);
     ImGui::SameLine();
     if (toolButton("Orbit", t == Tool::Orbit, "Orbit (O)\nLeft-drag to orbit. Middle-drag always orbits; right-drag pans.")) ctx.tools.setTool(Tool::Orbit);
     ImGui::SameLine(0, 18);
