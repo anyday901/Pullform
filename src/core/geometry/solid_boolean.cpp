@@ -8,7 +8,6 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
-#include <functional>
 #include <map>
 #include <numbers>
 #include <set>
@@ -252,7 +251,7 @@ void imprintCoplanar(SourceFace& f, const SourceFace& g) {
             std::optional<double> start;
             double end = 0.0;
             const auto flush = [&] {
-                if (start && (end - *start) * len > kWeld) f.cuts.push_back({a + (b - a) * *start, a + (b - a) * end});
+                if (start.has_value() && (end - *start) * len > kWeld) f.cuts.push_back({a + (b - a) * *start, a + (b - a) * end});
                 start.reset();
             };
             for (std::size_t k = 0; k + 1 < ts.size(); ++k) {
@@ -260,7 +259,7 @@ void imprintCoplanar(SourceFace& f, const SourceFace& g) {
                 const double t1 = std::clamp(ts[k + 1], 0.0, 1.0);
                 if ((t1 - t0) * len <= kWeld) continue;
                 if (locate(f.loops2d, a2 + d * (0.5 * (t0 + t1)), kWeld) != Where::Outside) {
-                    if (!start) start = t0;
+                    if (!start.has_value()) start = t0;
                     end = t1;
                 } else {
                     flush();
@@ -339,7 +338,7 @@ void intersectFaces(std::vector<SourceFace>& faces, std::size_t fi, std::size_t 
     std::optional<double> start;
     double end = 0.0;
     const auto flush = [&] {
-        if (start && end - *start > kWeld) {
+        if (start.has_value() && end - *start > kWeld) {
             const Segment s{o + d * *start, o + d * end};
             f.cuts.push_back(s);
             g.cuts.push_back(s);
@@ -350,7 +349,7 @@ void intersectFaces(std::vector<SourceFace>& faces, std::size_t fi, std::size_t 
         if (ts[k + 1] - ts[k] <= kWeld) continue;
         const Vec3 mid = o + d * (0.5 * (ts[k] + ts[k + 1]));
         if (f.where(mid) != Where::Outside && g.where(mid) != Where::Outside) {
-            if (!start) start = ts[k];
+            if (!start.has_value()) start = ts[k];
             end = ts[k + 1];
         } else {
             flush();
@@ -859,7 +858,7 @@ Mesh cleanUp(Mesh m, const std::vector<SourceEdge>& sources) {
                 const auto key = std::minmax(a, b);
                 auto e = edgeOf.find(key);
                 if (e == edgeOf.end()) {
-                    e = edgeOf.emplace(key, out.appendEdge(vertexOf[a], vertexOf[b])).first;
+                    e = edgeOf.emplace(key, out.appendEdge(vertexOf.at(a), vertexOf.at(b))).first;
                     Edge flagged = *out.edge(e->second);
                     flagged.soft = vs[i].second->soft;
                     flagged.smooth = vs[i].second->smooth;
@@ -1004,8 +1003,12 @@ Expected<Mesh> booleanSolids(const Mesh& a, const Mesh& b, BooleanOp op) {
 Mesh outerShells(const Mesh& m) {
     // Shells: faces connected through shared edges.
     std::map<std::uint32_t, std::uint32_t> parent;
-    const std::function<std::uint32_t(std::uint32_t)> find = [&](std::uint32_t x) {
-        while (parent[x] != x) x = parent[x] = parent[parent[x]];
+    const auto find = [&parent](std::uint32_t x) {
+        while (parent.at(x) != x) {
+            const std::uint32_t up = parent.at(parent.at(x));
+            parent.at(x) = up;
+            x = up;
+        }
         return x;
     };
     for (const auto& [fid, f] : m.faces()) parent[fid] = fid;

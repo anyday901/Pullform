@@ -82,8 +82,8 @@ Expected<OpResult> finish(const Document& doc, const std::vector<ProfileObject>&
         result.objectIds.push_back(o.id);
     }
     // A dimension names corners by number, and the corners were renumbered.
-    std::erase_if(out.dimensions, [&](const Dimension& d) {
-        return std::ranges::any_of(touched, [&](ObjectId id) { return anchorUses(d.a, id) || anchorUses(d.b, id); });
+    std::erase_if(out.dimensions, [&touched](const Dimension& d) {
+        return std::ranges::any_of(touched, [&d](ObjectId id) { return anchorUses(d.a, id) || anchorUses(d.b, id); });
     });
     return result;
 }
