@@ -56,6 +56,7 @@ TEST_CASE("inference: a line perpendicular to an angled edge, from the pointer a
     ToolController tools(editor);
     line(editor, kEdgeA, kEdgeB);
     tools.setTool(Tool::TapeMeasure);
+    tools.toggleTapeGuides(); // measure only: a free second point would add a guide point
 
     // Start on the edge's end point.
     tools.pointerMove(snapAt(editor, 2.03, 1.02, {100, 100}));

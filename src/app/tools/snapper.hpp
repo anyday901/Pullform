@@ -42,6 +42,7 @@ struct SnapSettings {
     bool enabled = true;  ///< grid snap
     double step = 0.1;    ///< grid increment in meters (100 mm)
     bool points = true;   ///< endpoint, midpoint and inference snapping
+    bool guides = true;   ///< construction guides shown and snapped to (View > Guides)
     double radiusPx = 12; ///< how close (screen pixels) the pointer must be to a point
     static constexpr std::size_t kMaxReferences = 4; ///< remembered inference reference points
     static constexpr std::size_t kMaxReferenceEdges = 2; ///< remembered parallel/perpendicular reference edges
@@ -86,7 +87,9 @@ public:
     /// Snap radius in meters at `at`, from the pixel radius.
     [[nodiscard]] double tolerance(const PointerInput& input, const Vec3& at) const;
 
-    /// Nearest endpoint or midpoint (not of `exclude`); remembered as a reference.
+    /// Nearest endpoint, midpoint, guide point or guide crossing (not of
+    /// `exclude`), remembered as a reference; else the nearest point on a
+    /// guide line (not remembered).
     std::optional<SnapResult> point(const PointerInput& input, std::optional<ObjectId> exclude = std::nullopt);
 
     /// Ground snap (z = 0): a point snap projected down, else X/Y inference
@@ -106,6 +109,11 @@ public:
     /// (ground()). Shift locks the constraint of the last inference shown.
     /// Nothing only when the ray reaches neither the model nor the ground.
     std::optional<SnapResult> infer(const PointerInput& input, const InferOptions& options = {});
+
+    /// The nearest point on a visible guide line that lies in the plane
+    /// through `planePoint` with unit `normal` (the drawing plane), if the
+    /// pointer is near one.
+    std::optional<SnapResult> onGuide(const PointerInput& input, const Vec3& planePoint, const Vec3& normal);
 
     [[nodiscard]] const std::vector<Vec3>& references() const { return references_; }
     [[nodiscard]] const std::vector<SnapEdge>& referenceEdges() const { return referenceEdges_; }

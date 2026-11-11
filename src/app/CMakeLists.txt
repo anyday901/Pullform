@@ -17,6 +17,7 @@ add_library(pullform_app_logic STATIC
   tools/scale_tool.cpp
   tools/orbit_tool.cpp
   tools/measure_tool.cpp
+  tools/protractor_tool.cpp
   tools/arc_tool.cpp
   tools/element_select.cpp
   viewport/camera.cpp

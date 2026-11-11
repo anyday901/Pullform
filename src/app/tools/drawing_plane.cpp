@@ -71,6 +71,8 @@ std::optional<SnapResult> snapOnPlane(ToolContext& ctx, const PointerInput& inpu
         }
         return hit;
     }
+    // A construction guide line on the plane.
+    if (auto g = ctx.snapper.onGuide(input, plane.origin, n)) return g;
     const auto raw = intersectPlane(input.ray, plane.origin, n);
     if (!raw) return std::nullopt;
     const Vec2 uv = toPlane(plane, *raw);

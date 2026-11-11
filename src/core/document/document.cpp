@@ -49,6 +49,21 @@ const Dimension* Document::findDimension(DimensionId id) const {
     return nullptr;
 }
 
+std::string idString(GuideId id) { return "guide-" + std::to_string(id.value); }
+
+std::optional<GuideId> parseGuideId(std::string_view text) {
+    const auto v = parsePrefixedId(text, "guide-");
+    if (!v.has_value()) return std::nullopt;
+    return GuideId{*v};
+}
+
+const Guide* Document::findGuide(GuideId id) const {
+    for (const auto& g : guides) {
+        if (g.id == id) return &g;
+    }
+    return nullptr;
+}
+
 namespace {
 
 /// Snaps a rotation matrix entry within 1e-15 of -1, 0 or 1 to that value.
@@ -106,7 +121,7 @@ std::ptrdiff_t Document::indexOf(ObjectId id) const {
 
 bool sameContent(const Document& a, const Document& b) {
     if (a.displayUnit != b.displayUnit || a.nextId != b.nextId || a.objects.size() != b.objects.size()) return false;
-    if (a.dimensions != b.dimensions) return false;
+    if (a.dimensions != b.dimensions || a.guides != b.guides) return false;
     for (std::size_t i = 0; i < a.objects.size(); ++i) {
         if (!a.objects[i] || !b.objects[i] || !(*a.objects[i] == *b.objects[i])) return false;
     }

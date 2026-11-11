@@ -117,6 +117,14 @@ public:
     /// selection, so repeating it builds a row. One undo entry.
     std::optional<std::string> duplicateSelection();
 
+    /// Tape measure guide creation (tap Ctrl, or Option on macOS, with the
+    /// tape measure). On by default; it persists across tool changes.
+    void toggleTapeGuides();
+    [[nodiscard]] bool tapeGuides() const;
+
+    /// Deletes every construction guide (Edit > Delete Guides): one undo entry.
+    std::optional<std::string> deleteGuides();
+
     /// Typed value for the tape measure or dimension tool (the dimension line offset).
     std::optional<std::string> submitMeasure(std::string_view text);
 
@@ -168,6 +176,7 @@ private:
     MoveTool* move_ = nullptr;
     RotateTool* rotate_ = nullptr;
     ScaleTool* scale_ = nullptr;
+    MeasureTool* tape_ = nullptr;
 };
 
 } // namespace pf

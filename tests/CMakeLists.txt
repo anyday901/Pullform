@@ -22,6 +22,7 @@ add_executable(pullform_tests
   drawing_plane_tests.cpp
   mesh_tests.cpp
   format_v3_tests.cpp
+  guide_tests.cpp
   arc_tests.cpp
   line_tool_tests.cpp
   circle_tests.cpp
