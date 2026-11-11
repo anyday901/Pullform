@@ -10,6 +10,7 @@
 #include "core/geometry/circle.hpp"
 #include "core/geometry/measure.hpp"
 #include "core/geometry/mesh.hpp"
+#include "core/geometry/snap.hpp"
 #include "core/geometry/solid.hpp"
 #include "core/geometry/topology.hpp"
 
@@ -379,4 +380,28 @@ TEST_CASE("cleanup scope: elements as selected, objects selected whole stand for
     const CleanupScope scope = cleanupScope(set);
     CHECK(scope.objects == std::vector<ObjectId>{ObjectId{1}, ObjectId{2}});
     CHECK(scope.elements == std::vector<ElementRef>{face(ObjectId{3}, 4)});
+}
+
+TEST_CASE("Hide: the ends of a hidden loose line are neither picked nor snapped to") {
+    auto line = drawEdge(Document{}, std::nullopt, {0, 0, 0}, {1, 0, 0});
+    REQUIRE(line);
+    const ObjectId id = *line->objectId;
+    const auto hidden = setHidden(line->document, CleanupScope{{}, {id}}, true);
+    REQUIRE(hidden);
+    const ProfileObject& o = *hidden->document.find(id);
+    const Ray down{{0.0, 0.0, 5.0}, {0, 0, -1}}; // straight at an end point
+    const auto topo = buildTopology(o);
+    std::vector<PickTarget> targets{{id, &topo}};
+    CHECK_FALSE(pickElement(down, targets, ElementPickOptions{1e-3}));
+    CHECK(snapFeatures(o).vertices.empty());
+    // Shown with View > Hidden Geometry, the end is picked again.
+    const auto shown = buildTopology(o, true);
+    std::vector<PickTarget> shownTargets{{id, &shown}};
+    const auto hit = pickElement(down, shownTargets, ElementPickOptions{1e-3});
+    REQUIRE(hit);
+    CHECK(hit->element.kind == ElementKind::Vertex);
+    // A vertex shared with a visible edge stays: unhiding brings the line back.
+    const auto back = unhideAll(hidden->document);
+    REQUIRE(back);
+    CHECK(snapFeatures(*back->document.find(id)).vertices.size() == 2u);
 }

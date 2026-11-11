@@ -26,6 +26,7 @@ struct ElementTopology {
         std::uint32_t id = 0;
         Vec3 position{0.0};
         std::vector<std::uint32_t> edges; ///< edges using this vertex
+        bool hidden = false;              ///< every edge at it is hidden: not picked unless hidden geometry is shown
     };
     struct Edge {
         std::uint32_t id = 0;

@@ -156,6 +156,14 @@ ElementTopology buildTopology(const mesh::Mesh& m, const ProfileObject& object, 
         topo.vertices[a->second].edges.push_back(index);
         topo.vertices[b->second].edges.push_back(index);
     }
+    if (!showHidden) {
+        // A vertex only hidden edges meet (the ends of a hidden loose line) is hidden with them.
+        for (auto& v : topo.vertices) {
+            v.hidden = !v.edges.empty() && std::ranges::all_of(v.edges, [&](std::uint32_t e) {
+                return m.edge(mesh::EdgeId{topo.edges[e].id})->hidden;
+            });
+        }
+    }
     const auto loopIndices = [&](const mesh::Loop& loop) {
         std::vector<std::uint32_t> out;
         for (const auto v : m.loopVertices(loop)) {

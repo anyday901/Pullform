@@ -111,6 +111,7 @@ void collectCandidates(const Ray& ray, const PickTarget& target, std::size_t ti,
                        double pixelAngle, std::vector<Candidate>& out) {
     const auto& topo = *target.topology;
     for (std::uint32_t v = 0; v < topo.vertices.size(); ++v) {
+        if (topo.vertices[v].hidden) continue;
         const Vec3 p = topo.vertices[v].position;
         if (const auto d = rayDistance(ray, p, pixelAngle); d && d->second <= options.vertexPixels) {
             out.push_back(Candidate{ElementKind::Vertex, v, ti, p, d->first, d->second});
