@@ -278,7 +278,7 @@ TEST_CASE("Arc tool: start, end, bulge") {
     Editor editor;
     ToolController tools(editor);
     tools.setTool(Tool::Arc);
-    CHECK(toolName(Tool::Arc) == "Arc");
+    CHECK(std::string(toolName(Tool::Arc)) == "Arc");
     click(tools, editor, 0, 0);
     CHECK(tools.active());
     click(tools, editor, 2, 0);
