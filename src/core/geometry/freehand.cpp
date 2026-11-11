@@ -68,20 +68,33 @@ std::vector<Vec3> smoothStroke(const std::vector<Vec3>& raw, double tolerance, b
     if (!closed) {
         // The release point is where the user aimed: keep it, replacing a kept
         // point that sits too close to it.
+        // An open stroke that comes back near its start still ends at the release point.
         if (pts.size() > 1 && glm::length(raw.back() - pts.back()) < spacing) pts.pop_back();
-        if (glm::length(raw.back() - pts.front()) >= spacing) pts.push_back(raw.back());
-        if (pts.size() < 2) return {};
+        if (pts.size() == 1 && glm::length(raw.back() - pts.front()) < spacing) return {};
+        pts.push_back(raw.back());
     } else {
         // The loop closes on its first point: drop a last point on top of it.
         while (pts.size() > 1 && glm::length(pts.back() - pts.front()) < spacing) pts.pop_back();
         if (pts.size() < 3) return {};
     }
 
-    for (int pass = 0; pass < kSmoothingPasses && pts.size() > 2; ++pass) pts = smoothPass(pts, closed);
+    // Smoothing and simplifying each get half the tolerance: no smoothed point
+    // moves further than that from its sample (sparse samples from a fast drag
+    // would otherwise round corners off), and simplifying adds the other half.
+    const double half = tolerance * 0.5;
+    const std::vector<Vec3> samples = pts;
+    for (int pass = 0; pass < kSmoothingPasses && pts.size() > 2; ++pass) {
+        pts = smoothPass(pts, closed);
+        for (std::size_t i = 0; i < pts.size(); ++i) {
+            const Vec3 moved = pts[i] - samples[i];
+            const double d = glm::length(moved);
+            if (d > half) pts[i] = samples[i] + moved * (half / d);
+        }
+    }
 
     std::vector<bool> keep(pts.size(), false);
     if (!closed) {
-        simplify(pts, 0, pts.size() - 1, tolerance, keep);
+        simplify(pts, 0, pts.size() - 1, half, keep);
     } else {
         // Split the loop at the point furthest from the first one and simplify both halves.
         std::size_t far = 0;
@@ -96,8 +109,8 @@ std::vector<Vec3> smoothStroke(const std::vector<Vec3>& raw, double tolerance, b
         std::vector<Vec3> ring(pts);
         ring.push_back(pts[0]);
         std::vector<bool> ringKeep(ring.size(), false);
-        simplify(ring, 0, far, tolerance, ringKeep);
-        simplify(ring, far, ring.size() - 1, tolerance, ringKeep);
+        simplify(ring, 0, far, half, ringKeep);
+        simplify(ring, far, ring.size() - 1, half, ringKeep);
         for (std::size_t i = 0; i < pts.size(); ++i) keep[i] = ringKeep[i];
     }
     std::vector<Vec3> out;

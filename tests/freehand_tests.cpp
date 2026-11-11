@@ -55,6 +55,23 @@ TEST_CASE("freehand: a closed circle keeps its shape with far fewer points") {
     for (const Vec3& p : out) CHECK(std::abs(glm::length(p) - 1.0) < 3.0 * tolerance);
 }
 
+TEST_CASE("freehand: sparse samples keep their corners within the tolerance") {
+    const std::vector<Vec3> raw{{0, 0, 0}, {1, 1, 0}, {2, 0, 0}};
+    const double tolerance = 0.005;
+    const auto out = freehand::smoothStroke(raw, tolerance, false);
+    REQUIRE(out.size() == 3);
+    CHECK(out.front() == raw.front());
+    CHECK(out.back() == raw.back());
+    CHECK(glm::length(out[1] - raw[1]) <= tolerance);
+}
+
+TEST_CASE("freehand: an open stroke that comes back near its start ends at the release point") {
+    const std::vector<Vec3> raw{{0, 0, 0}, {0.03, 0, 0}, {0.001, 0, 0}};
+    const auto out = freehand::smoothStroke(raw, 0.005, false);
+    REQUIRE(out.size() == 3);
+    CHECK(out.back() == raw.back());
+}
+
 TEST_CASE("freehand: degenerate strokes give nothing") {
     CHECK(freehand::smoothStroke({}, 0.01, false).empty());
     CHECK(freehand::smoothStroke({{0, 0, 0}, {0.001, 0, 0}}, 0.01, false).empty());
