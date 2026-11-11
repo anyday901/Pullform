@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <array>
+#include <format>
 #include <cmath>
 #include <numbers>
 #include <string_view>
@@ -74,6 +75,7 @@ Expected<OpResult> createRectangle(const Document& doc, const RectanglePlacement
     o.profile.kind = ProfileKind::Rectangle;
     o.profile.boundary = rectangleBoundary(placement.width, placement.depth);
     o.transform.translation = placement.corner;
+    o.transform.rotation = placement.rotation;
     if (auto e = validateObject(o, "rectangle")) return Error{*e};
     OpResult result{doc, o.id, {}};
     result.document.nextId = doc.nextId + 1;
@@ -81,16 +83,94 @@ Expected<OpResult> createRectangle(const Document& doc, const RectanglePlacement
     return result;
 }
 
+Expected<OpResult> createCircle(const Document& doc, const CirclePlacement& placement, ProfileKind kind) {
+    if (kind != ProfileKind::Circle && kind != ProfileKind::Polygon) return Error{"Only circles and polygons are drawn from a center."};
+    auto checked = circleFromRadius(placement.center, placement.radius, placement.start, placement.segments, placement.rotation);
+    if (!checked) return Error{checked.error()};
+    ProfileObject o;
+    o.id = ObjectId{doc.nextId};
+    o.name = (kind == ProfileKind::Circle ? "Circle " : "Polygon ") + std::to_string(doc.nextId);
+    o.profile.kind = kind;
+    o.profile.boundary = regularBoundary(checked->radius, checked->segments, checked->start);
+    o.transform.translation = checked->center;
+    o.transform.rotation = checked->rotation;
+    if (auto e = validateObject(o, kind == ProfileKind::Circle ? "circle" : "polygon")) return Error{*e};
+    OpResult result{doc, o.id, {}};
+    result.document.nextId = doc.nextId + 1;
+    result.document.objects.push_back(std::make_shared<const ProfileObject>(std::move(o)));
+    return result;
+}
+
+namespace {
+
+/// Default names that follow the object's id, planar name first, extruded second.
+constexpr std::array<std::pair<std::string_view, std::string_view>, 3> kDefaultNames{{
+    {"Rectangle ", "Box "},
+    {"Circle ", "Cylinder "},
+    {"Polygon ", "Prism "},
+}};
+
+} // namespace
+std::optional<std::string> checkProfileHeight(double height) {
+    if (std::isfinite(height) && height < 0.0) return checkHeight(-height);
+    return checkHeight(height);
+}
+
+int flippedCorner(ProfileKind kind, int count, int index) {
+    if (count <= 0 || index < 0 || index >= count) return index;
+    return kind == ProfileKind::Rectangle ? count - 1 - index : (count - index) % count;
+}
+
+ProfileObject flippedProfile(const ProfileObject& object) {
+    ProfileObject out = object;
+    if (object.isMeshGroup()) return out;
+    out.transform.rotation = glm::normalize(object.transform.rotation * Quat{0.0, 1.0, 0.0, 0.0});
+    if (object.profile.kind != ProfileKind::Rectangle) {
+        // A circle or polygon turns half a turn about its local X axis through
+        // its center: local (x, y) lands where (x, -y) was. Mirroring the start
+        // angle keeps every corner where it was (corner i is where corner
+        // (n - i) mod n was).
+        const auto shape = regularShape(object.profile.boundary);
+        if (!shape) return object;
+        out.profile.boundary = regularBoundary(shape->radius, shape->segments, -shape->start);
+        return out;
+    }
+    // Turn half a turn about the local X axis (local (x, y) -> (x, -y), normal
+    // reversed), then shift by the depth so the footprint stays where it is:
+    // local (x, y) lands where (x, d - y) was.
+    if (object.profile.boundary.size() != 4) return object;
+    const double depth = object.profile.boundary[3].y;
+    out.transform.translation = localToWorld(object, Vec3{0.0, depth, 0.0});
+    return out;
+}
+
 Expected<OpResult> extrudeProfile(const Document& doc, ObjectId id, double height) {
     const auto* o = doc.find(id);
     if (!o) return Error{"Object " + idString(id) + " no longer exists."};
     if (o->isMeshGroup()) return Error{"Push/pull of drawn faces is not supported yet."};
     if (o->extrusion) return Error{"This object is already extruded. Select its cap to change the height."};
-    if (auto e = checkHeight(height)) return Error{*e};
-    ProfileObject changed = *o;
-    changed.extrusion = Extrusion{height};
-    if (changed.name.rfind("Rectangle ", 0) == 0) changed.name = "Box " + changed.name.substr(10);
-    return replaceObject(doc, std::move(changed));
+    if (auto e = checkProfileHeight(height)) return Error{*e};
+    ProfileObject changed = height < 0.0 ? flippedProfile(*o) : *o;
+    changed.extrusion = Extrusion{std::abs(height)};
+    for (const auto& [planar, extruded] : kDefaultNames) {
+        if (changed.name.starts_with(planar)) {
+            changed.name = std::string{extruded} + changed.name.substr(planar.size());
+            break;
+        }
+    }
+    auto replaced = replaceObject(doc, std::move(changed));
+    if (!replaced || height >= 0.0) return replaced;
+    OpResult result = std::move(replaced).value();
+    // The flip renumbers the corners (flippedCorner), so dimensions attached
+    // to them keep measuring the same points.
+    const int count = static_cast<int>(o->profile.boundary.size());
+    for (auto& d : result.document.dimensions) {
+        for (DimensionAnchor* a : {&d.a, &d.b}) {
+            if (a->object != id) continue;
+            for (int& v : a->vertices) v = flippedCorner(o->profile.kind, count, v);
+        }
+    }
+    return result;
 }
 
 Expected<OpResult> setExtrusionHeight(const Document& doc, ObjectId id, double height) {
@@ -158,6 +238,8 @@ Vec3 meshBaseCenterLocal(const mesh::Mesh& m) {
 
 Vec3 objectBaseCenter(const ProfileObject& o) {
     if (o.isMeshGroup()) return localToWorld(o, meshBaseCenterLocal(*o.mesh));
+    // A circle or polygon is centred on its origin exactly; averaging its corners would round.
+    if (o.profile.kind != ProfileKind::Rectangle) return profileToWorld(o, Vec2{0.0}, 0.0);
     Vec2 sum{0.0};
     for (const auto& p : o.profile.boundary) sum += p;
     const Vec2 c = o.profile.boundary.empty() ? Vec2{0.0} : sum / static_cast<double>(o.profile.boundary.size());
@@ -181,6 +263,25 @@ Expected<OpResult> scaleObject(const Document& doc, ObjectId id, const Vec3& f) 
         scaled.translate(c);
         ProfileObject changed = *o;
         changed.mesh = std::make_shared<const mesh::Mesh>(std::move(scaled));
+        return replaceObject(doc, std::move(changed));
+    }
+    if (o->profile.kind != ProfileKind::Rectangle) {
+        // A circle or polygon is centred on its local origin, which is also the
+        // centre of its base, so scaling the radius keeps that centre in place.
+        if (std::abs(f.x - f.y) > 1e-9 * std::max(f.x, f.y)) {
+            return Error{"Circles and polygons scale by the same factor in width and depth. Type one factor, or equal width and depth factors."};
+        }
+        const auto shape = regularShape(o->profile.boundary);
+        if (!shape) return Error{shape.error()};
+        const double r = shape->radius * f.x;
+        if (auto e = checkCircle(r, shape->segments)) return Error{"Scaled radius: " + *e};
+        ProfileObject changed = *o;
+        changed.profile.boundary = regularBoundary(r, shape->segments, shape->start);
+        if (o->extrusion) {
+            const double h = o->extrusion->height * f.z;
+            if (auto e = checkLength(h, "Scaled height")) return Error{*e};
+            changed.extrusion->height = h;
+        }
         return replaceObject(doc, std::move(changed));
     }
     const auto size = rectangleSize(o->profile.boundary);
@@ -228,7 +329,8 @@ Expected<OpResult> moveObject(const Document& doc, ObjectId id, const Vec3& offs
 }
 
 std::string duplicateName(const std::string& name, ObjectId newId) {
-    for (std::string_view prefix : {std::string_view{"Rectangle "}, std::string_view{"Box "}}) {
+    for (std::string_view prefix : {std::string_view{"Rectangle "}, std::string_view{"Box "}, std::string_view{"Circle "},
+                                    std::string_view{"Cylinder "}, std::string_view{"Polygon "}, std::string_view{"Prism "}}) {
         if (name.size() <= prefix.size() || name.compare(0, prefix.size(), prefix) != 0) continue;
         const auto rest = std::string_view{name}.substr(prefix.size());
         if (std::ranges::all_of(rest, [](char c) { return c >= '0' && c <= '9'; })) {
@@ -299,9 +401,13 @@ ProfileObject asMeshGroup(const ProfileObject& o) {
     ProfileObject changed = o;
     changed.mesh = std::make_shared<const mesh::Mesh>(mesh::meshFromProfile(o));
     changed.profile.boundary.clear();
+    changed.profile.kind = ProfileKind::Rectangle; // mesh groups have no profile; the curves stay in the mesh
     changed.extrusion.reset();
-    if (changed.name.rfind("Rectangle ", 0) == 0 || changed.name.rfind("Box ", 0) == 0) {
-        changed.name = "Group " + std::to_string(o.id.value);
+    for (const auto& [planar, extruded] : kDefaultNames) {
+        if (changed.name.starts_with(planar) || changed.name.starts_with(extruded)) {
+            changed.name = "Group " + std::to_string(o.id.value);
+            break;
+        }
     }
     return changed;
 }
@@ -405,6 +511,24 @@ Expected<OpResult> eraseEdge(const Document& doc, ObjectId id, mesh::EdgeId edge
     return replaceObject(partial.document, std::move(changed));
 }
 
+Expected<OpResult> pushPullFace(const Document& doc, ObjectId id, mesh::FaceId face, double distance, mesh::FaceId* pushed) {
+    const auto* o = doc.find(id);
+    if (!o) return Error{"Object " + idString(id) + " no longer exists."};
+    if (!o->isMeshGroup()) return Error{"Only drawn faces are pushed this way; use the height for a rectangle or box."};
+    if (!std::isfinite(distance) || std::abs(distance) < tol::kMinDimension) return Error{"Distance must be at least 0.1 mm."};
+    ProfileObject changed = *o;
+    mesh::Mesh m = *changed.mesh;
+    if (!m.face(face)) return Error{"That face no longer exists."};
+    const auto result = m.pushPull(face, distance);
+    if (!result) {
+        return Error{"Push/pull works on a face standing on its own, or on the end of a prism that keeps a positive "
+                     "length. Other faces are not supported yet."};
+    }
+    if (pushed) *pushed = result->face;
+    changed.mesh = std::make_shared<const mesh::Mesh>(std::move(m));
+    return replaceObject(doc, std::move(changed));
+}
+
 Expected<Vec3> selectionBaseCenter(const Document& doc, const std::vector<ObjectId>& ids) {
     if (auto e = checkIds(doc, ids)) return Error{*e};
     Bounds b;
@@ -469,6 +593,80 @@ Expected<OpResult> deleteObjects(const Document& doc, const std::vector<ObjectId
 Expected<OpResult> setDisplayUnit(const Document& doc, LengthUnit unit) {
     OpResult result{doc, std::nullopt, {}};
     result.document.displayUnit = unit;
+    return result;
+}
+
+} // namespace pf
+
+namespace pf {
+
+namespace {
+
+/// Draws the arc and, for a pie, its radii into `m`, in object-local space.
+bool drawArcInto(mesh::Mesh& m, const ProfileObject& o, const ArcGeometry& arc, int segments, bool pie) {
+    const Mat3 toLocal = glm::transpose(rotationMatrix(o.transform));
+    mesh::Curve curve;
+    curve.kind = mesh::CurveKind::Arc;
+    curve.center = worldToLocal(o, arc.center);
+    curve.normal = toLocal * arc.normal;
+    curve.xAxis = toLocal * arc.xAxis;
+    curve.radius = arc.radius;
+    curve.start = arc.start;
+    curve.sweep = arc.sweep;
+    std::vector<Vec3> points;
+    for (const Vec3& p : arcPoints(arc, segments)) points.push_back(worldToLocal(o, p));
+    if (!m.addCurve(curve, points)) return false;
+    if (pie) {
+        m.addEdge(points.back(), curve.center);
+        m.addEdge(curve.center, points.front());
+    }
+    return true;
+}
+
+} // namespace
+
+Expected<OpResult> drawArc(const Document& doc, std::optional<ObjectId> target, const ArcGeometry& arc, int segments, bool pie) {
+    if (auto e = checkArcSegments(segments)) return Error{*e};
+    const std::vector<Vec3> ends = {arcStartPoint(arc), arcEndPoint(arc), arc.center};
+    for (const Vec3& p : ends) {
+        if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z) || std::abs(p.x) > tol::kMaxCoordinate ||
+            std::abs(p.y) > tol::kMaxCoordinate || std::abs(p.z) > tol::kMaxCoordinate) {
+            return Error{"The arc must stay within the supported range of +/-10 km."};
+        }
+    }
+    if (!target) {
+        // Like a line, an arc sticks to the drawn geometry its ends touch.
+        for (const auto& ptr : doc.objects) {
+            if (!ptr->isMeshGroup()) continue;
+            const auto& m = *ptr->mesh;
+            const bool touches = std::ranges::any_of(ends.begin(), ends.begin() + (pie ? 3 : 2),
+                                                     [&](const Vec3& p) { return m.findVertex(worldToLocal(*ptr, p)).has_value(); });
+            if (touches) {
+                target = ptr->id;
+                break;
+            }
+        }
+    }
+    if (target) {
+        const auto* o = doc.find(*target);
+        if (!o) return Error{std::format("Object {} no longer exists.", idString(*target))};
+        ProfileObject changed = asMeshGroup(*o);
+        mesh::Mesh m = *changed.mesh;
+        if (!drawArcInto(m, changed, arc, segments, pie)) return Error{"The arc is too small to draw."};
+        changed.mesh = std::make_shared<const mesh::Mesh>(std::move(m));
+        return replaceObject(doc, std::move(changed));
+    }
+    ProfileObject o;
+    o.id = ObjectId{doc.nextId};
+    o.name = "Group " + std::to_string(doc.nextId);
+    o.transform.translation = arcStartPoint(arc);
+    mesh::Mesh m;
+    if (!drawArcInto(m, o, arc, segments, pie)) return Error{"The arc is too small to draw."};
+    o.mesh = std::make_shared<const mesh::Mesh>(std::move(m));
+    if (auto e = validateObject(o, "arc")) return Error{*e};
+    OpResult result{doc, o.id, {}};
+    result.document.nextId = doc.nextId + 1;
+    result.document.objects.push_back(std::make_shared<const ProfileObject>(std::move(o)));
     return result;
 }
 

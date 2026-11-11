@@ -43,7 +43,8 @@ const char* snapKindName(SnapKind kind);
 struct SnapFeatures {
     std::vector<Vec3> vertices;
     std::vector<std::pair<int, int>> edges;
-    /// Centers of the object's true arcs and circles (mesh curves), world space.
+    /// Centers of the object's true arcs, circles and polygons (mesh curves, in
+    /// curve id order; a circle or polygon profile has them too), world space.
     std::vector<Vec3> curveCenters;
     Vec3 center{0.0};    ///< center of the vertices' bounding box
     double radius = 0.0; ///< bounding sphere radius around `center`
@@ -156,7 +157,7 @@ public:
 
     /// Nearest endpoint, midpoint or arc center to `ray`, within an angular tolerance:
     /// a candidate at distance t along the ray counts when it is within
-    /// `radiusPerDistance * t` of the ray. Endpoints win over midpoints;
+    /// `radiusPerDistance * t` of the ray. Endpoints win over midpoints and centers;
     /// within a kind the angularly nearest wins. Candidates farther along the
     /// ray than `occluder` (the distance to the face under the pointer) plus
     /// the tolerance are hidden behind that face and ignored. Objects in

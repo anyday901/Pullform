@@ -49,12 +49,17 @@ struct PlaneBasis {
     friend bool operator==(const PlaneBasis&, const PlaneBasis&) = default;
 };
 
-enum class ProfileKind { Rectangle };
+/// What a profile's boundary is:
+///  - Rectangle: the axis-aligned rectangle [0,0],[w,0],[w,d],[0,d];
+///  - Circle: a circle approximated by a regular polygon centred on the local
+///    origin (vertices on the circle; core/geometry/circle.hpp). Its mesh keeps
+///    the true circle, and an extrusion's side edges are soft and smooth;
+///  - Polygon: the same regular shape drawn as a polygon (hard side edges).
+enum class ProfileKind { Rectangle, Circle, Polygon };
 
-/// A closed planar profile. Milestone 1 supports only axis-aligned rectangles
-/// [0,0],[w,0],[w,d],[0,d] on the object's local XY plane. The boundary is an
-/// ordered, counter-clockwise loop (seen from +normal) in plane coordinates, so a
-/// later polygon kind can reuse the same fields.
+/// A closed planar profile on the object's local XY plane. The boundary is an
+/// ordered, counter-clockwise loop (seen from +normal) in plane coordinates; its
+/// shape is fixed by `kind` (see ProfileKind).
 struct Profile {
     ProfileKind kind = ProfileKind::Rectangle;
     PlaneBasis plane;

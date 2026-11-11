@@ -67,10 +67,13 @@ struct ProfileObject {
 };
 ```
 
-The profile is restricted to an axis-aligned rectangle `[0,0],[w,0],[w,d],[0,d]` on the
-local XY plane. The fields are already shaped for a general polygon profile and other
-planes (a different `PlaneBasis`), so those can be added without changing what existing
-files mean. Validation (`core/document/validate.*`) enforces the current restrictions
+The profile lies on the local XY plane and is one of three kinds (`ProfileKind`): an
+axis-aligned rectangle `[0,0],[w,0],[w,d],[0,d]`, or a **circle** or **polygon**, both a
+regular polygon centred on the local origin (vertex i at radius r and angle
+start + 2*pi*i/n; `core/geometry/circle.*`). The object's translation is the circle's
+center, so its base centre is exactly the origin. The fields are already shaped for a
+general polygon profile and other planes (a different `PlaneBasis`), so those can be added
+without changing what existing files mean. Validation (`core/document/validate.*`) enforces the current restrictions
 explicitly, including that every placed corner stays inside the 10 km range.
 
 **Transforms are rigid.** A local point `p` maps to `translation + R * p`, where `R` comes
@@ -102,7 +105,7 @@ object, never make edges or faces, and stay put when objects move. `addGuide` an
 `deleteGuides` commit them like any other edit, so they undo and redo.
 
 Objects are immutable once in a document. Operations (`core/commands/operations.*`:
-`createRectangle`, `extrudeProfile`, `setExtrusionHeight`, `rotateObject`, `scaleObject`,
+`createRectangle`, `createCircle`, `extrudeProfile`, `setExtrusionHeight`, `rotateObject`, `scaleObject`,
 `duplicateObject`, `deleteObject`,
 `setDisplayUnit`) are pure functions that return a new document sharing unchanged objects,
 or an `Error` with a user-facing message.
@@ -295,12 +298,50 @@ a new file pair, and one `add<...>(Tool::...)` registration line in the
 `ToolController` constructor. The controller receives a `PointerInput` (world ray,
 resolved pick, screen position), so tests drive it with synthetic events and no window.
 
-- Rectangle: ground-plane intersection, optional grid snap, normalization of any drawing
-  direction to a positive-size, counter-clockwise rectangle. Typed sizes follow the
-  pointer's direction from the first corner. Mouse and numeric entry call the same
-  `createRectangle` operation.
-- Push/pull: the pointer ray is projected onto the vertical line through the clicked point
-  (closest point between two lines). The **total** height snaps to the grid increment when
+- Drawing planes (`app/tools/drawing_plane.*`, math in `core/geometry/plane.*`): a
+  `DrawingPlane` picks the plane a drawing tool draws on and is meant for every drawing
+  tool (Rectangle now; Line and the curve tools). Before the first click it follows the
+  pointer: the face under it (`pickedPlane`: the face's plane through one of its corners,
+  facing the viewer), else the ground. Arrow keys lock a plane facing world X (Right) or
+  Y (Left), a horizontal plane (Up), each through the snapped 3D point under the pointer,
+  or (Down) the plane last hovered; the same key releases. `begin` fixes the plane at the
+  first click and `point` snaps later points onto it; an arrow during the gesture turns
+  the plane about the first point. `snapOnPlane` is the ground snap on any plane: a point
+  snap projected onto the plane (guide from the feature), else ray/plane intersection
+  with inference along the plane's axes and the grid in plane coordinates. Plane frames
+  are `PlaneBasis` values with axes chosen by `planeThrough` (horizontal planes use world
+  X; others use the horizontal in-plane direction and uphill), and an origin at the
+  plane's point nearest the world origin, so axis-aligned planes keep the world grid and
+  exact coordinates. On the ground this reproduces the previous ground snapping exactly.
+- Circle and Polygon (`app/tools/circle_tool.*`, one class for both): click the center on
+  the drawing plane (`DrawingPlane`, as for Rectangle), then a point on the circle, or
+  type the radius; the first vertex points at the second click, so that point is on the
+  shape. A typed count such as `24s` sets the segments (circle, default 24) or sides
+  (polygon, default 6), before or during drawing, and is kept for the next one. Both call
+  `createCircle`; a `CirclePlacement` carries the plane rotation like a
+  `RectanglePlacement`, and `flippedProfile` turns a circle over by mirroring its start
+  angle (corner i becomes (n - i) mod n, `flippedCorner`). **True curves:**
+  `meshFromProfile` gives a circle or polygon a `Curve` per loop (curve 1 = base edges
+  1..n, curve 2 = cap edges n+1..2n; kind Circle or Polygon), so the shape survives
+  conversion to a mesh group and its center snaps (`SnapKind::Center`, from every curve in
+  `objectMesh`, so drawn arcs get it too). A cylinder's side edges are soft and smooth:
+  not drawn or picked, and `buildMesh` shades the sides with radial normals. Scale keeps a
+  circle or polygon regular (equal width and depth factors only).
+- Rectangle: a rectangle on the drawing plane, normalized to a positive-size,
+  counter-clockwise rectangle along the plane's axes (`rectangleOnPlane`). A
+  `RectanglePlacement` carries a rotation (`planeRotation`): the object's transform turns
+  its local XY rectangle onto the plane, so no new profile kind or file field is needed.
+  Typed sizes follow the pointer's direction from the first corner on the plane. The
+  Rotated Rectangle tool is the same class in a three-click mode (`rotatedRectangle`).
+  Mouse and numeric entry call the same `createRectangle` operation.
+- Coplanar objects: a rectangle drawn on a face lies exactly on it. Picks at equal
+  distance go to the later object (`nearerHit`, and the same rule in element picking), and
+  the renderer offsets flat sheets less than solids so the sheet draws in front.
+- Push/pull: the pointer ray is projected onto the line through the clicked point along
+  the face normal (closest point between two lines). A flat rectangle may go either way:
+  a negative height flips it first (`flippedProfile`: half a turn about its local X axis,
+  same footprint, corner i becomes corner 3 - i with dimension anchors renumbered), so the
+  stored height stays positive. The **total** height snaps to the grid increment when
   snap is on. Invalid heights (at or below the base) show as a red preview and cannot be
   committed; the gesture stays active.
 - Move: picks an object and drags it in the horizontal plane through the picked point, or,
@@ -337,6 +378,18 @@ resolved pick, screen position), so tests drive it with synthetic events and no 
   tool's ground snap) checks the same point candidates, and the ground snap falls back to
   the nearest guide line after edges. `SnapSettings::guides` (View > Guides) hides guides
   and turns their snapping off together.
+- Arcs (`app/tools/arc_tool.*`, geometry in `core/geometry/arc.*`): one `ArcTool` class
+  in three modes (Arc, 3 Point Arc, Pie). An arc is an `ArcGeometry` (centre, normal, x axis,
+  radius, start, signed sweep: the fields of `mesh::Curve`), built by `arcFromBulge`,
+  `arcThroughPoints`, `arcFromCenter` or `tangentArc`. The drawing plane is the face under
+  the first point (when the point is on it) or the horizontal plane through it; later
+  points are the pointer on that plane, taking endpoint and midpoint snaps that lie on it.
+  When the first point is the open end of a line or arc (`openEndTangent`: a vertex with
+  one edge; for an arc segment the arc's exact tangent), the bulge snaps to the tangent
+  arc within the snap radius and the preview turns cyan. The pie's sweep is unwrapped
+  as the pointer moves (`unwrapSweep`), so it can pass half a turn. `drawArc` commits one
+  entry: `Mesh::addCurve` draws the segments with `addEdge` (so loops close into faces
+  as for lines) and records the curve over the resulting chain of edges.
 - Tape measure and dimensions (`app/tools/measure_tool.*`): `MeasureTool` snaps each
   pointer event with `ToolContext::measureSnap` (built on `snapPointer`). An endpoint or
   midpoint snap becomes an attached anchor through `anchorAt`, which matches the point
@@ -440,6 +493,7 @@ resolved pick, screen position), so tests drive it with synthetic events and no 
 
 The edge/face mesh exists in the core, but there is no Line or Eraser tool yet (the
 `drawEdge`/`eraseEdge` operations are ready for them), push/pull works only on profile
-groups, there are no booleans, no healing of collinear edges left after an erase, and no
-arc tool (curves are in the schema only). Dimension anchors still name corners by index
+groups, there are no booleans, and no healing of collinear edges left after an erase. Arcs
+are drawn by the Arc tools; a curve record gives centre snapping but is not yet used for
+selecting a whole curve. Dimension anchors still name corners by index
 (vertex id - 1) rather than by vertex id. See docs/GEOMETRY.md and the roadmap.

@@ -65,6 +65,9 @@ struct InferOptions {
     std::optional<ObjectId> exclude;
     /// Ground fallback: a point not to infer from (see ground()).
     std::optional<Vec3> skip;
+    /// Fall back to the ground (ground()) when nothing else applies. Move
+    /// turns it off: its own free move keeps the object's height.
+    bool groundFallback = true;
 };
 
 /// The shared inference engine for every tool, against an editor's document
@@ -92,7 +95,8 @@ public:
     /// Ground snap (z = 0): a point snap projected down, else X/Y inference
     /// with a remembered reference (skipping `skip`, the rectangle's own first
     /// corner), else the grid.
-    std::optional<SnapResult> ground(const PointerInput& input, std::optional<Vec3> skip = std::nullopt);
+    std::optional<SnapResult> ground(const PointerInput& input, std::optional<Vec3> skip = std::nullopt,
+                                     std::optional<ObjectId> exclude = std::nullopt);
 
     /// Height inference along a vertical axis: another object's corner whose
     /// height is within the snap radius of `axisPoint`.
@@ -105,6 +109,11 @@ public:
     /// (ground()). Shift locks the constraint of the last inference shown.
     /// Nothing only when the ray reaches neither the model nor the ground.
     std::optional<SnapResult> infer(const PointerInput& input, const InferOptions& options = {});
+
+    /// The nearest point on a visible guide line that lies in the plane
+    /// through `planePoint` with unit `normal` (the drawing plane), if the
+    /// pointer is near one.
+    std::optional<SnapResult> onGuide(const PointerInput& input, const Vec3& planePoint, const Vec3& normal);
 
     [[nodiscard]] const std::vector<Vec3>& references() const { return references_; }
     [[nodiscard]] const std::vector<SnapEdge>& referenceEdges() const { return referenceEdges_; }
@@ -121,6 +130,11 @@ public:
     void unlock() {
         lock_.reset();
         lastConstraint_.reset();
+    }
+    /// The references, after dropping those of a replaced project.
+    const std::vector<Vec3>& currentReferences() {
+        dropStaleReferences();
+        return references_;
     }
 
 private:

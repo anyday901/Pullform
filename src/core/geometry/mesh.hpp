@@ -72,9 +72,12 @@ struct Face {
     friend bool operator==(const Face&, const Face&) = default;
 };
 
-enum class CurveKind { Arc, Circle };
+/// Arc and Circle are true curves approximated by their segments; Polygon is a
+/// regular polygon (its segments are the sides, its vertices on `radius`), kept
+/// so its center can be found and it can be re-made with another side count.
+enum class CurveKind { Arc, Circle, Polygon };
 
-/// A true arc or circle, kept beside the segments that approximate it. The
+/// A true arc, circle or regular polygon, kept beside the segments that approximate it. The
 /// topology only ever sees the segment edges; a curve whose edges no longer
 /// form a chain is dropped by validation-on-edit (Mesh::pruneCurves).
 struct Curve {
@@ -100,6 +103,13 @@ struct AddEdgeResult {
 struct EraseEdgeResult {
     std::vector<FaceId> removedFaces;
     std::optional<FaceId> mergedFace; ///< set when two coplanar faces became this one
+};
+
+/// What one pushPull call did.
+struct PushPullResult {
+    FaceId face;                      ///< the pushed face where it ended up (the cap of an extrusion)
+    std::vector<FaceId> createdFaces; ///< new side faces and the cap
+    bool stretched = false;           ///< the face moved and its walls stretched (no new faces)
 };
 
 class Mesh {
@@ -163,10 +173,28 @@ public:
     /// hole in it plus an inner face. Returns nothing when a and b weld together.
     std::optional<AddEdgeResult> addEdge(const Vec3& a, const Vec3& b);
 
+    /// Draws a curve as `curve.segments` straight edges through `points`
+    /// (segments + 1 positions along it, ends included) with addEdge, then
+    /// records `curve` (its edges filled in, in order) and tags those edges.
+    /// Faces close and split exactly as for the same edges drawn one by one.
+    /// Returns the drawn edges in order and the faces made, or nothing when
+    /// the points do not give at least one edge.
+    std::optional<AddEdgeResult> addCurve(Curve curve, const std::vector<Vec3>& points, CurveId* id = nullptr);
+
     /// Erases an edge. Two coplanar faces on either side merge into one (and a
     /// coplanar inner face merges into the face it is a hole of); any other face
     /// that used the edge is removed. Vertices left without edges are removed.
     std::optional<EraseEdgeResult> eraseEdge(EdgeId id);
+
+    /// Pushes or pulls a face by `distance` along its normal (negative goes
+    /// back). Two cases are supported for now:
+    ///  - a free face (no edge or vertex shared with other geometry) is
+    ///    extruded: a cap at the offset, one side face per loop edge (holes make
+    ///    inner walls), and the face stays as the base, turned to face away;
+    ///  - the end face of a prism (every other edge at its vertices runs along
+    ///    the normal) moves, and its walls stretch, while they keep a length.
+    /// Returns nothing, with the mesh unchanged, in any other case.
+    std::optional<PushPullResult> pushPull(FaceId id, double distance);
 
     /// Removes a face only (its edges stay).
     bool eraseFace(FaceId id);

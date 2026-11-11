@@ -54,7 +54,7 @@ MeshData buildMesh(const ProfileObject& object, std::optional<double> heightOver
 struct SolidCheck {
     bool closed = false;               ///< every directed edge has exactly one opposite twin
     bool consistentlyOriented = false; ///< no directed edge is used twice
-    bool normalsMatchWinding = false;  ///< stored normals agree with triangle winding
+    bool normalsMatchWinding = false;  ///< stored normals agree with triangle winding (within 60 degrees: smooth shading tilts them)
     double signedVolume = 0.0;         ///< positive for outward-facing solids
     std::string problem;               ///< first problem found, empty when valid
     [[nodiscard]] bool ok() const { return problem.empty(); }

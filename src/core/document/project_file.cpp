@@ -101,15 +101,46 @@ void readObjectHeader(const json& v, const std::string& path, ProfileObject& o) 
     o.transform.rotation = quaternion(*member(transform, "rotation", path + ".transform"), path + ".transform.rotation");
 }
 
-/// The parametric part of a rectangle or box: "profile" and "extrusion".
+std::optional<ProfileKind> parseProfileKind(std::string_view text) {
+    if (text == "rectangle") return ProfileKind::Rectangle;
+    if (text == "circle") return ProfileKind::Circle;
+    if (text == "polygon") return ProfileKind::Polygon;
+    return std::nullopt;
+}
+
+const char* profileKindName(ProfileKind kind) {
+    switch (kind) {
+    case ProfileKind::Rectangle: return "rectangle";
+    case ProfileKind::Circle: return "circle";
+    case ProfileKind::Polygon: return "polygon";
+    }
+    return "rectangle";
+}
+
+const char* curveKindName(mesh::CurveKind kind) {
+    switch (kind) {
+    case mesh::CurveKind::Arc: return "arc";
+    case mesh::CurveKind::Circle: return "circle";
+    case mesh::CurveKind::Polygon: return "polygon";
+    }
+    return "arc";
+}
+
+std::optional<mesh::CurveKind> parseCurveKind(std::string_view text) {
+    if (text == "arc") return mesh::CurveKind::Arc;
+    if (text == "circle") return mesh::CurveKind::Circle;
+    if (text == "polygon") return mesh::CurveKind::Polygon;
+    return std::nullopt;
+}
+
+/// The parametric part of a rectangle, circle, polygon or their extrusion: "profile" and "extrusion".
 void readProfileFields(const json& v, const std::string& path, ProfileObject& o) {
     const auto& profile = *member(v, "profile", path);
     if (!profile.is_object()) fail(path + ".profile", "must be an object");
     const auto& kind = *member(profile, "kind", path + ".profile");
-    if (!kind.is_string() || kind.get<std::string>() != "rectangle") {
-        fail(path + ".profile.kind", "unsupported profile kind " + kind.dump());
-    }
-    o.profile.kind = ProfileKind::Rectangle;
+    const auto parsed = kind.is_string() ? parseProfileKind(kind.get<std::string>()) : std::nullopt;
+    if (!parsed) fail(path + ".profile.kind", "unsupported profile kind " + kind.dump());
+    o.profile.kind = *parsed;
     const auto& plane = *member(profile, "plane", path + ".profile");
     if (!plane.is_object()) fail(path + ".profile.plane", "must be an object");
     o.profile.plane.origin = vec3(*member(plane, "origin", path + ".profile.plane"), path + ".profile.plane.origin");
@@ -135,6 +166,7 @@ ProfileObject readProfileObjectV2(const json& v, const std::string& path) {
     readObjectHeader(v, path, o);
     if (const auto& type = *member(v, "type", path); !type.is_string() || type.get<std::string>() != "profile") fail(path + ".type", "unsupported object type " + type.dump());
     readProfileFields(v, path, o);
+    if (o.profile.kind != ProfileKind::Rectangle) fail(path + ".profile.kind", "only rectangles exist before version 3");
     return o;
 }
 
@@ -146,7 +178,7 @@ ProfileObject readProfileObjectV2(const json& v, const std::string& path) {
 //   "faces":    [{"id": n, "loops": [[use, ...], ...]}, ...],
 //                use = +edgeId (walked v0 -> v1) or -edgeId (reversed);
 //                loops[0] is the outer loop, the rest are holes
-//   "curves":   [{"id", "kind": "arc"|"circle", "center", "normal", "xAxis",
+//   "curves":   [{"id", "kind": "arc"|"circle"|"polygon", "center", "normal", "xAxis",
 //                 "radius", "start", "sweep", "segments", "edges": [ids]}, ...],
 //   "next":     [vertex, edge, face, curve]       ids the next elements get
 // }
@@ -183,7 +215,7 @@ json meshToJson(const mesh::Mesh& m) {
         json ids = json::array();
         for (const auto e : c.edges) ids.push_back(e.value);
         curves.push_back({{"id", id},
-                          {"kind", c.kind == mesh::CurveKind::Circle ? "circle" : "arc"},
+                          {"kind", curveKindName(c.kind)},
                           {"center", vec3ToJson(c.center)},
                           {"normal", vec3ToJson(c.normal)},
                           {"xAxis", vec3ToJson(c.xAxis)},
@@ -268,8 +300,9 @@ mesh::Mesh readMesh(const json& v, const std::string& path) {
             const mesh::CurveId id{elementId(*member(c, "id", p), p + ".id")};
             mesh::Curve curve;
             const auto& kind = *member(c, "kind", p);
-            if (!kind.is_string() || (kind.get<std::string>() != "arc" && kind.get<std::string>() != "circle")) fail(p + ".kind", R"(must be "arc" or "circle")");
-            curve.kind = kind.get<std::string>() == "circle" ? mesh::CurveKind::Circle : mesh::CurveKind::Arc;
+            const auto parsedKind = kind.is_string() ? parseCurveKind(kind.get<std::string>()) : std::nullopt;
+            if (!parsedKind) fail(p + ".kind", R"(must be "arc", "circle" or "polygon")");
+            curve.kind = *parsedKind;
             curve.center = vec3(*member(c, "center", p), p + ".center");
             curve.normal = vec3(*member(c, "normal", p), p + ".normal");
             curve.xAxis = vec3(*member(c, "xAxis", p), p + ".xAxis");
@@ -310,6 +343,11 @@ bool sameMesh(const mesh::Mesh& a, const mesh::Mesh& b) {
     for (const auto& [id, v] : a.vertices()) {
         const auto* other = b.vertex(mesh::VertexId{id});
         if (!other || glm::length(other->position - v.position) > tol::kWeldDistance) return false;
+    }
+    if (a.curves().size() != b.curves().size()) return false;
+    for (const auto& [id, c] : a.curves()) {
+        const auto* other = b.curve(mesh::CurveId{id});
+        if (!other || other->kind != c.kind || other->segments != c.segments || other->edges != c.edges) return false;
     }
     return std::ranges::all_of(a.faces(), [&b](const auto& entry) {
         const auto* other = b.face(mesh::FaceId{entry.first});
@@ -532,7 +570,7 @@ std::string serializeProject(const Document& doc, const std::optional<CameraView
                                         o.transform.rotation.w})}}},
         };
         if (!o.isMeshGroup()) {
-            obj["profile"] = {{"kind", "rectangle"},
+            obj["profile"] = {{"kind", profileKindName(o.profile.kind)},
                               {"plane",
                                {{"origin", vec3ToJson(o.profile.plane.origin)},
                                 {"xAxis", vec3ToJson(o.profile.plane.xAxis)},

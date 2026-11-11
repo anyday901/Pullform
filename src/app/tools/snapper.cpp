@@ -43,9 +43,12 @@ double PointSnapper::tolerance(const PointerInput& input, const Vec3& at) const 
 }
 
 void PointSnapper::dropStaleReferences() {
-    // New / Open replace the project: points from the old one must not guide the new one.
+    // New / Open replace the project: points and edges from the old one must not guide the new one.
     if (referencesGeneration_ == editor_.projectGeneration()) return;
     references_.clear();
+    referenceEdges_.clear();
+    lock_.reset();
+    lastConstraint_.reset();
     referencesGeneration_ = editor_.projectGeneration();
 }
 
@@ -63,8 +66,7 @@ void PointSnapper::rememberEdge(const SnapEdge& e) {
     dropStaleReferences();
     std::erase(referenceEdges_, e);
     if (referenceEdges_.size() >= SnapSettings::kMaxReferenceEdges) referenceEdges_.resize(SnapSettings::kMaxReferenceEdges - 1);
-    // push_back and rotate rather than insert at the front: GCC 13 at -O3
-    // reports a false null dereference in the inlined insert.
+    // Most recent first (push and rotate, as remember() does for points).
     referenceEdges_.push_back(e);
     std::rotate(referenceEdges_.rbegin(), referenceEdges_.rbegin() + 1, referenceEdges_.rend());
 }
@@ -136,7 +138,7 @@ std::optional<SnapResult> PointSnapper::infer(const PointerInput& input, const I
             res->constraint = SnapConstraint{SnapConstraint::Type::Plane, options.plane->point, options.plane->normal, SnapKind::OnFace, -1, std::nullopt};
         }
     }
-    if (!res && !options.plane) res = ground(input, options.skip);
+    if (!res && !options.plane && options.groundFallback) res = ground(input, options.skip, options.exclude);
     if (!lock_) lastConstraint_ = res ? res->constraint : std::nullopt;
     return res;
 }
@@ -162,13 +164,29 @@ std::optional<SnapResult> PointSnapper::point(const PointerInput& input, std::op
     return hit;
 }
 
-std::optional<SnapResult> PointSnapper::ground(const PointerInput& input, std::optional<Vec3> skip) {
-    auto hit = point(input);
+std::optional<SnapResult> PointSnapper::onGuide(const PointerInput& input, const Vec3& planePoint, const Vec3& normal) {
+    if (!active(input) || !settings_.guides) return std::nullopt;
+    std::vector<Guide> inPlane;
+    for (const auto& g : editor_.document().guides) {
+        if (g.kind == Guide::Kind::Line && std::abs(glm::dot(g.direction, normal)) <= 1e-9 &&
+            std::abs(glm::dot(g.point - planePoint, normal)) <= tol::kWeldDistance) {
+            inPlane.push_back(g);
+        }
+    }
+    if (inPlane.empty()) return std::nullopt;
+    std::optional<double> occluder;
+    if (input.pick) occluder = input.pick->distance;
+    return nearestOnGuide(inPlane, input.ray, input.pixelAngle * settings_.radiusPx, occluder);
+}
+
+std::optional<SnapResult> PointSnapper::ground(const PointerInput& input, std::optional<Vec3> skip, std::optional<ObjectId> exclude) {
+    auto hit = point(input, exclude);
     if (!hit && active(input)) {
         // Then a point on an edge (also remembered as a parallel reference).
         std::optional<double> occluder;
         if (input.pick) occluder = input.pick->distance;
-        hit = index_.nearestEdge(input.ray, input.pixelAngle * settings_.radiusPx, occluder);
+        if (input.pick && exclude && input.pick->objectId == *exclude) occluder.reset();
+        hit = index_.nearestEdge(input.ray, input.pixelAngle * settings_.radiusPx, occluder, exclude);
         if (hit && hit->edge) rememberEdge(*hit->edge);
         // Then a point on a guide line.
         if (!hit && settings_.guides) hit = nearestOnGuide(editor_.document().guides, input.ray, input.pixelAngle * settings_.radiusPx, occluder);

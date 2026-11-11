@@ -142,7 +142,8 @@ Vec3 SnapEdge::direction() const {
 
 namespace {
 
-// A mesh group: its own vertices and edges in world space, plus curve centers.
+// A mesh group snaps to every vertex and edge, including loose edges that
+// bound no face yet (a Line tool chain before it closes), plus curve centers.
 SnapFeatures meshFeatures(const ProfileObject& object) {
     SnapFeatures f;
     const mesh::Mesh& m = *object.mesh;
@@ -186,8 +187,10 @@ SnapFeatures snapFeatures(const ProfileObject& object, std::optional<double> hei
         computeBounds(f);
         return f;
     }
+    // A profile object (rectangle or box): its logical faces.
     SnapFeatures f;
-    for (const auto& face : buildFaces(object, heightOverride)) {
+    const auto faces = buildFaces(object, heightOverride);
+    for (const auto& face : faces) {
         const auto n = face.loop.size();
         std::vector<int> ids;
         ids.reserve(n);
@@ -200,6 +203,18 @@ SnapFeatures snapFeatures(const ProfileObject& object, std::optional<double> hei
             });
             if (!seen && a != b) f.edges.emplace_back(a, b);
         }
+    }
+    // Curve centers come from the mesh (a circle or polygon profile makes one
+    // per loop; drawn arcs keep theirs), at the previewed height if there is one.
+    const ProfileObject* source = &object;
+    ProfileObject resized;
+    if (heightOverride && !object.isMeshGroup() && object.extrusion) {
+        resized = object;
+        resized.extrusion->height = *heightOverride;
+        source = &resized;
+    }
+    if (const auto m = mesh::objectMesh(*source); !m->curves().empty()) {
+        for (const auto& [id, c] : m->curves()) f.curveCenters.push_back(localToWorld(*source, c.center));
     }
     computeBounds(f);
     return f;
