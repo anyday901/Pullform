@@ -112,8 +112,8 @@ struct GpuMesh {
     gl::Buffer vertices;
     gl::Buffer indices;
     GLsizei indexCount = 0;
-    bool sheet = false; ///< a planar face (not a closed solid): drawn in front of faces it lies on
     Vec3 origin{0.0}; ///< positions are stored as float offsets from this point
+    bool sheet = false; ///< a planar face (not a closed solid): drawn in front of faces it lies on
 };
 
 struct MeshVertex {
