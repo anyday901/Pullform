@@ -200,8 +200,10 @@ std::vector<SourceFace> sourceFaces(const Mesh& m, int solid) {
         s.normal = f.normal;
         s.axes = axesFor(f.normal);
         for (const auto& loop : f.loops) s.loops.push_back(m.loopPositions(loop));
+        if (s.loops.empty() || s.loops.front().empty()) continue; // not in a validated solid
         s.origin = s.loops.front().front();
-        s.lo = s.hi = s.origin;
+        s.lo = s.origin;
+        s.hi = s.origin;
         for (const auto& loop : s.loops) {
             std::vector<Vec2> flat;
             for (const auto& p : loop) {
@@ -325,10 +327,11 @@ void intersectFaces(std::vector<SourceFace>& faces, std::size_t fi, std::size_t 
     }
     if (!straddles(f, g) || !straddles(g, f)) return;
     const Vec3 d = dir / len;
-    // A point on both planes, near f's origin: f.normal . x = 0 and g.normal . x = h (relative to f.origin).
-    const double c = glm::dot(f.normal, g.normal);
+    // A point on both planes, near f's origin: f.normal . x = 0 and g.normal . x = h
+    // (relative to f.origin). Written with the cross product, which stays exact for
+    // nearly parallel planes where 1 - dot^2 would cancel to zero.
     const double h = glm::dot(g.origin - f.origin, g.normal);
-    const Vec3 o = f.origin + (g.normal - f.normal * c) * (h / (1.0 - c * c));
+    const Vec3 o = f.origin + glm::cross(dir, f.normal) * (h / (len * len));
 
     std::vector<double> ts;
     lineTouches(f, g, o, d, ts);

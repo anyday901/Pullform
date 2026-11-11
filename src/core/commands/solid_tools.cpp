@@ -158,11 +158,24 @@ Expected<OpResult> applySolidTool(const Document& doc, SolidTool tool, const std
         const ProfileObject& base = *objects.front();
         mesh::Mesh acc = *mesh::objectMesh(base);
         const auto op = tool == SolidTool::Intersect ? mesh::BooleanOp::Intersect : mesh::BooleanOp::Union;
-        for (std::size_t k = 1; k < objects.size(); ++k) {
-            auto r = run(acc, meshIn(base, *objects[k]), op);
-            if (!r) return Error{name + " failed. " + r.error()};
-            acc = std::move(r).value();
-            if (acc.faces().empty()) return Error{"The solids do not overlap, so they have nothing in common."};
+        // An operand that cannot be combined yet (two boxes touching along an edge)
+        // may combine once a later one has joined them, so it waits for another pass.
+        std::vector<const ProfileObject*> pending(objects.begin() + 1, objects.end());
+        while (!pending.empty()) {
+            const std::size_t before = pending.size();
+            std::string failure;
+            for (auto it = pending.begin(); it != pending.end();) {
+                auto r = run(acc, meshIn(base, **it), op);
+                if (!r) {
+                    failure = r.error();
+                    ++it;
+                    continue;
+                }
+                acc = std::move(r).value();
+                if (acc.faces().empty()) return Error{"The solids do not overlap, so they have nothing in common."};
+                it = pending.erase(it);
+            }
+            if (pending.size() == before) return Error{name + " failed. " + failure};
         }
         if (tool == SolidTool::OuterShell) {
             const std::size_t before = acc.faces().size();

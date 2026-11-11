@@ -391,3 +391,34 @@ TEST_CASE("solid booleans: drilling twice and crossing bores") {
     REQUIRE_OK(cut);
     requireSolid(cut->document, b2, 1.0 - 0.5 * polygonArea(0.25, 32));
 }
+
+TEST_CASE("solid tools: a union of several does not depend on the order picked") {
+    // The first two boxes touch along an edge only; the third contains both.
+    Document doc;
+    const ObjectId a = addBox(doc, {0, 0, 0}, 1.0, 1.0, 1.0);
+    const ObjectId b = addBox(doc, {1, 1, 0}, 1.0, 1.0, 1.0);
+    const ObjectId c = addBox(doc, {0, 0, 0}, 2.0, 2.0, 1.0);
+    auto u = applySolidTool(doc, SolidTool::Union, {a, b, c});
+    REQUIRE_OK(u);
+    CHECK(u->document.objects.size() == 1);
+    requireSolid(u->document, a, 4.0);
+    CHECK(meshOf(u->document, a).faces().size() == 6);
+    auto shell = applySolidTool(doc, SolidTool::OuterShell, {a, b, c});
+    REQUIRE_OK(shell);
+    requireSolid(shell->document, a, 4.0);
+    // Two alone still cannot be joined.
+    CHECK_FALSE(applySolidTool(doc, SolidTool::Union, {a, b}).ok());
+}
+
+TEST_CASE("solid booleans: nearly parallel faces still cut") {
+    // A large slab turned by a hair, cut by a box: the cut stays finite and solid.
+    Document doc;
+    const ObjectId slab = addBox(doc, {-500, -500, 0}, 1000.0, 1000.0, 1.0);
+    doc = rotateObject(doc, slab, {0, 0, 0}, {1, 0, 0}, 1e-8)->document;
+    const ObjectId cutter = addBox(doc, {0, 0, 0.5}, 1.0, 1.0, 1.0);
+    auto cut = applySolidTool(doc, SolidTool::Subtract, {cutter, slab});
+    REQUIRE_OK(cut);
+    const double v = volume(meshOf(cut->document, slab));
+    requireSolid(cut->document, slab, v);
+    CHECK(near(v, 1e6 - 0.5, 1e-3));
+}
