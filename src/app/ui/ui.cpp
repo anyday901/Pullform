@@ -223,6 +223,10 @@ void Ui::menuBar(UiContext& ctx) {
     if (ImGui::BeginMenu("View")) {
         if (ImGui::MenuItem("Fit to model", shortcuts::kFit)) action(UiAction::FitView);
         if (ImGui::MenuItem("Reset view")) action(UiAction::ResetView);
+        if (ctx.profileEdges) {
+            ImGui::Separator();
+            ImGui::MenuItem("Profile edges", nullptr, ctx.profileEdges); // thick outline edges
+        }
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Tools")) {

@@ -49,6 +49,7 @@ void ToolController::setTool(Tool tool) {
     if (tool == Tool::TapeMeasure || tool == Tool::Dimension) lastMeasure_ = tool;
     current().activate();
     editor_.setHover(std::nullopt);
+    editor_.setHoverElement(std::nullopt);
     editor_.notify(std::nullopt);
 }
 

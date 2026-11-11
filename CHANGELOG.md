@@ -9,6 +9,12 @@ include breaking changes, but project files will keep a migration path.
 
 ### Added
 
+- **Edges and faces you can pick:** the Select tool highlights the vertex, edge or face under
+  the pointer (hidden edges are never picked). Click selects that edge or face, double-click
+  a face with its edges, triple-click everything connected. Selected edges draw wide and
+  blue; Move, Rotate, Scale, Duplicate and Delete act on the objects they belong to.
+- **Profile edges** (View > Profile edges): outline and silhouette edges drawn thicker.
+
 - **Duplicate** (Edit > Duplicate, Ctrl+D / Cmd+D, or the Duplicate buttons): copies the
   selected object with a new stable ID and places it beside the original along +X. The copy
   becomes the selection, so repeating it builds a row. Editing either object leaves the
