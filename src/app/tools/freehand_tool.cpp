@@ -7,6 +7,7 @@
 #include "core/geometry/pick.hpp"
 
 #include <cmath>
+#include <format>
 
 namespace pf {
 namespace {
@@ -20,8 +21,9 @@ bool inRange(const Vec3& p) {
 
 void FreehandTool::pointerDown(const PointerInput& input) {
     if (stroke_) return; // a second button press mid-stroke changes nothing
+    using enum SnapKind;
     const SnapResult start = ctx_.snapPointer(input);
-    if (start.kind == SnapKind::None && !intersectHorizontalPlane(input.ray, 0.0)) return; // nothing under the pointer
+    if (start.kind == None && !intersectHorizontalPlane(input.ray, 0.0)) return; // nothing under the pointer
     if (!inRange(start.point)) {
         editor().notify(Message{Message::Kind::Error, "That point is outside the +/-10 km model range. Start closer to the model."});
         return;
@@ -29,7 +31,7 @@ void FreehandTool::pointerDown(const PointerInput& input) {
     Stroke s;
     s.points.push_back(start.point);
     // Starting on an object draws into it, so the stroke sticks to that geometry.
-    if (start.kind == SnapKind::Endpoint || start.kind == SnapKind::Midpoint || start.kind == SnapKind::OnFace) {
+    if (start.kind == Endpoint || start.kind == Midpoint || start.kind == OnFace) {
         s.target = start.objectId;
     }
     if (input.pixelAngle > 0.0) {
@@ -42,7 +44,7 @@ void FreehandTool::pointerDown(const PointerInput& input) {
     if (!(s.closeRadius > 0.0)) s.closeRadius = s.tolerance * 4.0;
     s.pressScreen = input.screen;
     stroke_ = std::move(s);
-    ctx_.indicator = start.kind == SnapKind::None ? std::nullopt : std::optional(start);
+    ctx_.indicator = start.kind == None ? std::nullopt : std::optional(start);
     editor().notify(std::nullopt);
     showPreview();
 }
@@ -50,8 +52,7 @@ void FreehandTool::pointerDown(const PointerInput& input) {
 void FreehandTool::pointerMove(const PointerInput& input) {
     if (!stroke_) {
         // Show where a stroke would start (and what it would stick to).
-        const SnapResult res = ctx_.snapPointer(input);
-        if (res.kind == SnapKind::None) ctx_.indicator.reset();
+        if (const SnapResult res = ctx_.snapPointer(input); res.kind == SnapKind::None) ctx_.indicator.reset();
         else ctx_.indicator = res;
         return;
     }
@@ -81,11 +82,11 @@ void FreehandTool::pointerUp(const PointerInput& input) {
         editor().notify(Message{Message::Kind::Error, "The stroke is too short to draw. Drag further before releasing."});
         return;
     }
-    const bool ok = editor().commit("Freehand", [&](const Document& doc) { return drawPolyline(doc, target, points, closed); });
+    const bool ok = editor().commit("Freehand", [&target, &points, closed](const Document& doc) { return drawPolyline(doc, target, points, closed); });
     abandon(); // the stroke is done either way; a failed commit has already set the error message
     if (ok) {
-        editor().notify(Message{Message::Kind::Info, "Freehand: " + std::to_string(points.size() - (closed ? 0 : 1)) + " edges" +
-                                                         (closed ? " in a closed loop." : ".")});
+        const std::size_t edges = closed ? points.size() : points.size() - 1;
+        editor().notify(Message{Message::Kind::Info, std::format("Freehand: {} edges{}", edges, closed ? " in a closed loop." : ".")});
     }
 }
 

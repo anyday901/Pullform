@@ -55,73 +55,86 @@ std::vector<Vec3> smoothPass(const std::vector<Vec3>& pts, bool closed) {
     return out;
 }
 
-} // namespace
-
-std::vector<Vec3> smoothStroke(const std::vector<Vec3>& raw, double tolerance, bool closed) {
-    if (raw.empty() || !(tolerance > 0.0)) return {};
-    // Drop jitter: points that barely moved from the last kept one.
-    const double spacing = tolerance * 0.5;
+/// The stroke without jitter: points closer than `spacing` to the last kept
+/// one are dropped. An open stroke still ends at its release point; a loop
+/// drops a last point on top of its first. Empty when too little is left.
+std::vector<Vec3> dropJitter(const std::vector<Vec3>& raw, double spacing, bool closed) {
     std::vector<Vec3> pts{raw.front()};
     for (std::size_t i = 1; i < raw.size(); ++i) {
         if (glm::length(raw[i] - pts.back()) >= spacing) pts.push_back(raw[i]);
     }
-    if (!closed) {
-        // The release point is where the user aimed: keep it, replacing a kept
-        // point that sits too close to it.
-        // An open stroke that comes back near its start still ends at the release point.
-        if (pts.size() > 1 && glm::length(raw.back() - pts.back()) < spacing) pts.pop_back();
-        if (pts.size() == 1 && glm::length(raw.back() - pts.front()) < spacing) return {};
-        pts.push_back(raw.back());
-    } else {
-        // The loop closes on its first point: drop a last point on top of it.
+    if (closed) {
         while (pts.size() > 1 && glm::length(pts.back() - pts.front()) < spacing) pts.pop_back();
         if (pts.size() < 3) return {};
+        return pts;
     }
+    // The release point is where the user aimed, even when it comes back near
+    // the start: keep it, replacing a kept point that sits too close to it.
+    if (pts.size() > 1 && glm::length(raw.back() - pts.back()) < spacing) pts.pop_back();
+    if (pts.size() == 1 && glm::length(raw.back() - pts.front()) < spacing) return {};
+    pts.push_back(raw.back());
+    return pts;
+}
 
-    // Smoothing and simplifying each get half the tolerance: no smoothed point
-    // moves further than that from its sample (sparse samples from a fast drag
-    // would otherwise round corners off), and simplifying adds the other half.
-    const double half = tolerance * 0.5;
-    const std::vector<Vec3> samples = pts;
-    for (int pass = 0; pass < kSmoothingPasses && pts.size() > 2; ++pass) {
+/// A few smoothing passes in which no point moves further than `limit` from its sample.
+std::vector<Vec3> smoothBounded(const std::vector<Vec3>& samples, bool closed, double limit) {
+    std::vector<Vec3> pts = samples;
+    if (samples.size() <= 2) return pts;
+    for (int pass = 0; pass < kSmoothingPasses; ++pass) {
         pts = smoothPass(pts, closed);
         for (std::size_t i = 0; i < pts.size(); ++i) {
             const Vec3 moved = pts[i] - samples[i];
             const double d = glm::length(moved);
-            if (d > half) pts[i] = samples[i] + moved * (half / d);
+            if (d > limit) pts[i] = samples[i] + moved * (limit / d);
         }
     }
+    return pts;
+}
+
+/// Which points of a loop Ramer-Douglas-Peucker keeps: the loop is split at
+/// the point furthest from the first one and both halves are simplified.
+std::vector<bool> simplifyLoop(const std::vector<Vec3>& pts, double tolerance) {
+    std::size_t far = 0;
+    double best = -1.0;
+    for (std::size_t i = 1; i < pts.size(); ++i) {
+        const double d = glm::length(pts[i] - pts[0]);
+        if (d > best) {
+            best = d;
+            far = i;
+        }
+    }
+    std::vector<Vec3> ring(pts);
+    ring.push_back(pts[0]);
+    std::vector<bool> keep(ring.size(), false);
+    simplify(ring, 0, far, tolerance, keep);
+    simplify(ring, far, ring.size() - 1, tolerance, keep);
+    keep.pop_back();
+    return keep;
+}
+
+} // namespace
+
+std::vector<Vec3> smoothStroke(const std::vector<Vec3>& raw, double tolerance, bool closed) {
+    if (raw.empty() || !(tolerance > 0.0)) return {};
+    // Smoothing and simplifying each get half the tolerance: no smoothed point
+    // moves further than that from its sample (sparse samples from a fast drag
+    // would otherwise round corners off), and simplifying adds the other half.
+    const double half = tolerance * 0.5;
+    const std::vector<Vec3> samples = dropJitter(raw, half, closed);
+    if (samples.empty()) return {};
+    const std::vector<Vec3> pts = smoothBounded(samples, closed, half);
 
     std::vector<bool> keep(pts.size(), false);
-    if (!closed) {
-        simplify(pts, 0, pts.size() - 1, half, keep);
-    } else {
-        // Split the loop at the point furthest from the first one and simplify both halves.
-        std::size_t far = 0;
-        double best = -1.0;
-        for (std::size_t i = 1; i < pts.size(); ++i) {
-            const double d = glm::length(pts[i] - pts[0]);
-            if (d > best) {
-                best = d;
-                far = i;
-            }
-        }
-        std::vector<Vec3> ring(pts);
-        ring.push_back(pts[0]);
-        std::vector<bool> ringKeep(ring.size(), false);
-        simplify(ring, 0, far, half, ringKeep);
-        simplify(ring, far, ring.size() - 1, half, ringKeep);
-        for (std::size_t i = 0; i < pts.size(); ++i) keep[i] = ringKeep[i];
-    }
+    if (closed) keep = simplifyLoop(pts, half);
+    else simplify(pts, 0, pts.size() - 1, half, keep);
     std::vector<Vec3> out;
     for (std::size_t i = 0; i < pts.size(); ++i) {
         if (keep[i]) out.push_back(pts[i]);
     }
     if (closed && out.size() < 3) {
-        // A very flat loop simplifies to a line; keep the three most spread points instead.
-        out.clear();
+        // A very flat loop simplifies to a line; keep three spread points instead.
         const std::size_t n = pts.size();
-        for (const std::size_t i : {std::size_t{0}, n / 3, (2 * n) / 3}) out.push_back(pts[i]);
+        out = {pts[0], pts[n / 3], pts[(2 * n) / 3]};
     }
     return out;
 }

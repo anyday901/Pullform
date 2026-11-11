@@ -18,14 +18,14 @@ std::vector<Vec3> circle(double cx, double cy, double z, double r, int count, do
     std::vector<Vec3> pts;
     for (int i = 0; i < count; ++i) {
         const double a = (2.0 * std::numbers::pi - gap) * i / (count - 1);
-        pts.push_back({cx + r * std::cos(a), cy + r * std::sin(a), z});
+        pts.emplace_back(cx + r * std::cos(a), cy + r * std::sin(a), z);
     }
     return pts;
 }
 
 /// Drags the current tool through `pts` (each a ray straight down), pressing at
 /// the first and releasing at the last. Screen positions step one pixel per point.
-void drag(Editor& editor, ToolController& tools, const std::vector<Vec3>& pts) {
+void drag(const Editor& editor, ToolController& tools, const std::vector<Vec3>& pts) {
     tools.pointerDown(downAt(editor, pts.front().x, pts.front().y, {0, 0}));
     for (std::size_t i = 1; i < pts.size(); ++i) {
         tools.pointerMove(downAt(editor, pts[i].x, pts[i].y, {static_cast<double>(i), 0}));

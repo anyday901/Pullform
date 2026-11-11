@@ -179,17 +179,24 @@ void Ui::showError(const std::string& title, const std::string& text) {
 
 std::string Ui::measurementLabel(const UiContext& ctx) const { return std::string(ctx.tools.measurementLabel()); }
 
+namespace {
+
+/// Live length of a freehand stroke.
+std::string freehandLive(const FreehandPreview& f, LengthUnit u) {
+    double length = 0.0;
+    for (std::size_t i = 1; i < f.points.size(); ++i) length += glm::length(f.points[i] - f.points[i - 1]);
+    return formatLength(length, u) + (f.closes ? "   (closes the loop)" : "");
+}
+
+} // namespace
+
 std::string Ui::measurementLive(const UiContext& ctx) const {
     const LengthUnit u = ctx.editor.document().displayUnit;
     if (const auto* r = std::get_if<RectanglePreview>(&ctx.editor.preview())) {
         const double w = std::abs(r->end.x - r->start.x), d = std::abs(r->end.y - r->start.y);
         return formatLength(w, u) + ", " + formatLength(d, u);
     }
-    if (const auto* f = std::get_if<FreehandPreview>(&ctx.editor.preview())) {
-        double length = 0.0;
-        for (std::size_t i = 1; i < f->points.size(); ++i) length += glm::length(f->points[i] - f->points[i - 1]);
-        return formatLength(length, u) + (f->closes ? "   (closes the loop)" : "");
-    }
+    if (const auto* f = std::get_if<FreehandPreview>(&ctx.editor.preview())) return freehandLive(*f, u);
     if (const auto* p = std::get_if<PushPullPreview>(&ctx.editor.preview())) {
         return (p->delta >= 0 ? "+" : "") + formatLength(p->delta, u) + "   (total height " + formatLength(p->height, u) + ")";
     }
