@@ -123,10 +123,13 @@ std::optional<ElementHit> pickElement(const Ray& ray, std::span<const PickTarget
         }
     }
 
-    // Vertices before edges; nearer to the pointer first, then nearer to the eye.
-    std::sort(candidates.begin(), candidates.end(), [](const Candidate& x, const Candidate& y) {
+    // Vertices before edges; nearer to the pointer first (in half-pixel steps,
+    // so near-ties go to the one nearer the eye), then nearer to the eye. The
+    // steps keep the ordering strict and weak, as std::sort requires.
+    const auto step = [](double pixels) { return std::floor(pixels * 2.0); };
+    std::sort(candidates.begin(), candidates.end(), [&](const Candidate& x, const Candidate& y) {
         if (x.kind != y.kind) return x.kind < y.kind;
-        if (std::abs(x.pixels - y.pixels) > 0.5) return x.pixels < y.pixels;
+        if (step(x.pixels) != step(y.pixels)) return step(x.pixels) < step(y.pixels);
         return x.distance < y.distance;
     });
     for (const auto& c : candidates) {

@@ -328,3 +328,36 @@ TEST_CASE("mesh group: a square split by a line has two pickable faces and a sha
     CHECK(countKind(all, ElementKind::Face) == 2);
     CHECK(countKind(all, ElementKind::Edge) == m.edges().size());
 }
+
+TEST_CASE("toggling an element of an object selected whole removes the object") {
+    const ObjectId a{1}, b{2};
+    SelectionSet set;
+    set.add(Selection{a, std::nullopt}); // as a box drag or Select All leaves it
+    set.add(Selection{b, std::nullopt});
+    set.toggleElements({{a, ElementKind::Face, 1}}, std::nullopt); // Shift-click a face of a
+    CHECK_FALSE(set.contains(a));
+    CHECK(set.contains(b));
+}
+
+TEST_CASE("scaling a selection keeps a mesh group in place relative to the others") {
+    mesh::Mesh m;
+    m.addEdge({0, 0, 0}, {2, 0, 0});
+    m.addEdge({2, 0, 0}, {2, 2, 0});
+    m.addEdge({2, 2, 0}, {0, 2, 0});
+    m.addEdge({0, 2, 0}, {0, 0, 0});
+    ProfileObject group;
+    group.id = ObjectId{1};
+    group.name = "Group 1";
+    group.mesh = std::make_shared<const mesh::Mesh>(m);
+    Document doc;
+    doc.objects.push_back(std::make_shared<const ProfileObject>(group));
+    doc.nextId = 2;
+    // Scale by 2 about (3, 1, 0): local x 0..2 (centre 1) becomes -3..1.
+    const auto r = scaleObjects(doc, {group.id}, Vec3{2.0}, Vec3{3, 1, 0});
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error()));
+    const Bounds bounds = objectBounds(*r->document.find(group.id));
+    CHECK(bounds.min.x == doctest::Approx(-3.0));
+    CHECK(bounds.max.x == doctest::Approx(1.0));
+    CHECK(bounds.min.y == doctest::Approx(-1.0));
+    CHECK(bounds.max.y == doctest::Approx(3.0));
+}

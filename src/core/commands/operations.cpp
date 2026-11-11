@@ -120,7 +120,20 @@ Expected<OpResult> rotateObject(const Document& doc, ObjectId id, const Vec3& pi
     return replaceObject(doc, std::move(changed));
 }
 
+namespace {
+
+/// Centre of a mesh group's base in its local space (lowest local z): the
+/// point scaleObject keeps fixed.
+Vec3 meshBaseCenterLocal(const mesh::Mesh& m) {
+    Bounds local;
+    for (const auto& [vid, v] : m.vertices()) local.extend(v.position);
+    return Vec3{local.center().x, local.center().y, local.min.z};
+}
+
+} // namespace
+
 Vec3 objectBaseCenter(const ProfileObject& o) {
+    if (o.isMeshGroup()) return localToWorld(o, meshBaseCenterLocal(*o.mesh));
     Vec2 sum{0.0};
     for (const auto& p : o.profile.boundary) sum += p;
     const Vec2 c = o.profile.boundary.empty() ? Vec2{0.0} : sum / static_cast<double>(o.profile.boundary.size());
@@ -137,9 +150,7 @@ Expected<OpResult> scaleObject(const Document& doc, ObjectId id, const Vec3& f) 
     }
     if (o->isMeshGroup()) {
         // Scale the local geometry about the centre of its base (lowest local z).
-        Bounds local;
-        for (const auto& [vid, v] : o->mesh->vertices()) local.extend(v.position);
-        const Vec3 c{local.center().x, local.center().y, local.min.z};
+        const Vec3 c = meshBaseCenterLocal(*o->mesh);
         mesh::Mesh scaled = *o->mesh;
         scaled.translate(-c);
         scaled.scale(f);

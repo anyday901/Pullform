@@ -70,6 +70,13 @@ void SelectionSet::removeElements(const std::vector<ElementRef>& elements) {
 }
 
 void SelectionSet::toggleElements(const std::vector<ElementRef>& elements, const std::optional<FaceId>& face) {
+    // Elements of an object selected whole (by a box or Select All) are implied,
+    // so toggling them removes that object.
+    const auto selectedWhole = [&](const ElementRef& e) { return contains(e.object) && !hasElements(e.object); };
+    if (!elements.empty() && std::ranges::all_of(elements, selectedWhole)) {
+        for (const auto& e : elements) remove(e.object);
+        return;
+    }
     const bool all = !elements.empty() && std::ranges::all_of(elements, [&](const ElementRef& e) { return containsElement(e); });
     if (all) removeElements(elements);
     else addElements(elements, face);
