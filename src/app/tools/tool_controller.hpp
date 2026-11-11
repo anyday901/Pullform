@@ -2,29 +2,19 @@
 
 #include "core/commands/editor.hpp"
 #include "core/geometry/pick.hpp"
+#include "app/tools/snapper.hpp"
+#include "core/geometry/snap.hpp"
 
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace pf {
 
 enum class Tool { Select, Rectangle, PushPull, Move, Orbit };
 
 std::string_view toolName(Tool tool);
-
-/// What the viewport reports for each pointer event. The tool layer never sees
-/// windowing or GPU types, so tests can drive it with synthetic events.
-struct PointerInput {
-    Ray ray;                     ///< world-space pick ray through the cursor
-    std::optional<PickHit> pick; ///< logical face under the cursor, if any
-    Vec2 screen{0.0};            ///< cursor position in window pixels (tells clicks from drags)
-};
-
-struct SnapSettings {
-    bool enabled = true;
-    double step = 0.1; ///< meters (100 mm)
-};
 
 /// Interaction state machines for the modeling tools.
 ///
@@ -37,7 +27,7 @@ class ToolController {
 public:
     static constexpr double kDragThresholdPx = 5.0;
 
-    explicit ToolController(Editor& editor) : editor_(editor) {}
+    explicit ToolController(Editor& editor) : editor_(editor), snapper_(editor, snap_) {}
 
     [[nodiscard]] Tool tool() const { return tool_; }
     void setTool(Tool tool);
@@ -96,6 +86,25 @@ public:
     /// Explanation when a face cannot be push/pulled in this milestone.
     static std::optional<std::string> pushableReason(const FaceId& face);
 
+    /// Snaps a pointer to a 3D point for any tool, in priority order: an
+    /// endpoint or midpoint of an object near the pointer, a point on the face
+    /// under the pointer, then the ground (with inference and grid snap as for
+    /// snapGround). Points snapped to are remembered as inference references.
+    SnapResult snapPointer(const PointerInput& input);
+
+    /// Snaps a pointer to the ground plane (z = 0): an endpoint or midpoint
+    /// projected straight down (with a vertical guide), else alignment with a
+    /// reference point along X or Y (inference guides), else the grid.
+    /// Nothing when the ray does not reach the ground.
+    std::optional<SnapResult> snapGround(const PointerInput& input);
+
+    /// The snap shown in the viewport for the last pointer event (marker and
+    /// inference guides), if any.
+    [[nodiscard]] const std::optional<SnapResult>& snapIndicator() const { return indicator_; }
+
+    /// Points recently snapped to; inference guides align with these.
+    [[nodiscard]] const std::vector<Vec3>& inferenceReferences() const { return snapper_.references(); }
+
     /// Status bar hint for the current tool and gesture state.
     [[nodiscard]] std::string hint() const;
 
@@ -110,6 +119,7 @@ private:
         FaceKind face = FaceKind::Profile;
         Vec3 anchor{0.0};
         double startHeight = 0.0;
+        double baseZ = 0.0; ///< world height of the profile plane
         Vec2 pressScreen{0.0};
         bool pressed = false;
     };
@@ -123,8 +133,9 @@ private:
         std::optional<Ray> lastRay; ///< re-evaluates the preview when the axis lock changes
     };
 
-    [[nodiscard]] Vec3 snapPoint(const Vec3& p) const;
-    [[nodiscard]] std::optional<Vec3> groundPoint(const PointerInput& input) const;
+    [[nodiscard]] std::string toolHint() const;
+    [[nodiscard]] std::optional<Vec3> groundPoint(const PointerInput& input);
+    std::optional<double> snapPushHeight(const PointerInput& input, std::optional<double> raw);
 
     void selectDown(const PointerInput& input);
     void rectDown(const PointerInput& input);
@@ -153,6 +164,8 @@ private:
     std::optional<MoveGesture> move_;
     std::optional<MoveAxis> axisLock_;
     bool moveCopy_ = false;
+    PointSnapper snapper_; // after snap_, which it refers to
+    std::optional<SnapResult> indicator_;
 };
 
 } // namespace pf

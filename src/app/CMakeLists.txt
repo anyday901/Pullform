@@ -3,6 +3,7 @@
 # No OpenGL, GLFW or ImGui, so the tool workflow is tested headlessly with
 # synthetic pointer events.
 add_library(pullform_app_logic STATIC
+  tools/snapper.cpp
   tools/tool_controller.cpp
   viewport/camera.cpp
   viewport/mesh_cache.cpp)

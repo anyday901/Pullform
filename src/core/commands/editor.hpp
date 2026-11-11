@@ -114,6 +114,10 @@ public:
     /// selection, and marks the new project as saved.
     void resetDocument(Document document);
 
+    /// Increments each time resetDocument replaces the project, so tools can
+    /// drop state (such as inference references) that belongs to the old one.
+    [[nodiscard]] std::uint64_t projectGeneration() const { return projectGeneration_; }
+
     /// True when the document differs from the last saved (or opened) state.
     /// Undoing back to the saved state makes it clean again.
     [[nodiscard]] bool isDirty() const { return stateId_ != savedStateId_; }
@@ -145,6 +149,7 @@ private:
     std::uint64_t savedStateId_ = 0;
     std::uint64_t nextStateId_ = 1;
     std::uint64_t changeCount_ = 0;
+    std::uint64_t projectGeneration_ = 0;
 };
 
 } // namespace pf
