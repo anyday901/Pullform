@@ -9,6 +9,15 @@ include breaking changes, but project files will keep a migration path.
 
 ### Added
 
+- **Inference engine.** Besides endpoints, midpoints and axis guides, the pointer now
+  infers On Edge, On Face, Intersection (edge with edge, or with an inference line), Center
+  of a true arc or circle, Parallel and Perpendicular to an edge (magenta guides, with the
+  reference edge highlighted), lines along X, Y and Z from the start point, and lines from a
+  remembered point along an axis. A tooltip beside the pointer names the inference
+  ("Perpendicular to Edge"). Hold Shift to lock the current inference's line or plane; a
+  corner hovered while locked is projected onto it. The tape measure and dimension tools
+  infer from their first point, Move snaps its start and destination, the rectangle tool
+  also snaps to edges, and snapping now works on lines drawn into mesh groups.
 - **Multi-selection.** With the Select tool, Shift-click adds or removes an object,
   Ctrl-click (Cmd on macOS) adds one, clicking empty space clears, and Ctrl+A / Cmd+A
   (Edit > Select all) selects everything. Drag a box left to right to select objects

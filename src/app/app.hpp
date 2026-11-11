@@ -92,6 +92,7 @@ private:
     DragMode drag_ = DragMode::None;
     int dragButton_ = -1;
     Vec2 lastMouse_{-1.0};
+    bool lastShift_ = false; ///< Shift state last frame (Shift locks the inference)
     ClickCounter clicks_;
     int framesToDraw_ = 3;
     float scale_ = 0.0f;

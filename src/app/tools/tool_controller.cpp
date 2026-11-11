@@ -80,11 +80,14 @@ std::optional<SnapResult> ToolController::snapGround(const PointerInput& input) 
 
 SnapResult ToolController::snapPointer(const PointerInput& input) { return ctx_.snapPointer(input, current().groundSkip()); }
 
+std::string ToolController::snapTooltip() const {
+    if (!ctx_.indicator || ctx_.indicator->kind < SnapKind::OnFace || !current().showsSnapInHint()) return {};
+    return snapLabel(*ctx_.indicator);
+}
+
 std::string ToolController::hint() const {
     std::string text = current().hint();
-    if (ctx_.indicator && ctx_.indicator->kind >= SnapKind::OnFace && current().showsSnapInHint()) {
-        text = std::string("[") + snapKindName(ctx_.indicator->kind) + "] " + text;
-    }
+    if (const std::string tip = snapTooltip(); !tip.empty()) text = "[" + tip + "] " + text;
     return text;
 }
 

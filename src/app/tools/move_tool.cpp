@@ -21,7 +21,10 @@ bool MoveTool::key(ToolKey key) {
 
 void MoveTool::toggleAxisLock(MoveAxis axis) {
     pf::toggleAxisLock(axisLock_, axis);
-    if (gesture_ && gesture_->lastRay) updatePreview(*gesture_->lastRay);
+    if (gesture_ && gesture_->lastRay) {
+        ctx_.indicator.reset(); // the lock replaces any inferred point
+        updatePreview(*gesture_->lastRay, axisLock_ ? std::nullopt : gesture_->lastSnap);
+    }
     else if (gesture_) {
         if (const auto* p = std::get_if<MovePreview>(&editor().preview())) {
             MovePreview next = *p;
@@ -40,11 +43,33 @@ void MoveTool::toggleCopy() {
     }
 }
 
+std::optional<Vec3> MoveTool::snappedOffset(const PointerInput& input) {
+    if (!gesture_ || axisLock_ || !ctx_.snapper.active(input)) {
+        ctx_.indicator.reset();
+        return std::nullopt;
+    }
+    const auto res = ctx_.snapper.infer(input, InferOptions{gesture_->anchor, std::nullopt, gesture_->objectId, std::nullopt});
+    // A face point or the ground is the free move's job (it keeps the height).
+    if (!res || res->kind < SnapKind::Inference) {
+        ctx_.indicator.reset();
+        return std::nullopt;
+    }
+    ctx_.indicator = res;
+    Vec3 offset = res->point - gesture_->anchor;
+    if (res->kind == SnapKind::Axis && res->constraint && res->constraint->axis >= 0 && ctx_.snap.gridOn()) {
+        // Along an axis the object's corner still lands on the grid, as in a free move.
+        const Vec3 axis = res->constraint->direction;
+        const double start = glm::dot(gesture_->startTranslation, axis);
+        offset = axis * (snapValue(start + glm::dot(offset, axis), ctx_.snap.step) - start);
+    }
+    return offset;
+}
+
 void MoveTool::pointerDown(const PointerInput& input) {
     if (gesture_) {
         // Second click of click-move-click. The pointer may have moved in the
         // same frame before this click, so evaluate the clicked position first.
-        updatePreview(input.ray);
+        updatePreview(input.ray, snappedOffset(input));
         finish();
         return;
     }
@@ -65,7 +90,13 @@ void MoveTool::pointerDown(const PointerInput& input) {
     } else {
         editor().select(Selection{pick.objectId, pick.faceId});
     }
-    gesture_ = Gesture{pick.objectId, pick.point, o->transform.translation, input.screen, true, std::nullopt, std::move(ids)};
+    // Start from a corner, midpoint or edge point under the pointer when there
+    // is one, so the move can put exactly that point somewhere.
+    Vec3 anchor = pick.point;
+    if (ctx_.snapper.active(input)) {
+        if (const auto res = ctx_.snapper.infer(input); res && res->kind >= SnapKind::OnEdge) anchor = res->point;
+    }
+    gesture_ = Gesture{pick.objectId, anchor, o->transform.translation, input.screen, true, std::nullopt, std::nullopt, std::move(ids)};
     editor().notify(std::nullopt);
     editor().setPreview(preview(Vec3{0.0}, std::nullopt));
 }
@@ -89,7 +120,7 @@ void MoveTool::pointerUp(const PointerInput& input) {
     if (!gesture_ || !gesture_->pressed) return;
     gesture_->pressed = false;
     if (isDrag(gesture_->pressScreen, input.screen)) {
-        updatePreview(input.ray); // release position, not the last move event
+        updatePreview(input.ray, snappedOffset(input)); // release position, not the last move event
         finish();
     }
 }
@@ -119,11 +150,12 @@ std::optional<Vec3> MoveTool::offsetFor(const Ray& ray) const {
     return Vec3{snapped(start.x, d.x), snapped(start.y, d.y), 0.0};
 }
 
-void MoveTool::updatePreview(const Ray& ray) {
+void MoveTool::updatePreview(const Ray& ray, std::optional<Vec3> snapped) {
     if (!gesture_) return;
     gesture_->lastRay = ray;
+    gesture_->lastSnap = snapped;
     if (!editor().document().find(gesture_->objectId)) return;
-    auto offset = offsetFor(ray);
+    auto offset = !axisLock_ && snapped ? snapped : offsetFor(ray);
     if (!offset) {
         // The ray cannot be resolved under the current constraint (parallel to
         // the locked axis, or no forward hit on the horizontal plane). Never keep
@@ -146,7 +178,7 @@ void MoveTool::pointerMove(const PointerInput& input) {
         editor().setHover(pick ? std::optional<Selection>(Selection{pick->objectId, pick->faceId}) : std::nullopt);
         return;
     }
-    updatePreview(input.ray);
+    updatePreview(input.ray, snappedOffset(input));
 }
 
 void MoveTool::finish() {
@@ -193,6 +225,7 @@ bool MoveTool::commit(const std::vector<ObjectId>& ids, ObjectId primary, const 
     }
     if (ok) {
         gesture_.reset();
+        ctx_.indicator.reset();
         axisLock_.reset();
         copy_ = false;
         editor().cancelPreview();

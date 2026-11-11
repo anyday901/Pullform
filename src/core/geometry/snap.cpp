@@ -1,11 +1,13 @@
 #include "core/geometry/snap.hpp"
 
 #include "core/document/tolerance.hpp"
+#include "core/geometry/mesh.hpp"
 #include "core/geometry/solid.hpp"
 
 #include <glm/geometric.hpp>
 
 #include <algorithm>
+#include <map>
 #include <unordered_set>
 #include <utility>
 
@@ -32,6 +34,24 @@ int indexOf(std::vector<Vec3>& vertices, const Vec3& p) {
     }
     vertices.push_back(p);
     return static_cast<int>(vertices.size() - 1);
+}
+
+// Point of segment a-b closest to the line through `origin` along unit `dir`.
+// Nothing for a degenerate segment.
+std::optional<Vec3> closestOnSegment(const Vec3& a, const Vec3& b, const Vec3& origin, const Vec3& dir) {
+    const Vec3 ab = b - a;
+    const double len2 = glm::dot(ab, ab);
+    if (len2 <= 0.0) return std::nullopt;
+    const Vec3 w = a - origin;
+    const double bd = glm::dot(ab, dir);
+    const double denom = len2 - bd * bd; // |ab|^2 |dir|^2 - (ab.dir)^2
+    double u = 0.0;
+    if (denom > 1e-12 * len2) {
+        u = (bd * glm::dot(w, dir) - glm::dot(w, ab)) / denom;
+    } else {
+        u = 0.5; // parallel to the ray: every point is as close; take the middle
+    }
+    return a + ab * std::clamp(u, 0.0, 1.0);
 }
 
 // Running best candidate of SnapIndex::nearest.
@@ -88,15 +108,82 @@ const char* snapKindName(SnapKind kind) {
     switch (kind) {
     case None: return "";
     case Grid: return "Grid";
-    case OnFace: return "On face";
-    case Inference: return "Inference";
+    case OnFace: return "On Face";
+    case Inference: return "From Point";
+    case Axis: return "On Axis";
+    case Parallel: return "Parallel to Edge";
+    case Perpendicular: return "Perpendicular to Edge";
+    case OnEdge: return "On Edge";
+    case Intersection: return "Intersection";
+    case Center: return "Center";
     case Midpoint: return "Midpoint";
     case Endpoint: return "Endpoint";
     }
     return "";
 }
 
+std::string snapLabel(const SnapResult& snap) {
+    static constexpr const char* kAxisNames[] = {"On X Axis", "On Y Axis", "On Z Axis"};
+    std::string text = snapKindName(snap.kind);
+    const auto& c = snap.constraint;
+    // Axis lines name their axis; a remembered point names the axis it lines up on.
+    if (snap.kind == SnapKind::Axis && c && c->axis >= 0 && c->axis < 3) text = kAxisNames[c->axis];
+    if (snap.locked && !text.empty()) text += " (locked)";
+    return text;
+}
+
+Vec3 SnapEdge::direction() const {
+    const Vec3 d = b - a;
+    const double len = glm::length(d);
+    return len > tol::kLengthEpsilon ? d / len : Vec3{0.0};
+}
+
+namespace {
+
+// A mesh group: its own vertices and edges in world space, plus curve centers.
+SnapFeatures meshFeatures(const ProfileObject& object) {
+    SnapFeatures f;
+    const mesh::Mesh& m = *object.mesh;
+    std::map<std::uint32_t, int> index;
+    for (const auto& [id, v] : m.vertices()) {
+        index.emplace(id, static_cast<int>(f.vertices.size()));
+        f.vertices.push_back(localToWorld(object, v.position));
+    }
+    for (const auto& [id, e] : m.edges()) {
+        if (e.soft) continue; // hidden geometry neither draws nor snaps
+        const auto a = index.find(e.v0.value);
+        const auto b = index.find(e.v1.value);
+        if (a == index.end() || b == index.end() || a->second == b->second) continue;
+        f.edges.emplace_back(a->second, b->second);
+    }
+    for (const auto& [id, c] : m.curves()) f.curveCenters.push_back(localToWorld(object, c.center));
+    return f;
+}
+
+void computeBounds(SnapFeatures& f) {
+    if (f.vertices.empty() && f.curveCenters.empty()) return;
+    Vec3 lo = f.vertices.empty() ? f.curveCenters.front() : f.vertices.front();
+    Vec3 hi = lo;
+    for (const auto& v : f.vertices) {
+        lo = glm::min(lo, v);
+        hi = glm::max(hi, v);
+    }
+    for (const auto& v : f.curveCenters) {
+        lo = glm::min(lo, v);
+        hi = glm::max(hi, v);
+    }
+    f.center = (lo + hi) * 0.5;
+    f.radius = glm::length(hi - lo) * 0.5;
+}
+
+} // namespace
+
 SnapFeatures snapFeatures(const ProfileObject& object, std::optional<double> heightOverride) {
+    if (object.isMeshGroup()) {
+        SnapFeatures f = meshFeatures(object);
+        computeBounds(f);
+        return f;
+    }
     SnapFeatures f;
     for (const auto& face : buildFaces(object, heightOverride)) {
         const auto n = face.loop.size();
@@ -112,16 +199,7 @@ SnapFeatures snapFeatures(const ProfileObject& object, std::optional<double> hei
             if (!seen && a != b) f.edges.emplace_back(a, b);
         }
     }
-    if (!f.vertices.empty()) {
-        Vec3 lo = f.vertices.front();
-        Vec3 hi = lo;
-        for (const auto& v : f.vertices) {
-            lo = glm::min(lo, v);
-            hi = glm::max(hi, v);
-        }
-        f.center = (lo + hi) * 0.5;
-        f.radius = glm::length(hi - lo) * 0.5;
-    }
+    computeBounds(f);
     return f;
 }
 
@@ -168,9 +246,86 @@ std::optional<SnapResult> SnapIndex::nearest(const Ray& ray, double radiusPerDis
         for (std::size_t i = 0; i < f.edges.size(); ++i) {
             search.consider(SnapKind::Midpoint, id, static_cast<int>(i), f.midpoint(i));
         }
+        for (std::size_t i = 0; i < f.curveCenters.size(); ++i) {
+            search.consider(SnapKind::Center, id, static_cast<int>(i), f.curveCenters[i]);
+        }
     }
     if (!search.found) return std::nullopt;
-    return std::move(search.best);
+    SnapResult best = std::move(search.best);
+    if (best.kind == SnapKind::Midpoint && best.objectId) {
+        // A midpoint knows its edge: it can serve as a parallel reference.
+        const auto& f = entries_.at(*best.objectId).features;
+        const auto [a, b] = f.edges[static_cast<std::size_t>(best.feature)];
+        best.edge = SnapEdge{*best.objectId, best.feature, f.vertices[static_cast<std::size_t>(a)], f.vertices[static_cast<std::size_t>(b)]};
+    }
+    return best;
+}
+
+std::optional<SnapResult> SnapIndex::nearestEdge(const Ray& ray, double radiusPerDistance, std::optional<double> occluder,
+                                                 std::optional<ObjectId> exclude, std::optional<SnapResult>* second) const {
+    if (!(radiusPerDistance > 0.0)) return std::nullopt;
+    const Vec3 origin = ray.origin;
+    const Vec3 dir = glm::normalize(ray.direction);
+    struct Candidate {
+        double score = 0.0;
+        double depth = 0.0;
+        SnapResult result;
+    };
+    std::optional<Candidate> best;
+    std::optional<Candidate> next;
+    NearestSearch reach(ray, radiusPerDistance, occluder);
+    for (const auto& [id, entry] : entries_) {
+        if (exclude && *exclude == id) continue;
+        const auto& f = entry.features;
+        if (!reach.mayReach(f)) continue;
+        for (std::size_t i = 0; i < f.edges.size(); ++i) {
+            const Vec3& a = f.vertices[static_cast<std::size_t>(f.edges[i].first)];
+            const Vec3& b = f.vertices[static_cast<std::size_t>(f.edges[i].second)];
+            const auto p = closestOnSegment(a, b, origin, dir);
+            if (!p) continue;
+            const Vec3 w = *p - origin;
+            const double t = glm::dot(w, dir);
+            if (t <= 0.0) continue;
+            const double s = glm::length(w - dir * t) / t;
+            if (s > radiusPerDistance) continue;
+            if (occluder && t > *occluder + radiusPerDistance * t) continue;
+            Candidate c{s, t, SnapResult{*p, SnapKind::OnEdge, id, -1, *p, {}}};
+            c.result.edge = SnapEdge{id, static_cast<int>(i), a, b};
+            c.result.constraint = SnapConstraint{SnapConstraint::Type::Line, a, c.result.edge->direction(), SnapKind::OnEdge, -1, c.result.edge};
+            // Edges that look the same on screen go to the one nearest the eye.
+            const double slack = kSameOnScreen * radiusPerDistance;
+            const auto beats = [&](const std::optional<Candidate>& o) {
+                return !o || c.score < o->score - slack || (c.score <= o->score + slack && c.depth < o->depth);
+            };
+            if (beats(best)) {
+                next = std::move(best);
+                best = std::move(c);
+            } else if (beats(next)) {
+                next = std::move(c);
+            }
+        }
+    }
+    if (second) *second = next ? std::optional(next->result) : std::nullopt;
+    if (!best) return std::nullopt;
+    return best->result;
+}
+
+std::vector<SnapEdge> SnapIndex::edgesAt(const Vec3& point) const {
+    std::vector<SnapEdge> out;
+    for (const auto& [id, entry] : entries_) {
+        const auto& f = entry.features;
+        if (glm::length(point - f.center) > f.radius + tol::kWeldDistance) continue;
+        for (std::size_t i = 0; i < f.edges.size(); ++i) {
+            const Vec3& a = f.vertices[static_cast<std::size_t>(f.edges[i].first)];
+            const Vec3& b = f.vertices[static_cast<std::size_t>(f.edges[i].second)];
+            const Vec3 ab = b - a;
+            const double len2 = glm::dot(ab, ab);
+            if (len2 <= 0.0) continue;
+            const double u = std::clamp(glm::dot(point - a, ab) / len2, 0.0, 1.0);
+            if (glm::length(a + ab * u - point) <= tol::kWeldDistance) out.push_back(SnapEdge{id, static_cast<int>(i), a, b});
+        }
+    }
+    return out;
 }
 
 std::optional<SnapResult> SnapIndex::nearestHeight(const Vec3& axisPoint, double tolerance,
@@ -203,6 +358,7 @@ std::optional<Vec3> resolveSnapFeature(const Document& document, ObjectId id, Sn
     const auto i = static_cast<std::size_t>(feature);
     if (kind == SnapKind::Endpoint && i < f.vertices.size()) return f.vertices[i];
     if (kind == SnapKind::Midpoint && i < f.edges.size()) return f.midpoint(i);
+    if (kind == SnapKind::Center && i < f.curveCenters.size()) return f.curveCenters[i];
     return std::nullopt;
 }
 
