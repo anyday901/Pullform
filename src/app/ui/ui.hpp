@@ -11,7 +11,7 @@
 namespace pf {
 
 /// Commands the interface asks the application to perform.
-enum class UiAction { New, Open, Save, SaveAs, Quit, Undo, Redo, Delete, FitView, ResetView };
+enum class UiAction { New, Open, Save, SaveAs, Quit, Undo, Redo, Delete, Duplicate, FitView, ResetView };
 
 /// What the interface needs to know about the application each frame.
 struct UiContext {

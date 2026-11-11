@@ -71,6 +71,14 @@ public:
     void toggleAxisLock(MoveAxis axis);
     [[nodiscard]] const std::optional<MoveAxis>& axisLock() const { return axisLock_; }
 
+    /// Move copy mode (tap Ctrl, or Option on macOS). While on, committing a
+    /// move places a duplicate at the destination and leaves the original where
+    /// it is: one undo entry, and the copy becomes the selection. Like the axis
+    /// lock, it can be set before the first click and lasts until the move is
+    /// committed or the tool changes.
+    void toggleMoveCopy();
+    [[nodiscard]] bool moveCopy() const { return moveCopy_; }
+
     /// Exact move. A single length moves along the locked axis or, while a move
     /// is in progress without a lock, along the current pointer direction.
     /// "x, y, z" moves by that vector. Applies to the active gesture, or else to
@@ -79,6 +87,11 @@ public:
 
     /// Sets the total extrusion height of an object (properties panel).
     std::optional<std::string> setTotalHeight(ObjectId id, std::string_view height);
+
+    /// Duplicates the selected object (Edit > Duplicate). The copy is placed
+    /// beside the original along +X, one object width over, and becomes the
+    /// selection, so repeating it builds a row. One undo entry.
+    std::optional<std::string> duplicateSelection();
 
     /// Explanation when a face cannot be push/pulled in this milestone.
     static std::optional<std::string> pushableReason(const FaceId& face);
@@ -139,6 +152,7 @@ private:
     std::optional<PushGesture> push_;
     std::optional<MoveGesture> move_;
     std::optional<MoveAxis> axisLock_;
+    bool moveCopy_ = false;
 };
 
 } // namespace pf
