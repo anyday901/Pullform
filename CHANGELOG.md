@@ -9,6 +9,14 @@ include breaking changes, but project files will keep a migration path.
 
 ### Added
 
+- **Follow Me tool** (Tools > Follow Me, or the toolbar). Sweeps a profile face along a
+  path of edges, open or closed, or around a face's edge: select the path and click the
+  face, or click the face and then the path (an edge brings its whole arc, circle or run
+  of edges). Hovering previews the sweep. Corners are mitred, a closed loop removes the
+  profile face it ends up inside, a lathe profile touching the axis of a circle closes
+  into a solid with one face for its base and lip, and the edges round a circle or along
+  a profile arc are softened. The profile and the path can be in different groups; the
+  sweep joins the profile's group. The core gains `followMe` and `followMePath`.
 - **Freehand tool** (Tools > Freehand, or the toolbar). Press and drag to draw a curve; on
   release it is smoothed (within 3 screen pixels of the stroke) into a polyline of straight
   edges and committed as one undo entry. It draws on the horizontal plane through the press

@@ -4,6 +4,7 @@
 #include "app/tools/arc_tool.hpp"
 #include "app/tools/line_tool.hpp"
 #include "app/tools/circle_tool.hpp"
+#include "app/tools/follow_me_tool.hpp"
 #include "app/tools/freehand_tool.hpp"
 #include "app/tools/measure_tool.hpp"
 #include "app/tools/move_tool.hpp"
@@ -51,6 +52,7 @@ ToolController::ToolController(Editor& editor) : editor_(editor), snapper_(edito
     add<ArcTool>(Tool::Pie, ArcTool::Mode::Pie);
     add<ProtractorTool>(Tool::Protractor);
     add<FreehandTool>(Tool::Freehand);
+    add<FollowMeTool>(Tool::FollowMe);
     for ([[maybe_unused]] const auto& t : tools_) assert(t && "every Tool value needs a registered tool");
 }
 

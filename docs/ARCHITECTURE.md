@@ -418,6 +418,14 @@ resolved pick, screen position), so tests drive it with synthetic events and no 
   keys held at release decide. Soft edges are not drawn or picked; faces keep using them.
   There is no separate "hidden" edge flag (the file format has soft and smooth only), so
   hide and soften differ only in the smooth flag, which shading does not use yet.
+- Follow Me (`app/tools/follow_me_tool.*`): with edges or a face already selected, a
+  click on a face sweeps it along them; otherwise the first click picks the profile face
+  (`faceUnder`, which ignores a nearer edge) and the second the path (`followMePath`: an
+  edge brings its whole arc or circle, or its run of edges through vertices with two
+  edges; a face, its outer edge). Hovering shows a `FollowMePreview`: the path
+  highlighted and the profile's group as `followMe` would leave it, drawn in its place,
+  or the error in the hint. The profile and path may be in different groups; the sweep
+  goes into the profile's group. One commit, "Follow Me", selects that group.
 - Input ownership (`App::handleViewportInput`): Dear ImGui owns the pointer over panels,
   menus and popups (`WantCaptureMouse`); a drag that starts in the viewport belongs to the
   viewport until its button is released. Left button = active tool (or orbit with the

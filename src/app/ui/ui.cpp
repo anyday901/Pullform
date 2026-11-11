@@ -365,6 +365,7 @@ void Ui::menuBar(UiContext& ctx) {
             ImGui::EndMenu();
         }
         if (ImGui::MenuItem("Push/Pull", shortcuts::kPushPull, t == Tool::PushPull)) ctx.tools.setTool(Tool::PushPull);
+        if (ImGui::MenuItem("Follow Me", nullptr, t == Tool::FollowMe)) ctx.tools.setTool(Tool::FollowMe);
         if (ImGui::MenuItem("Move", shortcuts::kMove, t == Tool::Move)) ctx.tools.setTool(Tool::Move);
         if (ImGui::MenuItem("Rotate", shortcuts::kRotate, t == Tool::Rotate)) ctx.tools.setTool(Tool::Rotate);
         if (ImGui::MenuItem("Scale", shortcuts::kScale, t == Tool::Scale)) ctx.tools.setTool(Tool::Scale);
@@ -414,6 +415,8 @@ void Ui::toolbar(UiContext& ctx, float y, float height, float width) {
     if (toolButton("Polygon", t == Tool::Polygon, "Polygon (Shift+C)\nClick the center, then a corner, or type the radius.\nType 8s for 8 sides.")) ctx.tools.setTool(Tool::Polygon);
     ImGui::SameLine();
     if (toolButton("Push/Pull", t == Tool::PushPull, "Push/Pull (P)\nClick a rectangle, circle, polygon, a top cap or a drawn face and move, or type a distance.")) ctx.tools.setTool(Tool::PushPull);
+    ImGui::SameLine();
+    if (toolButton("Follow Me", t == Tool::FollowMe, "Follow Me\nSweep a profile face along a path: click the face, then an edge or a face for the path.\nOr select the path first, then click the face. A face's edge goes all the way round.")) ctx.tools.setTool(Tool::FollowMe);
     ImGui::SameLine();
     if (toolButton("Move", t == Tool::Move, "Move (M)\nClick an object and move it, or type a distance.\nX, Y, Z or the arrow keys lock an axis.\n" PF_COPY_KEY " (tap) places a copy instead.")) ctx.tools.setTool(Tool::Move);
     ImGui::SameLine();

@@ -149,7 +149,7 @@ with selection, not item 14).
 - [ ] **17. Offset tool (F).** Offset a face's boundary in or out by a typed distance,
       including concave shapes and faces with holes. *Depends on:* 4, 7. *Accept:* offset a
       wall's top face by 20 mm and push the ring up to make a coping.
-- [ ] **18. Follow Me.** Sweep a profile face along a selected path of edges (open or
+- [x] **18. Follow Me.** Sweep a profile face along a selected path of edges (open or
       closed), including around a face's perimeter. *Depends on:* 6, 10. *Accept:* a crown
       moulding profile swept around a rectangular room; a lathe-turned vase from a profile
       swept around a circle.
