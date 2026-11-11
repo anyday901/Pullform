@@ -6,6 +6,8 @@
 
 #include <glm/geometric.hpp>
 
+#include <algorithm>
+
 namespace pf {
 
 std::string_view toolName(Tool tool) {
