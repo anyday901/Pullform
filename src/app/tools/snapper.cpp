@@ -62,7 +62,9 @@ void PointSnapper::rememberEdge(const SnapEdge& e) {
     dropStaleReferences();
     std::erase(referenceEdges_, e);
     if (referenceEdges_.size() >= SnapSettings::kMaxReferenceEdges) referenceEdges_.resize(SnapSettings::kMaxReferenceEdges - 1);
-    referenceEdges_.insert(referenceEdges_.begin(), e);
+    // Most recent first (push and rotate, as remember() does for points).
+    referenceEdges_.push_back(e);
+    std::rotate(referenceEdges_.rbegin(), referenceEdges_.rbegin() + 1, referenceEdges_.rend());
 }
 
 void PointSnapper::remember(const SnapResult& hit) {
