@@ -9,7 +9,7 @@
 
 namespace pf {
 
-enum class Tool { Select, Rectangle, PushPull, Orbit };
+enum class Tool { Select, Rectangle, PushPull, Move, Orbit };
 
 std::string_view toolName(Tool tool);
 
@@ -45,8 +45,8 @@ public:
     [[nodiscard]] SnapSettings& snap() { return snap_; }
     [[nodiscard]] const SnapSettings& snap() const { return snap_; }
 
-    /// True while a gesture is in progress (first corner placed, push/pull started).
-    [[nodiscard]] bool active() const { return rect_.has_value() || push_.has_value(); }
+    /// True while a gesture is in progress (first corner placed, push/pull or move started).
+    [[nodiscard]] bool active() const { return rect_.has_value() || push_.has_value() || move_.has_value(); }
 
     /// Escape: cancels the active gesture. Returns whether anything was cancelled.
     bool cancel();
@@ -64,6 +64,18 @@ public:
     /// (for a planar face it equals the total height). Applies to the active
     /// gesture, or else to the selected object.
     std::optional<std::string> submitPushDistance(std::string_view distance);
+
+    /// Move axis lock (X, Y or Z key, or the arrow keys). Locking the axis that
+    /// is already locked releases it. The lock lasts until the move is
+    /// committed or the tool changes, so it can be set before the first click.
+    void toggleAxisLock(MoveAxis axis);
+    [[nodiscard]] const std::optional<MoveAxis>& axisLock() const { return axisLock_; }
+
+    /// Exact move. A single length moves along the locked axis or, while a move
+    /// is in progress without a lock, along the current pointer direction.
+    /// "x, y, z" moves by that vector. Applies to the active gesture, or else to
+    /// the selected object.
+    std::optional<std::string> submitMoveDistance(std::string_view distance);
 
     /// Sets the total extrusion height of an object (properties panel).
     std::optional<std::string> setTotalHeight(ObjectId id, std::string_view height);
@@ -89,6 +101,15 @@ private:
         bool pressed = false;
     };
 
+    struct MoveGesture {
+        ObjectId objectId;
+        Vec3 anchor{0.0};           ///< picked point the guide line starts from
+        Vec3 startTranslation{0.0}; ///< object translation when the gesture began
+        Vec2 pressScreen{0.0};
+        bool pressed = false;
+        std::optional<Ray> lastRay; ///< re-evaluates the preview when the axis lock changes
+    };
+
     [[nodiscard]] Vec3 snapPoint(const Vec3& p) const;
     [[nodiscard]] std::optional<Vec3> groundPoint(const PointerInput& input) const;
 
@@ -102,6 +123,13 @@ private:
     void pushFinish();
     void setPushPreview(double delta);
     bool commitHeight(ObjectId id, FaceKind face, double height);
+    void moveDown(const PointerInput& input);
+    void moveMove(const PointerInput& input);
+    void moveFinish();
+    void updateMovePreview(const Ray& ray);
+    [[nodiscard]] std::optional<Vec3> moveOffset(const Ray& ray) const;
+    /// Every move (mouse or typed) commits here: one undo entry.
+    bool commitMove(ObjectId id, const Vec3& offset);
     [[nodiscard]] std::string lastError(const char* fallback) const;
 
     Editor& editor_;
@@ -109,6 +137,8 @@ private:
     SnapSettings snap_;
     std::optional<RectGesture> rect_;
     std::optional<PushGesture> push_;
+    std::optional<MoveGesture> move_;
+    std::optional<MoveAxis> axisLock_;
 };
 
 } // namespace pf

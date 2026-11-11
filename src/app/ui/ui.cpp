@@ -4,6 +4,7 @@
 #include "core/commands/operations.hpp"
 #include "core/geometry/solid.hpp"
 
+#include <glm/geometric.hpp>
 #include <imgui.h>
 
 #include <algorithm>
@@ -24,7 +25,7 @@ constexpr const char* kLimitsText =
     "- Side and base faces cannot be pushed yet.\n"
     "- Heights must be positive: pushing below the base, holes and cutting are not supported.\n"
     "- Touching or overlapping objects stay separate (no merging).\n"
-    "- No move, rotate, scale or copy yet.";
+    "- Move works on whole objects; no rotate, scale or copy yet.";
 
 void tooltip(const char* text) {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", text);
@@ -96,6 +97,7 @@ std::string Ui::measurementLabel(const UiContext& ctx) const {
     switch (ctx.tools.tool()) {
     case Tool::Rectangle: return "Dimensions (width, depth)";
     case Tool::PushPull: return "Distance (incremental)";
+    case Tool::Move: return "Distance, or x, y, z";
     case Tool::Select: return "Total height";
     case Tool::Orbit: return "Measurements";
     }
@@ -110,6 +112,12 @@ std::string Ui::measurementLive(const UiContext& ctx) const {
     }
     if (const auto* p = std::get_if<PushPullPreview>(&ctx.editor.preview())) {
         return (p->delta >= 0 ? "+" : "") + formatLength(p->delta, u) + "   (total height " + formatLength(p->height, u) + ")";
+    }
+    if (const auto* m = std::get_if<MovePreview>(&ctx.editor.preview())) {
+        std::string text = formatLength(glm::length(m->offset), u);
+        if (m->axis) text += std::string(" along ") + axisName(*m->axis);
+        return text + "   (" + formatLength(m->offset.x, u, false) + ", " + formatLength(m->offset.y, u, false) + ", " +
+               formatLength(m->offset.z, u, false) + ")";
     }
     if (ctx.tools.tool() == Tool::Select && ctx.editor.selection()) {
         if (const auto* o = ctx.editor.document().find(ctx.editor.selection()->objectId); o && o->extrusion) {
@@ -126,6 +134,7 @@ void Ui::submitMeasurement(UiContext& ctx) {
     switch (ctx.tools.tool()) {
     case Tool::Rectangle: error = ctx.tools.submitRectangleSize(text); break;
     case Tool::PushPull: error = ctx.tools.submitPushDistance(text); break;
+    case Tool::Move: error = ctx.tools.submitMoveDistance(text); break;
     case Tool::Select:
         if (ctx.editor.selection()) error = ctx.tools.setTotalHeight(ctx.editor.selection()->objectId, text);
         else error = "Select an object first, or pick the Rectangle or Push/Pull tool.";
@@ -188,6 +197,7 @@ void Ui::menuBar(UiContext& ctx) {
         if (ImGui::MenuItem("Select", shortcuts::kSelect, t == Tool::Select)) ctx.tools.setTool(Tool::Select);
         if (ImGui::MenuItem("Rectangle", shortcuts::kRectangle, t == Tool::Rectangle)) ctx.tools.setTool(Tool::Rectangle);
         if (ImGui::MenuItem("Push/Pull", shortcuts::kPushPull, t == Tool::PushPull)) ctx.tools.setTool(Tool::PushPull);
+        if (ImGui::MenuItem("Move", shortcuts::kMove, t == Tool::Move)) ctx.tools.setTool(Tool::Move);
         if (ImGui::MenuItem("Orbit", shortcuts::kOrbit, t == Tool::Orbit)) ctx.tools.setTool(Tool::Orbit);
         ImGui::Separator();
         ImGui::MenuItem("Grid snap", shortcuts::kSnap, &ctx.tools.snap().enabled);
@@ -213,6 +223,8 @@ void Ui::toolbar(UiContext& ctx, float y, float height, float width) {
     if (toolButton("Rectangle", t == Tool::Rectangle, "Rectangle (R)\nClick two corners on the ground, or type width, depth.")) ctx.tools.setTool(Tool::Rectangle);
     ImGui::SameLine();
     if (toolButton("Push/Pull", t == Tool::PushPull, "Push/Pull (P)\nClick a rectangle or a top cap and move up, or type a distance.")) ctx.tools.setTool(Tool::PushPull);
+    ImGui::SameLine();
+    if (toolButton("Move", t == Tool::Move, "Move (M)\nClick an object and move it, or type a distance.\nX, Y, Z or the arrow keys lock an axis.")) ctx.tools.setTool(Tool::Move);
     ImGui::SameLine();
     if (toolButton("Orbit", t == Tool::Orbit, "Orbit (O)\nLeft-drag to orbit. Middle-drag always orbits; right-drag pans.")) ctx.tools.setTool(Tool::Orbit);
     ImGui::SameLine(0, 18);
@@ -280,6 +292,7 @@ void Ui::properties(UiContext& ctx, float x, float y, float width, float height)
             row("Target face", faceLabel(sel->face));
             row("Position X", formatLength(b.min.x, u));
             row("Position Y", formatLength(b.min.y, u));
+            if (b.min.z != 0.0) row("Position Z", formatLength(b.min.z, u)); // shown once an object is lifted
             row("Width (X)", formatLength(b.size().x, u));
             row("Depth (Y)", formatLength(b.size().y, u));
             ImGui::EndTable();
@@ -359,7 +372,7 @@ void Ui::bottomBar(UiContext& ctx, float y, float width, float height) {
     measureEditing_ = ImGui::IsItemActive();
     tooltip("Type here, or just start typing in the viewport.\nUnits: mm (default), cm, m, in or \", ft or '. "
             "Unitless values use the display unit.\nRectangle: width, depth. Push/Pull: distance from the current face. "
-            "Select: total height.");
+            "Move: distance along the locked axis or pointer direction, or x, y, z. Select: total height.");
     if (enter) submitMeasurement(ctx);
     if (!live.empty() && measure_[0] != '\0') {
         ImGui::SameLine();

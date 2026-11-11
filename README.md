@@ -115,6 +115,8 @@ tree, configure with `-DFETCHCONTENT_FULLY_DISCONNECTED=ON`.
 | Select tool | Space |
 | Rectangle tool | R |
 | Push/Pull tool | P |
+| Move tool | M |
+| Lock Move to an axis (again to release) | X / Y / Z, or Right / Left / Up arrow |
 | Orbit tool | O |
 | Fit view to model | F |
 | Toggle grid snap | G |
@@ -140,6 +142,10 @@ with an explanation.
 - Rectangle tool: `width, depth` (for example `2000, 1000`). With a first corner placed,
   the rectangle is drawn from it toward the pointer; otherwise from the origin.
 - Push/Pull tool: a distance *relative to the face's current position* (incremental).
+- Move tool: a distance along the locked axis (for example press X, type `500`, Enter), or
+  along the pointer's direction while a move is in progress; or `x, y, z` to move by that
+  vector (for example `500, 0, -250`). With no move in progress it applies to the selected
+  object.
 - Select tool / Properties panel **Total height**: the absolute height from the base.
 
 ## Project files

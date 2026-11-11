@@ -67,6 +67,30 @@ Expected<OpResult> setExtrusionHeight(const Document& doc, ObjectId id, double h
     return replaceObject(doc, std::move(changed));
 }
 
+std::optional<std::string> checkMove(const ProfileObject& object, const Vec3& offset) {
+    if (!std::isfinite(offset.x) || !std::isfinite(offset.y) || !std::isfinite(offset.z)) {
+        return "Move distance must be a finite number.";
+    }
+    if (const Vec3 t = object.transform.translation + offset;
+        std::abs(t.x) > tol::kMaxCoordinate || std::abs(t.y) > tol::kMaxCoordinate || std::abs(t.z) > tol::kMaxCoordinate) {
+        return "The move would place the object outside the supported range of +/-10 km.";
+    }
+    return std::nullopt;
+}
+
+Expected<OpResult> moveObject(const Document& doc, ObjectId id, const Vec3& offset) {
+    const auto* o = doc.find(id);
+    if (!o) return Error{"Object " + idString(id) + " no longer exists."};
+    if (auto e = checkMove(*o, offset)) return Error{*e};
+    if (std::abs(offset.x) < tol::kLengthEpsilon && std::abs(offset.y) < tol::kLengthEpsilon &&
+        std::abs(offset.z) < tol::kLengthEpsilon) {
+        return Error{"Move distance must not be zero."};
+    }
+    ProfileObject changed = *o;
+    changed.transform.translation += offset;
+    return replaceObject(doc, std::move(changed));
+}
+
 Expected<OpResult> deleteObject(const Document& doc, ObjectId id) {
     const auto index = doc.indexOf(id);
     if (index < 0) return Error{"Object " + idString(id) + " no longer exists."};

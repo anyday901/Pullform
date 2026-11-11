@@ -32,6 +32,10 @@ include breaking changes, but project files will keep a migration path.
 
 ### Added
 
+- Move tool (M). Drag an object, or click it and click the destination; X, Y, Z or the
+  Right, Left and Up arrows lock the move to an axis. Type a distance to move exactly along
+  the locked axis or the pointer direction, or `x, y, z` to move by a vector. Each move is
+  one undo entry.
 - `pullform_bench`, a hover benchmark for large models; results in `docs/VERIFICATION.md`.
 
 ## [0.2.0] - 2026-11-10

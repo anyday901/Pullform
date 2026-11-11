@@ -353,6 +353,7 @@ void App::handleViewportInput() {
     // Cursor feedback.
     if (drag_ == DragMode::Orbit || drag_ == DragMode::Pan) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
     else if (hovering && tools_.tool() == Tool::PushPull && editor_.hover()) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    else if (hovering && tools_.tool() == Tool::Move && (editor_.hover() || tools_.active())) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
     else if (hovering && tools_.tool() == Tool::Orbit) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
 }
 
@@ -381,6 +382,13 @@ void App::handleShortcuts() {
 
     // Typed measurements (SketchUp-style): digits start a value; once a value is
     // being typed, every printable character goes to it instead of shortcuts.
+    // Axis lock for Move. Arrow keys work even while typing a distance (they
+    // are not characters): Right = X, Left = Y, Up = Z, as in other modelers.
+    if (tools_.tool() == Tool::Move) {
+        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) tools_.toggleAxisLock(MoveAxis::X);
+        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) tools_.toggleAxisLock(MoveAxis::Y);
+        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, false)) tools_.toggleAxisLock(MoveAxis::Z);
+    }
     const bool typing = ui_.hasMeasurementText();
     for (int i = 0; i < io.InputQueueCharacters.Size; ++i) {
         const unsigned int c = io.InputQueueCharacters[i];
@@ -414,6 +422,12 @@ void App::handleShortcuts() {
     if (ImGui::IsKeyPressed(ImGuiKey_R, false)) tools_.setTool(Tool::Rectangle);
     if (ImGui::IsKeyPressed(ImGuiKey_P, false)) tools_.setTool(Tool::PushPull);
     if (ImGui::IsKeyPressed(ImGuiKey_O, false)) tools_.setTool(Tool::Orbit);
+    if (ImGui::IsKeyPressed(ImGuiKey_M, false)) tools_.setTool(Tool::Move);
+    if (tools_.tool() == Tool::Move) {
+        if (ImGui::IsKeyPressed(ImGuiKey_X, false)) tools_.toggleAxisLock(MoveAxis::X);
+        if (ImGui::IsKeyPressed(ImGuiKey_Y, false)) tools_.toggleAxisLock(MoveAxis::Y);
+        if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) tools_.toggleAxisLock(MoveAxis::Z);
+    }
     if (ImGui::IsKeyPressed(ImGuiKey_F, false)) fitView();
     if (ImGui::IsKeyPressed(ImGuiKey_G, false)) tools_.snap().enabled = !tools_.snap().enabled;
     // Backspace also erases typed values: right after the last character is
