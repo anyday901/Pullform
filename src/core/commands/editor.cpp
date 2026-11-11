@@ -11,6 +11,16 @@ std::optional<ObjectId> replacedObject(const Preview& preview) {
     return std::nullopt;
 }
 
+std::vector<ObjectId> replacedObjects(const Preview& preview) {
+    if (const auto* m = std::get_if<MovePreview>(&preview); m && !m->copy) {
+        return m->objectIds.empty() ? std::vector<ObjectId>{m->objectId} : m->objectIds;
+    }
+    if (const auto* r = std::get_if<RotatePreview>(&preview); r && !r->group.empty()) return r->objectIds;
+    if (const auto* s = std::get_if<ScalePreview>(&preview); s && !s->group.empty()) return s->objectIds;
+    if (const auto id = replacedObject(preview)) return {*id};
+    return {};
+}
+
 Vec3 axisVector(MoveAxis axis) {
     using enum MoveAxis;
     switch (axis) {

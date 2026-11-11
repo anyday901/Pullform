@@ -496,7 +496,7 @@ void ToolController::moveDown(const PointerInput& input) {
     editor_.select(Selection{pick.objectId, pick.faceId});
     move_ = MoveGesture{pick.objectId, pick.point, o->transform.translation, input.screen, true, std::nullopt};
     editor_.notify(std::nullopt);
-    editor_.setPreview(MovePreview{pick.objectId, pick.point, Vec3{0.0}, axisLock_, std::nullopt, moveCopy_});
+    editor_.setPreview(MovePreview{pick.objectId, pick.point, Vec3{0.0}, axisLock_, std::nullopt, moveCopy_, {}});
 }
 
 std::optional<Vec3> ToolController::moveOffset(const Ray& ray) const {
@@ -542,7 +542,7 @@ void ToolController::updateMovePreview(const Ray& ray) {
             offset = Vec3{last.x, last.y, 0.0};
         }
     }
-    editor_.setPreview(MovePreview{move_->objectId, move_->anchor, *offset, axisLock_, checkMove(*o, *offset), moveCopy_});
+    editor_.setPreview(MovePreview{move_->objectId, move_->anchor, *offset, axisLock_, checkMove(*o, *offset), moveCopy_, {}});
 }
 
 void ToolController::moveMove(const PointerInput& input) {

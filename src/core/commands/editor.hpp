@@ -4,6 +4,7 @@
 #include "core/commands/selection.hpp"
 #include "core/document/document.hpp"
 #include "core/geometry/rectangle.hpp"
+#include "core/geometry/region_select.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -68,6 +69,9 @@ struct MovePreview {
     std::optional<MoveAxis> axis;     ///< locked axis, if any
     std::optional<std::string> error; ///< why the current offset cannot be committed
     bool copy = false;                ///< committing places a copy; the original stays put
+    /// Every object that moves when several are selected (includes objectId);
+    /// empty when only objectId moves.
+    std::vector<ObjectId> objectIds;
 };
 
 /// Live rotate preview. `reference` and `current` are offsets from `pivot` in
@@ -82,6 +86,10 @@ struct RotatePreview {
     double angle = 0.0;            ///< radians, right-hand rule about `axis`
     std::optional<ProfileObject> result;
     std::optional<std::string> error;
+    /// With several objects selected: every rotated object (includes `result`).
+    std::vector<ProfileObject> group;
+    /// With several objects selected: every object turning (includes objectId).
+    std::vector<ObjectId> objectIds;
 };
 
 /// Live scale preview: uniform factor from the ratio of pointer distances to
@@ -94,15 +102,32 @@ struct ScalePreview {
     double factor = 1.0;
     std::optional<ProfileObject> result;
     std::optional<std::string> error;
+    /// With several objects selected: every scaled object (includes `result`).
+    std::vector<ProfileObject> group;
+    /// With several objects selected: every object scaling (includes objectId).
+    std::vector<ObjectId> objectIds;
+};
+
+/// Live window (left to right) or crossing (right to left) selection
+/// rectangle, in viewport pixels, with the objects it would select.
+struct SelectBoxPreview {
+    Vec2 start{0.0};
+    Vec2 end{0.0};
+    RegionMode mode = RegionMode::Window;
+    std::vector<ObjectId> found;
 };
 
 /// Transient feedback drawn by the viewport. Never part of the document or history.
 using Preview =
-    std::variant<std::monostate, RectanglePreview, PushPullPreview, MovePreview, RotatePreview, ScalePreview, MeasurePreview>;
+    std::variant<std::monostate, RectanglePreview, PushPullPreview, MovePreview, RotatePreview, ScalePreview, MeasurePreview,
+                 SelectBoxPreview>;
 
 /// The object a preview draws in place of the document's version (push/pull,
 /// rotate and scale), if any. The viewport hides the original while it is set.
 std::optional<ObjectId> replacedObject(const Preview& preview);
+/// Every object a preview draws in place of the document's version: a
+/// multi-object move (not a copy), rotate or scale hides all of them.
+std::vector<ObjectId> replacedObjects(const Preview& preview);
 
 /// The editing session: the current document, selection, transient preview and
 /// snapshot-based undo/redo.

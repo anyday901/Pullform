@@ -290,6 +290,7 @@ void App::frame() {
     updateTitle();
     // Labels after input, so they match this frame's preview and document.
     ui_.drawLabels(viewport_->labels(editor_));
+    ui_.drawSelectBox(editor_, viewport_->origin());
 
     ImGui::Render();
     glViewport(0, 0, fbw, fbh);
@@ -386,6 +387,7 @@ void App::handleShortcuts() {
     if (chord(ImGuiMod_Ctrl | ImGuiKey_S)) return void(save());
     if (chord(ImGuiMod_Ctrl | ImGuiKey_Q)) return requestPending(Pending::Quit);
     if (chord(ImGuiMod_Ctrl | ImGuiKey_D)) return duplicateSelection();
+    if (chord(ImGuiMod_Ctrl | ImGuiKey_A)) return selectAllObjects();
     if (io.KeyCtrl || io.KeySuper || io.KeyAlt) return;
 
     // Typed measurements (SketchUp-style): digits start a value; once a value is
@@ -466,6 +468,7 @@ void App::handleActions() {
         case UiAction::Redo: tools_.cancel(); editor_.redo(); break;
         case UiAction::Delete: deleteSelection(); break;
         case UiAction::Duplicate: duplicateSelection(); break;
+        case UiAction::SelectAll: selectAllObjects(); break;
         case UiAction::FitView: fitView(); break;
         case UiAction::ResetView: viewport_->camera().reset(); onActivity(); break;
         }
@@ -571,11 +574,17 @@ bool App::writeTo(const std::filesystem::path& path) {
 }
 
 void App::deleteSelection() {
-    const auto sel = editor_.selection();
-    if (!sel) return;
+    const std::vector<ObjectId> ids = editor_.selectedObjects();
+    if (ids.empty()) return;
     tools_.cancel();
-    const ObjectId id = sel->objectId;
-    editor_.commit("Delete " + idString(id), [id](const Document& d) { return deleteObject(d, id); });
+    const std::string label = ids.size() == 1 ? "Delete " + idString(ids.front()) : "Delete " + std::to_string(ids.size()) + " objects";
+    editor_.commit(label, [ids](const Document& d) { return deleteObjects(d, ids); });
+}
+
+void App::selectAllObjects() {
+    tools_.cancel();
+    editor_.setSelection(selectAll(editor_.document()));
+    onActivity();
 }
 
 // Move copy mode: tapping the copy modifier on its own (Ctrl, or Option on

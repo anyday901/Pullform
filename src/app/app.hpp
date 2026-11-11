@@ -62,6 +62,7 @@ private:
     bool saveAs(Pending then = Pending::None);
     bool writeTo(const std::filesystem::path& path);
     void deleteSelection();
+    void selectAllObjects();
     void duplicateSelection();
     void handleMoveCopyTap();
     void fitView();

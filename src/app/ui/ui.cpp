@@ -6,6 +6,7 @@
 #include "core/geometry/measure.hpp"
 #include "core/geometry/solid.hpp"
 
+#include <glm/common.hpp>
 #include <glm/geometric.hpp>
 #include <imgui.h>
 
@@ -94,6 +95,37 @@ void Ui::drawLabels(const std::vector<ViewportLabel>& labels) {
         dl->AddRect(min, max, live ? IM_COL32(242, 115, 20, 255) : IM_COL32(51, 61, 82, 200), 3.0f);
         dl->AddText(ImVec2(min.x + pad.x, min.y + pad.y), IM_COL32(30, 34, 40, 255), label.text.c_str());
     }
+}
+
+void Ui::drawSelectBox(const Editor& editor, const Vec2& origin) {
+    const auto* box = std::get_if<SelectBoxPreview>(&editor.preview());
+    if (!box) return;
+    const Vec2 lo = glm::min(box->start, box->end) + origin;
+    const Vec2 hi = glm::max(box->start, box->end) + origin;
+    const ImVec2 min(static_cast<float>(lo.x), static_cast<float>(lo.y));
+    const ImVec2 max(static_cast<float>(hi.x), static_cast<float>(hi.y));
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    if (box->mode == RegionMode::Window) {
+        dl->AddRectFilled(min, max, IM_COL32(40, 110, 240, 40));
+        dl->AddRect(min, max, IM_COL32(40, 110, 240, 230));
+        return;
+    }
+    dl->AddRectFilled(min, max, IM_COL32(40, 170, 80, 40));
+    const ImU32 line = IM_COL32(30, 140, 60, 230);
+    const float dash = 6.0f * ImGui::GetFontSize() / 15.0f;
+    const auto dashed = [&](ImVec2 a, ImVec2 b) {
+        const float len = std::hypot(b.x - a.x, b.y - a.y);
+        if (len <= 0.0f) return;
+        const ImVec2 d((b.x - a.x) / len, (b.y - a.y) / len);
+        for (float t = 0.0f; t < len; t += 2.0f * dash) {
+            const float e = std::min(t + dash, len);
+            dl->AddLine(ImVec2(a.x + d.x * t, a.y + d.y * t), ImVec2(a.x + d.x * e, a.y + d.y * e), line);
+        }
+    };
+    dashed(min, ImVec2(max.x, min.y));
+    dashed(ImVec2(max.x, min.y), max);
+    dashed(max, ImVec2(min.x, max.y));
+    dashed(ImVec2(min.x, max.y), min);
 }
 
 std::vector<UiAction> Ui::takeActions() { return std::exchange(actions_, {}); }
@@ -244,6 +276,9 @@ void Ui::menuBar(UiContext& ctx) {
         ImGui::Separator();
         if (ImGui::MenuItem("Duplicate", shortcuts::kDuplicate, false, ctx.editor.selection().has_value())) action(UiAction::Duplicate);
         if (ImGui::MenuItem("Delete", shortcuts::kDelete, false, ctx.editor.selection().has_value())) action(UiAction::Delete);
+        if (ImGui::MenuItem("Select all", shortcuts::kSelectAll, false, !ctx.editor.document().objects.empty())) {
+            action(UiAction::SelectAll);
+        }
         if (ImGui::MenuItem("Clear selection", "Esc", false, ctx.editor.selection().has_value())) ctx.editor.select(std::nullopt);
         ImGui::EndMenu();
     }
@@ -317,12 +352,12 @@ void Ui::toolbar(UiContext& ctx, float y, float height, float width) {
     ImGui::BeginDisabled(!ctx.editor.selection());
     if (ImGui::Button("Duplicate")) action(UiAction::Duplicate);
     ImGui::EndDisabled();
-    tooltip((std::string("Copy the selected object beside it (") + shortcuts::kDuplicate + ")").c_str());
+    tooltip((std::string("Copy the selected objects beside them (") + shortcuts::kDuplicate + ")").c_str());
     ImGui::SameLine();
     ImGui::BeginDisabled(!ctx.editor.selection());
     if (ImGui::Button("Delete")) action(UiAction::Delete);
     ImGui::EndDisabled();
-    tooltip("Delete the selected object (Delete)");
+    tooltip("Delete the selected objects (Delete)");
     ImGui::SameLine(0, 18);
     ImGui::Checkbox("Grid snap", &ctx.tools.snap().enabled);
     tooltip("Snap rectangle corners and push/pull heights to the grid increment (G)");
@@ -353,9 +388,44 @@ void Ui::properties(UiContext& ctx, float x, float y, float width, float height)
     const auto& sel = ctx.editor.selection();
     const ProfileObject* o = sel ? doc.find(sel->objectId) : nullptr;
 
-    if (!o) {
+    const auto& selected = ctx.editor.selectedObjects();
+    if (selected.size() > 1) {
+        Bounds b;
+        for (const ObjectId id : selected) {
+            if (const auto* each = doc.find(id)) b.extend(objectBounds(*each));
+        }
+        ImGui::Text("%zu objects selected", selected.size());
+        if (ImGui::BeginTable("##multi", 2, ImGuiTableFlags_SizingStretchProp)) {
+            const auto row = [](const char* k, const std::string& v) {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TextColored(kMutedColor, "%s", k);
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted(v.c_str());
+            };
+            const Vec3 size = b.size();
+            row("Position X", formatLength(b.min.x, u));
+            row("Position Y", formatLength(b.min.y, u));
+            if (b.min.z != 0.0) row("Position Z", formatLength(b.min.z, u));
+            row("Overall width", formatLength(size.x, u));
+            row("Overall depth", formatLength(size.y, u));
+            row("Overall height", formatLength(size.z, u));
+            ImGui::EndTable();
+        }
+        ImGui::TextWrapped("Move, Rotate, Scale, Duplicate and Delete act on all of them. Shift-click an object to "
+                           "remove it from the selection.");
+        heightEditing_ = false;
+        heightEdited_ = false;
+        ImGui::Spacing();
+        if (ImGui::Button("Duplicate objects")) action(UiAction::Duplicate);
+        tooltip((std::string("Copies every selected object, placed beside the group (") + shortcuts::kDuplicate + ").").c_str());
+        ImGui::SameLine();
+        if (ImGui::Button("Delete objects")) action(UiAction::Delete);
+        tooltip("Deletes every selected object (Delete).");
+    } else if (!o) {
         ImGui::TextColored(kMutedColor, "Nothing selected");
-        ImGui::TextWrapped("Pick the Select tool (Space) and click an object, or draw a rectangle (R).");
+        ImGui::TextWrapped("Pick the Select tool (Space) and click an object, or drag a box around several, or draw a "
+                           "rectangle (R).");
         heightEditing_ = false;
         heightEdited_ = false;
     } else {
