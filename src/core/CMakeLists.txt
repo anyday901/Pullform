@@ -8,6 +8,7 @@ add_library(pullform_core STATIC
   document/project_file.cpp
   geometry/rectangle.cpp
   geometry/solid.cpp
+  geometry/mesh.cpp
   geometry/pick.cpp
   geometry/snap.cpp
   geometry/measure.cpp
