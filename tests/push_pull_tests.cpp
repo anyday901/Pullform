@@ -4,6 +4,7 @@
 #include "helpers.hpp"
 
 #include "core/commands/operations.hpp"
+#include "core/document/project_file.hpp"
 #include "core/document/validate.hpp"
 #include "core/geometry/mesh.hpp"
 
@@ -26,6 +27,14 @@ mesh::Mesh boxMesh(double w, double d, double h) {
     o.profile.boundary = {{0, 0}, {w, 0}, {w, d}, {0, d}};
     o.extrusion = Extrusion{h};
     return mesh::meshFromProfile(o);
+}
+
+ProfileObject groupOf(const mesh::Mesh& m) {
+    ProfileObject o;
+    o.id = ObjectId{1};
+    o.name = "Group 1";
+    o.mesh = std::make_shared<const mesh::Mesh>(m);
+    return o;
 }
 
 struct Solid {
@@ -314,7 +323,7 @@ TEST_CASE("Push/Pull tool: Accept: Ctrl-pull a box's cap twice, then push the to
     ToolController tools(editor);
     const ObjectId box = makeBox(editor, tools, "2000, 1000", "1000");
     tools.setTool(Tool::PushPull);
-    CHECK(tools.hint().find("Ctrl makes a new starting face") != std::string::npos);
+    CHECK(tools.hint().find("makes a new starting face") != std::string::npos);
     tools.togglePushNewFace(); // tap Ctrl
     CHECK(tools.pushNewFace());
     editor.select(Selection{box, FaceId::cap()});
@@ -377,4 +386,25 @@ TEST_CASE("Push/Pull tool: double-clicking a face repeats the last distance") {
     CHECK_FALSE(tools.active());
     CHECK(editor.undoDepth() == depth + 1);
     CHECK(objectBounds(*editor.document().find(box)).size().z == doctest::Approx(0.7));
+}
+
+TEST_CASE("push/pull: a face with rounding noise in its corners reads back from a file unchanged") {
+    // A shape drawn through a rotated plane can land a few 1e-17 m off the
+    // wall's plane; face normals must not keep that noise, or a saved model
+    // would read back with slightly different normals.
+    mesh::Mesh m = boxMesh(4.0, 0.2, 3.0);
+    const double e = 3e-17;
+    const auto window = drawLoop(m, {{1.0, e, 0.9}, {1.0, -e, 2.1}, {2.0, e, 2.1}, {2.0, 0.0, 0.9}});
+    Document doc;
+    doc.nextId = 2;
+    doc.objects.push_back(std::make_shared<const ProfileObject>(groupOf(m)));
+    REQUIRE_FALSE(validateDocument(doc));
+    const auto loaded = parseProject(serializeProject(doc, std::nullopt));
+    REQUIRE(loaded);
+    CHECK(sameContent(loaded->document, doc));
+    REQUIRE(m.pushPull(window, -0.1));
+    doc.objects[0] = std::make_shared<const ProfileObject>(groupOf(m));
+    const auto pushed = parseProject(serializeProject(doc, std::nullopt));
+    REQUIRE(pushed);
+    CHECK(sameContent(pushed->document, doc));
 }

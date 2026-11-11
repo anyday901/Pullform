@@ -86,8 +86,17 @@ Vec3 loopNormal(const std::vector<Vec3>& loop) {
         n.y += (a.z - b.z) * (a.x + b.x);
         n.z += (a.x - b.x) * (a.y + b.y);
     }
-    const double len = glm::length(n);
-    return len > 0.0 ? n / len : Vec3{0.0};
+    double len = glm::length(n);
+    if (!(len > 0.0)) return Vec3{0.0};
+    n /= len;
+    // Components within 1e-12 of zero are rounding noise (a face along an axis
+    // drawn through a rotated plane); dropping them makes the normal exact, the
+    // same here as when a file is read, whatever the compiler fused.
+    for (int i = 0; i < 3; ++i) {
+        if (std::abs(n[i]) < 1e-12) n[i] = 0.0;
+    }
+    len = glm::length(n);
+    return n / len;
 }
 
 double signedArea(const std::vector<Vec3>& loop, const Vec3& normal) {
