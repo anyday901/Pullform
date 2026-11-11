@@ -163,6 +163,14 @@ public:
     /// hole in it plus an inner face. Returns nothing when a and b weld together.
     std::optional<AddEdgeResult> addEdge(const Vec3& a, const Vec3& b);
 
+    /// Draws a curve as `curve.segments` straight edges through `points`
+    /// (segments + 1 positions along it, ends included) with addEdge, then
+    /// records `curve` (its edges filled in, in order) and tags those edges.
+    /// Faces close and split exactly as for the same edges drawn one by one.
+    /// Returns the drawn edges in order and the faces made, or nothing when
+    /// the points do not give at least one edge.
+    std::optional<AddEdgeResult> addCurve(Curve curve, const std::vector<Vec3>& points, CurveId* id = nullptr);
+
     /// Erases an edge. Two coplanar faces on either side merge into one (and a
     /// coplanar inner face merges into the face it is a hole of); any other face
     /// that used the edge is removed. Vertices left without edges are removed.

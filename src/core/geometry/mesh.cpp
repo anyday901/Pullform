@@ -306,6 +306,64 @@ VertexId Mesh::weldVertex(const Vec3& p) {
     return appendVertex(p);
 }
 
+std::optional<AddEdgeResult> Mesh::addCurve(Curve curve, const std::vector<Vec3>& points, CurveId* id) {
+    if (points.size() < 2) return std::nullopt;
+    std::set<std::uint32_t> facesBefore;
+    for (const auto& [fid, f] : faces_) facesBefore.insert(fid);
+    std::set<std::uint32_t> drawn;
+    for (std::size_t i = 0; i + 1 < points.size(); ++i) {
+        const auto r = addEdge(points[i], points[i + 1]);
+        if (!r) continue;
+        for (const EdgeId e : r->edges) drawn.insert(e.value);
+    }
+    if (drawn.empty()) return std::nullopt;
+
+    // Walk the drawn pieces from the first point, so the curve's edges are in
+    // order even when a later segment split an earlier one.
+    AddEdgeResult result;
+    std::optional<VertexId> at = findVertex(points.front());
+    std::set<std::uint32_t> left;
+    for (const auto e : drawn) {
+        if (edges_.contains(e)) left.insert(e);
+    }
+    while (at && !left.empty()) {
+        std::optional<std::uint32_t> next;
+        for (const auto e : left) {
+            const Edge& edge = edges_.at(e);
+            if (edge.v0 == *at || edge.v1 == *at) {
+                next = e;
+                break;
+            }
+        }
+        if (!next) break;
+        const Edge& edge = edges_.at(*next);
+        at = edge.v0 == *at ? edge.v1 : edge.v0;
+        result.edges.push_back(EdgeId{*next});
+        left.erase(*next);
+    }
+    for (const auto& [fid, f] : faces_) {
+        if (!facesBefore.contains(fid)) result.createdFaces.push_back(FaceId{fid});
+    }
+    for (const auto fid : facesBefore) {
+        if (!faces_.contains(fid)) result.removedFaces.push_back(FaceId{fid});
+    }
+
+    // Record the curve only over a clean chain of new, untagged edges (a curve
+    // drawn over an existing curve leaves both as they were).
+    const bool clean = left.empty() && std::ranges::none_of(result.edges, [this](EdgeId e) {
+        return edges_.at(e.value).curve.has_value();
+    });
+    if (clean) {
+        const CurveId cid{nextCurve_};
+        curve.edges = result.edges;
+        curve.segments = static_cast<int>(result.edges.size());
+        insertCurve(cid, curve);
+        for (const EdgeId e : result.edges) edges_.at(e.value).curve = cid;
+        if (id) *id = cid;
+    }
+    return result;
+}
+
 std::optional<AddEdgeResult> Mesh::addEdge(const Vec3& a, const Vec3& b) {
     if (glm::length(b - a) <= tol::kWeldDistance) return std::nullopt;
     const VertexId va = weldVertex(a);
