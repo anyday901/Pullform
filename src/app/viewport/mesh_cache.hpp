@@ -2,7 +2,9 @@
 
 #include "app/viewport/renderer.hpp"
 #include "core/document/document.hpp"
+#include "core/geometry/element_pick.hpp"
 #include "core/geometry/pick.hpp"
+#include "core/geometry/topology.hpp"
 
 #include <cstddef>
 #include <map>
@@ -25,6 +27,7 @@ public:
     struct Entry {
         ObjectPtr source; ///< the document entry the mesh was built from
         MeshData mesh;
+        ElementTopology topology; ///< vertices, edges and faces for element picking and drawing
         MeshHandle handle = kNoMesh;
     };
 
@@ -42,6 +45,12 @@ public:
 
     /// Nearest hit of `ray` against every cached mesh.
     [[nodiscard]] std::optional<PickHit> pick(const Ray& ray) const;
+
+    /// Vertex, edge or face under the pointer across every cached object (see pickElement).
+    [[nodiscard]] std::optional<ElementHit> pickElement(const Ray& ray, const ElementPickOptions& options) const;
+
+    /// The cached entry for an object, if any.
+    [[nodiscard]] const Entry* find(ObjectId id) const;
 
     [[nodiscard]] const std::map<ObjectId, Entry>& entries() const { return entries_; }
     [[nodiscard]] std::size_t size() const { return entries_.size(); }

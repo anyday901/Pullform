@@ -252,7 +252,7 @@ void App::frame() {
 
     // A key that closes a popup this frame must not also act as a shortcut.
     const bool popupWasOpen = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
-    UiContext ctx{editor_, tools_, projectName(), editor_.isDirty(), viewport_->gridStep()};
+    UiContext ctx{editor_, tools_, projectName(), editor_.isDirty(), viewport_->gridStep(), &viewport_->profileEdges()};
     const UiRect rect = ui_.draw(ctx);
     const ImGuiIO& io = ImGui::GetIO();
     int fbw = 0, fbh = 0, ww = 0, wh = 0;
@@ -321,7 +321,9 @@ void App::handleViewportInput() {
                 drag_ = DragMode::Orbit;
             } else {
                 drag_ = DragMode::Tool;
-                tools_.pointerDown(viewport_->pointerAt(mouse, editor_.document()));
+                PointerInput press = viewport_->pointerAt(mouse, editor_.document());
+                press.clicks = clicks_.click(ImGui::GetTime(), mouse); // double/triple click in the Select tool
+                tools_.pointerDown(press);
             }
         } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Middle)) {
             dragButton_ = ImGuiMouseButton_Middle;
@@ -393,15 +395,9 @@ void App::handleShortcuts() {
     // Axis lock for Move and the Rotate axis. Arrow keys work even while typing
     // a distance or angle (they are not characters): Right = X, Left = Y, Up = Z,
     // as in other modelers.
-    if (tools_.tool() == Tool::Move) {
-        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) tools_.toggleAxisLock(MoveAxis::X);
-        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) tools_.toggleAxisLock(MoveAxis::Y);
-        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, false)) tools_.toggleAxisLock(MoveAxis::Z);
-    } else if (tools_.tool() == Tool::Rotate) {
-        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) tools_.setRotateAxis(MoveAxis::X);
-        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) tools_.setRotateAxis(MoveAxis::Y);
-        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, false)) tools_.setRotateAxis(MoveAxis::Z);
-    }
+    if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) tools_.key(ToolKey::ArrowRight);
+    if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) tools_.key(ToolKey::ArrowLeft);
+    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, false)) tools_.key(ToolKey::ArrowUp);
     const bool typing = ui_.hasMeasurementText();
     for (int i = 0; i < io.InputQueueCharacters.Size; ++i) {
         const unsigned int c = io.InputQueueCharacters[i];
@@ -415,7 +411,7 @@ void App::handleShortcuts() {
     if (ui_.hasMeasurementText()) {
         backspaceGuard_.noteTyping(ImGui::GetTime());
         if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter)) {
-            UiContext ctx{editor_, tools_, projectName(), editor_.isDirty(), viewport_->gridStep()};
+            UiContext ctx{editor_, tools_, projectName(), editor_.isDirty(), viewport_->gridStep(), &viewport_->profileEdges()};
             ui_.submitMeasurement(ctx);
         } else if (ImGui::IsKeyPressed(ImGuiKey_Backspace)) {
             ui_.eraseMeasurementChar();
@@ -438,11 +434,9 @@ void App::handleShortcuts() {
     if (ImGui::IsKeyPressed(ImGuiKey_S, false)) tools_.setTool(Tool::Scale);
     if (ImGui::IsKeyPressed(ImGuiKey_O, false)) tools_.setTool(Tool::Orbit);
     if (ImGui::IsKeyPressed(ImGuiKey_M, false)) tools_.setTool(Tool::Move);
-    if (tools_.tool() == Tool::Move) {
-        if (ImGui::IsKeyPressed(ImGuiKey_X, false)) tools_.toggleAxisLock(MoveAxis::X);
-        if (ImGui::IsKeyPressed(ImGuiKey_Y, false)) tools_.toggleAxisLock(MoveAxis::Y);
-        if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) tools_.toggleAxisLock(MoveAxis::Z);
-    }
+    if (ImGui::IsKeyPressed(ImGuiKey_X, false)) tools_.key(ToolKey::X);
+    if (ImGui::IsKeyPressed(ImGuiKey_Y, false)) tools_.key(ToolKey::Y);
+    if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) tools_.key(ToolKey::Z);
     if (ImGui::IsKeyPressed(ImGuiKey_T, false)) tools_.setTool(Tool::TapeMeasure);
     if (ImGui::IsKeyPressed(ImGuiKey_D, false)) tools_.setTool(Tool::Dimension);
     if (ImGui::IsKeyPressed(ImGuiKey_F, false)) fitView();

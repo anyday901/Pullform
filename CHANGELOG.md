@@ -22,6 +22,12 @@ include breaking changes, but project files will keep a migration path.
   (corner i is vertex i + 1), so dimensions stay attached. Version 1 and 2 files open
   through a migration and look exactly as before; saving writes version 3, which Pullform
   0.2.0 and earlier cannot open.
+- **Edges and faces you can pick:** the Select tool highlights the vertex, edge or face under
+  the pointer (hidden edges are never picked). Click selects that edge or face, double-click
+  a face with its edges, triple-click everything connected. Selected edges draw wide and
+  blue; Move, Rotate, Scale, Duplicate and Delete act on the objects they belong to.
+- **Profile edges** (View > Profile edges): outline and silhouette edges drawn thicker.
+
 - **Duplicate** (Edit > Duplicate, Ctrl+D / Cmd+D, or the Duplicate buttons): copies the
   selected object with a new stable ID and places it beside the original along +X. The copy
   becomes the selection, so repeating it builds a row. Editing either object leaves the
@@ -30,6 +36,11 @@ include breaking changes, but project files will keep a migration path.
   mode, before the first click or in the middle of a move. Committing then places a
   duplicate at the destination (dragged or typed, with axis locks) and leaves the original
   where it was, as one undo entry. Tap again to go back to a plain move.
+
+### Changed
+
+- Internal: each tool is now its own class behind a small interface (`app/tools/tool.hpp`),
+  with snapping, axis locks and numeric entry in shared helpers. No behavior change.
 
 ### Fixed
 

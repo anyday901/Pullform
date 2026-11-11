@@ -46,6 +46,14 @@ public:
     /// Grid spacing currently drawn (meters), for the status bar.
     [[nodiscard]] double gridStep() const { return gridStep_; }
 
+    /// "Profiles" edge style: outline (silhouette and border) edges drawn
+    /// thicker than the other edges, as in hand drawing. Off by default.
+    [[nodiscard]] bool& profileEdges() { return profileEdges_; }
+    [[nodiscard]] bool profileEdges() const { return profileEdges_; }
+
+    static constexpr float kProfileWidthPx = 2.5f;   ///< profile edge width
+    static constexpr float kHighlightWidthPx = 3.0f; ///< hovered and selected edge width
+
 private:
     using CachedMesh = MeshCache::Entry;
 
@@ -58,6 +66,10 @@ private:
                          const glm::vec4& color) const;
     [[nodiscard]] std::optional<Vec2> toWindow(const Vec3& world) const;
     void drawFaceOverlay(const CachedMesh& cached, const FaceId& face, const glm::vec4& color);
+    /// Hovered and selected vertices, edges and faces (Select tool).
+    void drawElements(const Editor& editor, std::optional<ObjectId> previewed, std::vector<LineSegment>& onTop);
+    /// A small screen-facing square around a vertex.
+    void appendVertexMarker(std::vector<LineSegment>& lines, const Vec3& p, double pixels, const glm::vec4& color) const;
     /// Draws a rotate/scale preview object (or the original in red when the
     /// current value is invalid). Uses previewHandle_.
     void drawTransformResult(const std::optional<ProfileObject>& result, bool error, const ProfileObject* original,
@@ -72,6 +84,7 @@ private:
     Vec2 framebufferScale_{1.0};
     int framebufferHeight_ = 1;
     double gridStep_ = 0.1;
+    bool profileEdges_ = false;
 };
 
 } // namespace pf

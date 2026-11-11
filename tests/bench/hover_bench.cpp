@@ -90,6 +90,12 @@ int main(int argc, char** argv) {
         gSink = gSink + (cache.pick(ray) ? 1u : 0u);
     });
     std::printf("  hover total (sync + ray cast)          %10.3f ms\n", hover);
+    const double elementPick = averageMs(200, [&](int i) {
+        const double x = static_cast<double>(i % static_cast<int>(side)) + 0.25;
+        const Ray ray{{x, x, 10.0}, {0.0, 0.0, -1.0}};
+        gSink = gSink + (cache.pickElement(ray, ElementPickOptions{1e-3}) ? 1u : 0u);
+    });
+    std::printf("  vertex/edge/face pick (Select hover)   %10.3f ms\n", elementPick);
     std::printf("  hover total in 0.2.0 (estimate)        %10.3f ms\n", legacy + pickOnly);
     return gSink == 0 ? 1 : 0;
 }

@@ -178,8 +178,30 @@ Highlighting draws the face's whole index range, so a rectangle selects and high
 one face even though it is two triangles. GPU meshes are rebuilt only for objects whose
 document entry (pointer) changed, and are released when objects disappear.
 
+**Elements** (vertices, edges, faces) are picked through `core/geometry/topology.*` and
+`element_pick.*`. `buildTopology` turns an object's edge/face mesh (`mesh::objectMesh`)
+into a world-space `ElementTopology`: shared vertices, edges and faces with adjacency,
+a triangulation and the mesh's stable element ids. The mesh cache keeps one per object.
+`pickElement` takes the pointer ray and the pixel angle and returns, in priority order, a
+vertex within 7 px, an edge within 5 px, or the nearest face; a vertex or edge counts only
+if no face other than its own lies between it and the eye, so hidden edges are never
+picked. Objects whose bounds the ray misses (with the pixel margin) are skipped.
+
+The Select tool hovers and selects elements (`app/tools/element_select.*`): a click selects
+the element, a double-click a face with its edges (or an edge with its faces, a vertex with
+its edges), a triple-click everything connected through shared vertices. The app counts
+clicks (`ClickCounter`: 0.4 s, 4 px) and passes the count in `PointerInput::clicks`.
+`SelectionSet` keeps element entries beside whole objects; the owner of a selected element
+is always in `objects()`, so Move, Rotate, Scale, Duplicate and Delete act on it, and the
+primary keeps the clicked face for push/pull. Selecting an object whole drops its element
+entries. The viewport draws selected faces with the blue overlay, selected edges wide and
+blue, the hovered element in orange, and, with View > Profile edges, outline edges
+(borders and silhouettes, `profileEdges`) 2.5 px wide.
+
 **Rendering** goes through `app/viewport/renderer.hpp` (create/destroy mesh, draw mesh,
-draw face overlay, draw lines). The OpenGL 3.3 core implementation compiles its shaders
+draw face overlay, draw lines, draw wide lines). Core-profile OpenGL has no dependable
+line widths, so wide lines are expanded on the CPU into screen-aligned quads in clip space
+(clipped at the near plane first). The OpenGL 3.3 core implementation compiles its shaders
 from strings in the binary and owns every GL object through move-only RAII handles that
 are released before the context is destroyed. A Vulkan or other backend can implement the
 same interface.
@@ -210,9 +232,22 @@ same interface.
 
 ## Tools and input
 
-`app/tools/tool_controller.*` contains the select, rectangle, push/pull and move state machines.
-It receives a `PointerInput` (world ray, resolved pick, screen position), so tests drive it
-with synthetic events and no window.
+Each tool is its own class behind the small `ToolBase` interface in `app/tools/tool.hpp`:
+pointer down/move/up, `key` (arrow and X/Y/Z keys), `submit` (the typed value), `cancel`,
+`active`, `hint` (status bar) and `measurementLabel`. Tools publish their live preview to the
+editor (`Editor::setPreview`) and commit one operation per gesture. One file pair per tool:
+`select_tool`, `rectangle_tool`, `push_pull_tool`, `move_tool`, `rotate_tool`, `scale_tool`,
+`orbit_tool` and `measure_tool` (tape measure and dimension are two instances of it).
+Shared parts live in `ToolContext` (editor, snap settings, the point snapper, the snap
+indicator, ground and pointer snapping) and `app/tools/tool_support.*` (axis keys and
+locks, grid steps, numeric-entry trimming, drag threshold, `baseCenter`).
+
+`app/tools/tool_controller.*` owns the tools and routes events, keys and typed values to the
+current one; its tool-specific entry points (`submitMoveDistance`, `toggleAxisLock`, ...)
+forward to the matching tool. Adding a tool means a new `Tool` value with its `toolName`,
+a new file pair, and one `add<...>(Tool::...)` registration line in the
+`ToolController` constructor. The controller receives a `PointerInput` (world ray,
+resolved pick, screen position), so tests drive it with synthetic events and no window.
 
 - Rectangle: ground-plane intersection, optional grid snap, normalization of any drawing
   direction to a positive-size, counter-clockwise rectangle. Typed sizes follow the
@@ -226,7 +261,7 @@ with synthetic events and no window.
   with an axis lock (X/Y/Z keys or Right/Left/Up arrows), along the world axis through
   that point (the same closest-point projection as push/pull). With snap on, the object's
   corner (its translation) lands on the grid along each moving component. Every move,
-  dragged or typed, commits through `ToolController::commitMove` and the pure
+  dragged or typed, commits through `MoveTool::commit` and the pure
   `moveObject` operation, which changes only the translation. The lock is released after
   a commit or a tool change. Out-of-range positions preview red and cannot be committed.
 - Snapping (`core/geometry/snap.*`, used through `app/tools/snapper.*` by `ToolController`): a `SnapIndex` holds each
@@ -245,8 +280,8 @@ with synthetic events and no window.
   viewport as a marker and dashed guides drawn on top. `snapPointer` and
   `resolveSnapFeature` let other tools (tape measure, dimensions) snap the same way and
   refer to a corner or midpoint by object and feature index.
-- Tape measure and dimensions (`app/tools/measure_tool.*`): `ToolController` snaps each
-  pointer event with `snapPointer` and passes the result to `MeasureTool`. An endpoint or
+- Tape measure and dimensions (`app/tools/measure_tool.*`): `MeasureTool` snaps each
+  pointer event with `ToolContext::measureSnap` (built on `snapPointer`). An endpoint or
   midpoint snap becomes an attached anchor through `anchorAt`, which matches the point
   against the object's corners and edge midpoints, so the anchor does not depend on the
   snap index's feature order. The dimension line offset comes from `offsetFromRay`: the

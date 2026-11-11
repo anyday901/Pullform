@@ -2,6 +2,7 @@
 
 #include "app/platform/file_dialog.hpp"
 #include "app/tools/backspace_guard.hpp"
+#include "app/tools/click_counter.hpp"
 #include "app/tools/tool_controller.hpp"
 #include "app/ui/ui.hpp"
 #include "app/viewport/renderer.hpp"
@@ -88,6 +89,7 @@ private:
     DragMode drag_ = DragMode::None;
     int dragButton_ = -1;
     Vec2 lastMouse_{-1.0};
+    ClickCounter clicks_;
     int framesToDraw_ = 3;
     float scale_ = 0.0f;
     float pendingScale_ = 0.0f;

@@ -28,6 +28,7 @@ public:
     void drawMesh(MeshHandle, const glm::vec4&) override {}
     void drawMeshOverlay(MeshHandle, std::uint32_t, std::uint32_t, const glm::vec4&) override {}
     void drawLines(const std::vector<LineSegment>&, bool) override {}
+    void drawWideLines(const std::vector<LineSegment>&, float, bool) override {}
     void endFrame() override {}
 
     std::size_t created = 0;

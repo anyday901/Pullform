@@ -43,7 +43,7 @@ bool Editor::commit(const std::string& label, const Operation& op, const SelectA
         notify(Message{Message::Kind::Error, "Edit rejected: " + *e});
         return false;
     }
-    const std::optional<Selection> nextSelection =
+    const SelectionSet nextSelection =
         selectAfter ? sanitizeSelection(result->document, selectAfter(*result)) : sanitizeSelection(result->document, selection_);
 
     undo_.push_back(Snapshot{document_, selection_, stateId_, label});
@@ -53,6 +53,7 @@ bool Editor::commit(const std::string& label, const Operation& op, const SelectA
     document_ = std::move(result).value().document;
     selection_ = nextSelection;
     hover_ = sanitizeSelection(document_, hover_);
+    hoverElement_.reset();
     stateId_ = nextStateId_++;
     message_.reset();
     touch();
@@ -63,6 +64,7 @@ void Editor::restore(Snapshot snapshot) {
     document_ = std::move(snapshot.document);
     selection_ = sanitizeSelection(document_, snapshot.selection);
     hover_ = sanitizeSelection(document_, hover_);
+    hoverElement_.reset();
     stateId_ = snapshot.stateId;
     preview_ = std::monostate{};
     touch();
@@ -91,7 +93,9 @@ bool Editor::redo() {
     return true;
 }
 
-void Editor::select(const std::optional<Selection>& selection) {
+void Editor::select(const std::optional<Selection>& selection) { setSelection(SelectionSet{selection}); }
+
+void Editor::setSelection(const SelectionSet& selection) {
     selection_ = sanitizeSelection(document_, selection);
     touch();
 }
@@ -100,6 +104,13 @@ void Editor::setHover(const std::optional<Selection>& hover) {
     auto next = sanitizeSelection(document_, hover);
     if (next == hover_) return;
     hover_ = next;
+    touch();
+}
+
+void Editor::setHoverElement(const std::optional<ElementRef>& element) {
+    const auto next = element && document_.find(element->object) ? element : std::nullopt;
+    if (next == hoverElement_) return;
+    hoverElement_ = next;
     touch();
 }
 
@@ -124,8 +135,9 @@ void Editor::resetDocument(Document document) {
     document_ = std::move(document);
     undo_.clear();
     redo_.clear();
-    selection_.reset();
+    selection_.clear();
     hover_.reset();
+    hoverElement_.reset();
     preview_ = std::monostate{};
     message_.reset();
     stateId_ = nextStateId_++;

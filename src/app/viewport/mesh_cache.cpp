@@ -40,6 +40,7 @@ bool MeshCache::sync(const Document& document) {
         if (cached.handle != kNoMesh) renderer_.destroyMesh(cached.handle);
         cached.source = obj;
         cached.mesh = buildMesh(*obj);
+        cached.topology = buildTopology(*obj);
         cached.handle = renderer_.createMesh(cached.mesh);
     }
     synced_ = document.objects;
@@ -61,6 +62,18 @@ std::optional<PickHit> MeshCache::pick(const Ray& ray) const {
         if (hit && (!best || hit->distance < best->distance)) best = hit;
     }
     return best;
+}
+
+std::optional<ElementHit> MeshCache::pickElement(const Ray& ray, const ElementPickOptions& options) const {
+    std::vector<PickTarget> targets;
+    targets.reserve(entries_.size());
+    for (const auto& [id, cached] : entries_) targets.push_back({id, &cached.topology});
+    return pf::pickElement(ray, targets, options);
+}
+
+const MeshCache::Entry* MeshCache::find(ObjectId id) const {
+    const auto it = entries_.find(id);
+    return it == entries_.end() ? nullptr : &it->second;
 }
 
 } // namespace pf
