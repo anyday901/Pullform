@@ -3,6 +3,8 @@
 #include "core/document/tolerance.hpp"
 #include "core/document/validate.hpp"
 #include "core/geometry/measure.hpp"
+#include "core/geometry/mesh.hpp"
+#include "core/geometry/solid.hpp"
 
 #include <algorithm>
 
@@ -58,6 +60,7 @@ Expected<OpResult> createRectangle(const Document& doc, const RectanglePlacement
 Expected<OpResult> extrudeProfile(const Document& doc, ObjectId id, double height) {
     const auto* o = doc.find(id);
     if (!o) return Error{"Object " + idString(id) + " no longer exists."};
+    if (o->isMeshGroup()) return Error{"Push/pull of drawn faces is not supported yet."};
     if (o->extrusion) return Error{"This object is already extruded. Select its cap to change the height."};
     if (auto e = checkHeight(height)) return Error{*e};
     ProfileObject changed = *o;
@@ -69,6 +72,7 @@ Expected<OpResult> extrudeProfile(const Document& doc, ObjectId id, double heigh
 Expected<OpResult> setExtrusionHeight(const Document& doc, ObjectId id, double height) {
     const auto* o = doc.find(id);
     if (!o) return Error{"Object " + idString(id) + " no longer exists."};
+    if (o->isMeshGroup()) return Error{"Push/pull of drawn faces is not supported yet."};
     if (!o->extrusion) return Error{"This object is not extruded yet. Use Push/Pull on its face first."};
     if (auto e = checkHeight(height)) return Error{*e};
     ProfileObject changed = *o;
@@ -123,6 +127,19 @@ Expected<OpResult> scaleObject(const Document& doc, ObjectId id, const Vec3& f) 
         if (!std::isfinite(f[i]) || f[i] <= 0.0) {
             return Error{"Scale factors must be positive numbers. Mirroring (negative factors) is not supported."};
         }
+    }
+    if (o->isMeshGroup()) {
+        // Scale the local geometry about the centre of its base (lowest local z).
+        Bounds local;
+        for (const auto& [vid, v] : o->mesh->vertices()) local.extend(v.position);
+        const Vec3 c{local.center().x, local.center().y, local.min.z};
+        mesh::Mesh scaled = *o->mesh;
+        scaled.translate(-c);
+        scaled.scale(f);
+        scaled.translate(c);
+        ProfileObject changed = *o;
+        changed.mesh = std::make_shared<const mesh::Mesh>(std::move(scaled));
+        return replaceObject(doc, std::move(changed));
     }
     const auto size = rectangleSize(o->profile.boundary);
     if (!size) return Error{size.error()};
@@ -229,6 +246,95 @@ Expected<OpResult> deleteDimension(const Document& doc, DimensionId id) {
         return Error{"Dimension " + idString(id) + " no longer exists."};
     }
     return result;
+}
+
+namespace {
+
+/// The object as a mesh group: a profile group becomes one (same ids as
+/// meshFromProfile, so corner anchors stay valid); a mesh group is unchanged.
+ProfileObject asMeshGroup(const ProfileObject& o) {
+    if (o.isMeshGroup()) return o;
+    ProfileObject changed = o;
+    changed.mesh = std::make_shared<const mesh::Mesh>(mesh::meshFromProfile(o));
+    changed.profile.boundary.clear();
+    changed.extrusion.reset();
+    if (changed.name.rfind("Rectangle ", 0) == 0 || changed.name.rfind("Box ", 0) == 0) {
+        changed.name = "Group " + std::to_string(o.id.value);
+    }
+    return changed;
+}
+
+Vec3 worldToLocal(const ProfileObject& o, const Vec3& world) {
+    return glm::transpose(rotationMatrix(o.transform)) * (world - o.transform.translation);
+}
+
+} // namespace
+
+Expected<OpResult> drawEdge(const Document& doc, std::optional<ObjectId> target, const Vec3& a, const Vec3& b) {
+    for (const Vec3& p : {a, b}) {
+        if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z) || std::abs(p.x) > tol::kMaxCoordinate ||
+            std::abs(p.y) > tol::kMaxCoordinate || std::abs(p.z) > tol::kMaxCoordinate) {
+            return Error{"Line ends must be finite and within the supported range of +/-10 km."};
+        }
+    }
+    if (glm::length(b - a) <= tol::kWeldDistance) return Error{"The line has no length. Pick two different points."};
+    if (!target) {
+        // Loose lines stick to the drawn geometry they touch.
+        for (const auto& ptr : doc.objects) {
+            if (!ptr->isMeshGroup()) continue;
+            const auto& m = *ptr->mesh;
+            if (m.findVertex(worldToLocal(*ptr, a)) || m.findVertex(worldToLocal(*ptr, b))) {
+                target = ptr->id;
+                break;
+            }
+        }
+    }
+    if (target) {
+        const auto* o = doc.find(*target);
+        if (!o) return Error{"Object " + idString(*target) + " no longer exists."};
+        ProfileObject changed = asMeshGroup(*o);
+        mesh::Mesh m = *changed.mesh;
+        if (!m.addEdge(worldToLocal(changed, a), worldToLocal(changed, b))) {
+            return Error{"The line has no length. Pick two different points."};
+        }
+        changed.mesh = std::make_shared<const mesh::Mesh>(std::move(m));
+        return replaceObject(doc, std::move(changed));
+    }
+    ProfileObject o;
+    o.id = ObjectId{doc.nextId};
+    o.name = "Group " + std::to_string(doc.nextId);
+    o.transform.translation = a;
+    mesh::Mesh m;
+    m.addEdge(Vec3{0.0}, b - a);
+    o.mesh = std::make_shared<const mesh::Mesh>(std::move(m));
+    if (auto e = validateObject(o, "line")) return Error{*e};
+    OpResult result{doc, o.id};
+    result.document.nextId = doc.nextId + 1;
+    result.document.objects.push_back(std::make_shared<const ProfileObject>(std::move(o)));
+    return result;
+}
+
+Expected<OpResult> eraseEdge(const Document& doc, ObjectId id, mesh::EdgeId edge) {
+    const auto* o = doc.find(id);
+    if (!o) return Error{"Object " + idString(id) + " no longer exists."};
+    ProfileObject changed = asMeshGroup(*o);
+    mesh::Mesh m = *changed.mesh;
+    if (!m.eraseEdge(edge)) return Error{"That edge no longer exists."};
+    if (m.empty()) return deleteObject(doc, id); // nothing left: the group goes, with its dimensions
+    changed.mesh = std::make_shared<const mesh::Mesh>(std::move(m));
+    // Dimensions on corners that disappeared go with them.
+    OpResult partial{doc, id};
+    const ProfileObject& probe = changed;
+    std::erase_if(partial.document.dimensions, [&](const Dimension& d) {
+        for (const auto* anchor : {&d.a, &d.b}) {
+            if (anchor->object != id) continue;
+            for (int v : anchor->vertices) {
+                if (!objectVertex(probe, v)) return true;
+            }
+        }
+        return false;
+    });
+    return replaceObject(partial.document, std::move(changed));
 }
 
 Expected<OpResult> setDisplayUnit(const Document& doc, LengthUnit unit) {

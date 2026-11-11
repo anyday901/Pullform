@@ -313,6 +313,7 @@ std::optional<std::string> ToolController::pushableReason(const FaceId& face) {
         return std::string("Push/pull of the base face is not supported yet. Pick the top cap to change the height.");
     case FaceKind::Side:
         return "Push/pull of side faces (" + faceLabel(face) + ") is not supported yet. Pick the top cap to change the height.";
+    case FaceKind::Mesh: return std::string("Push/pull of drawn faces is not supported yet.");
     }
     return std::nullopt;
 }

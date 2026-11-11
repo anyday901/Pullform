@@ -177,6 +177,8 @@ public:
     /// Moves every vertex by `f` (component-wise scale about the origin) and
     /// recomputes face normals. Factors must be non-zero.
     void scale(const Vec3& factors);
+    /// Moves every vertex (and curve) by `offset`.
+    void translate(const Vec3& offset);
 
     friend bool operator==(const Mesh&, const Mesh&) = default;
 

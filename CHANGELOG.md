@@ -9,6 +9,19 @@ include breaking changes, but project files will keep a migration path.
 
 ### Added
 
+- **Edge/face mesh in the core** (`core/geometry/mesh.*`, design in `docs/GEOMETRY.md`):
+  vertices, edges and faces with holes, with stable ids that are never reused. Drawing an
+  edge welds its ends to nearby vertices (1 micrometer), splits edges it touches or crosses,
+  makes a face when it closes a planar loop and splits a face it runs across; a loop drawn
+  inside a face becomes a hole plus an inner face. Erasing the edge between two coplanar
+  faces merges them. Meshes are validated on every commit and triangulated with holes.
+  The `drawEdge` and `eraseEdge` operations commit these as single undo entries (no Line
+  tool yet). Each object is now a group that owns its geometry.
+- **Project file version 3:** every object is written as a `"group"` with its `"mesh"`.
+  Rectangles and boxes keep their profile and height, and their mesh uses fixed ids
+  (corner i is vertex i + 1), so dimensions stay attached. Version 1 and 2 files open
+  through a migration and look exactly as before; saving writes version 3, which Pullform
+  0.2.0 and earlier cannot open.
 - **Duplicate** (Edit > Duplicate, Ctrl+D / Cmd+D, or the Duplicate buttons): copies the
   selected object with a new stable ID and places it beside the original along +X. The copy
   becomes the selection, so repeating it builds a row. Editing either object leaves the
