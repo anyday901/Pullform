@@ -315,13 +315,14 @@ resolved pick, screen position), so tests drive it with synthetic events and no 
   UI at `Camera::project` of the line's middle.
 - Eraser (`app/tools/eraser_tool.*`): a press starts a stroke, and every edge the
   pointer passes over until release (`edgeUnder`: the picked edge, or for a picked vertex
-  its edge nearest the pointer ray) is collected into an `ErasePreview`, drawn like the
+  its edge nearest the pointer ray; plus `edgesCrossed`: visible edges whose screen image
+  crosses the pointer's path since the last event, so fast drags miss nothing) is collected into an `ErasePreview`, drawn like the
   hover. The release commits once: `eraseEdges` (per group, `Mesh::eraseEdge` for each
   edge, so coplanar faces merge and a group left empty is deleted), or with Shift
   `setEdgesSoft(soft)` (hide) and with Ctrl `setEdgesSoft(soft, smooth)` (soften). The
   keys held at release decide. Soft edges are not drawn or picked; faces keep using them.
   There is no separate "hidden" edge flag (the file format has soft and smooth only), so
-  hide and soften differ only in the smooth flag.
+  hide and soften differ only in the smooth flag, which shading does not use yet.
 - Input ownership (`App::handleViewportInput`): Dear ImGui owns the pointer over panels,
   menus and popups (`WantCaptureMouse`); a drag that starts in the viewport belongs to the
   viewport until its button is released. Left button = active tool (or orbit with the

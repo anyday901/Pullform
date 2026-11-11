@@ -30,7 +30,10 @@ public:
     std::optional<std::string> submit(std::string_view text) override;
     /// True while the button is held (a stroke is collecting edges).
     [[nodiscard]] bool active() const override { return stroke_.has_value(); }
-    void cancel() override { stroke_.reset(); }
+    void cancel() override {
+        stroke_.reset();
+        last_.reset();
+    }
     [[nodiscard]] std::string hint() const override;
     [[nodiscard]] bool showsSnapInHint() const override { return false; }
 
@@ -38,11 +41,21 @@ public:
     [[nodiscard]] const std::vector<ElementRef>& stroke() const;
 
 private:
-    /// Adds the edge under the pointer to the stroke and updates the preview.
+    /// Adds the edge under the pointer, and every visible edge the pointer
+    /// crossed since the last event, to the stroke and updates the preview.
     void collect(const PointerInput& input);
+    void add(const ElementRef& edge);
 
     std::optional<std::vector<ElementRef>> stroke_;
+    std::optional<Vec2> last_; ///< screen position of the stroke's previous event
 };
+
+/// Visible edges whose screen image crosses the segment from `from` to the
+/// pointer (input.screen), using input.project. An edge counts only when the
+/// crossing point is not hidden behind a face (seen from input.ray.origin).
+/// Fast drags move the pointer several pixels between events; this keeps the
+/// edges passed over in between. Empty without a projector.
+std::vector<ElementRef> edgesCrossed(const Document& document, const Vec2& from, const PointerInput& input);
 
 /// The visible edge under the pointer for the Eraser: the picked edge, or,
 /// when the pick is a vertex, the vertex's edge nearest the pointer ray.

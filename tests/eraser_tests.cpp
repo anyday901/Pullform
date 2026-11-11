@@ -68,6 +68,23 @@ std::optional<mesh::EdgeId> edgeAt(const mesh::Mesh& m, const Vec3& a, const Vec
     return m.findEdge(*va, *vb);
 }
 
+/// A camera looking straight down from `eye`, projecting to screen pixels.
+ScreenProjector downProjector(const Vec3& eye) {
+    return [eye](const Vec3& p) -> std::optional<Vec2> {
+        const double depth = eye.z - p.z;
+        if (depth <= 0.0) return std::nullopt;
+        return Vec2{(p.x - eye.x) / depth, (p.y - eye.y) / depth} * 1000.0;
+    };
+}
+
+/// The pointer of that camera over the world point `at`.
+PointerInput seen(const Editor& editor, const Vec3& eye, const Vec3& at) {
+    const auto project = downProjector(eye);
+    PointerInput in = lookAt(editor, eye, at, *project(at));
+    in.project = project;
+    return in;
+}
+
 void click(ToolController& tools, const PointerInput& in) {
     tools.pointerDown(in);
     tools.pointerUp(in);
@@ -131,6 +148,54 @@ TEST_CASE("Eraser: a drag erases every edge it passes over in one commit") {
     CHECK(meshOf(editor, id).faces().size() == 1);
     CHECK(editor.undoDepth() == depth + 1);
     CHECK(editor.undoLabel() == "Erase 2 edges");
+}
+
+TEST_CASE("Eraser: a fast drag keeps the edges passed over between two events") {
+    Editor editor;
+    ToolController tools(editor);
+    line(editor, {0, 0, 0}, {3, 0, 0});
+    line(editor, {3, 0, 0}, {3, 1, 0});
+    line(editor, {3, 1, 0}, {0, 1, 0});
+    line(editor, {0, 1, 0}, {0, 0, 0});
+    line(editor, {1, 0, 0}, {1, 1, 0});
+    line(editor, {2, 0, 0}, {2, 1, 0});
+    const ObjectId id = editor.document().objects.front()->id;
+    const Vec3 eye{1.5, 0.5, 10.0};
+
+    tools.setTool(Tool::Eraser);
+    // Both events are on faces, far from any edge; the edges at x = 1 and 2 lie between.
+    tools.pointerDown(seen(editor, eye, {0.5, 0.5, 0.0}));
+    tools.pointerMove(seen(editor, eye, {2.5, 0.5, 0.0}));
+    tools.pointerUp(seen(editor, eye, {2.5, 0.5, 0.0}));
+    CHECK(meshOf(editor, id).faces().size() == 1);
+    CHECK(editor.undoLabel() == "Erase 2 edges");
+}
+
+TEST_CASE("Eraser: edges hidden behind a face are not erased by a drag across it") {
+    Editor editor;
+    ToolController tools(editor);
+    const ObjectId box = test::makeBox(editor, tools, "1000,1000", "1000");
+    const std::size_t depth = editor.undoDepth();
+    const Vec3 eye{0.5, 0.5, 3.0};
+    // Across the top face, inside its edges: the base edges at x = 0 and 1 are
+    // under the pointer's path on screen but hidden by the top.
+    tools.setTool(Tool::Eraser);
+    tools.pointerDown(seen(editor, eye, {0.1, 0.5, 1.0}));
+    tools.pointerMove(seen(editor, eye, {0.9, 0.5, 1.0}));
+    const Vec2 from = *downProjector(eye)({0.1, 0.5, 1.0});
+    CHECK(edgesCrossed(editor.document(), from, seen(editor, eye, {0.9, 0.5, 1.0})).empty());
+    // Without the top face in the way they would count: the base's x = 0 edge does cross the path.
+    CHECK(downProjector(eye)({0.0, 0.5, 0.0})->x > from.x);
+    tools.pointerUp(seen(editor, eye, {0.9, 0.5, 1.0}));
+    CHECK(editor.undoDepth() == depth);
+    CHECK_FALSE(editor.document().find(box)->isMeshGroup());
+
+    // The same drag reaching past the top's edge erases the top edge it crosses.
+    tools.pointerDown(seen(editor, eye, {0.5, 0.5, 1.0}));
+    tools.pointerMove(seen(editor, eye, {1.5, 0.5, 0.0}));
+    tools.pointerUp(seen(editor, eye, {1.5, 0.5, 0.0}));
+    CHECK(editor.undoDepth() == depth + 1);
+    CHECK(editor.undoLabel() == "Erase 1 edge");
 }
 
 TEST_CASE("Eraser: Shift hides and Ctrl softens instead, keeping the faces") {
