@@ -1130,6 +1130,9 @@ std::vector<std::array<VertexId, 3>> triangulateFace(const Mesh& m, FaceId fid) 
     };
     std::ranges::sort(holes, [&](const auto& a, const auto& b) { return a[rightmost(a)].p.x > b[rightmost(b)].p.x; });
     const auto segmentsCross = [](const Vec2& a, const Vec2& b, const Vec2& c, const Vec2& d) {
+        // Segments that share an end do not cross. Said explicitly: with fused
+        // multiply-add (Apple arm64) cross2(v, v) need not round to exactly zero.
+        if (a == c || a == d || b == c || b == d) return false;
         const double d1 = cross2(b - a, c - a);
         const double d2 = cross2(b - a, d - a);
         const double d3 = cross2(d - c, a - c);
