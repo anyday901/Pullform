@@ -48,7 +48,7 @@ std::optional<Vec3> MoveTool::snappedOffset(const PointerInput& input) {
         ctx_.indicator.reset();
         return std::nullopt;
     }
-    const auto res = ctx_.snapper.infer(input, InferOptions{gesture_->anchor, std::nullopt, gesture_->objectId, std::nullopt});
+    const auto res = ctx_.snapper.infer(input, InferOptions{gesture_->anchor, std::nullopt, gesture_->objectId, std::nullopt, false});
     // A face point or the ground is the free move's job (it keeps the height).
     if (!res || res->kind < SnapKind::Inference) {
         ctx_.indicator.reset();

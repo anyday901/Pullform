@@ -86,7 +86,7 @@ std::optional<SnapResult> ToolContext::snapGround(const PointerInput& input, con
 }
 
 SnapResult ToolContext::snapPointer(const PointerInput& input, const std::optional<Vec3>& skip) {
-    return inferPointer(input, InferOptions{std::nullopt, std::nullopt, std::nullopt, skip});
+    return inferPointer(input, InferOptions{std::nullopt, std::nullopt, std::nullopt, skip, true});
 }
 
 SnapResult ToolContext::inferPointer(const PointerInput& input, const InferOptions& options) {
@@ -101,7 +101,7 @@ std::optional<Vec3> ToolContext::groundPoint(const PointerInput& input, const st
 }
 
 std::optional<SnapResult> ToolContext::measureSnap(const PointerInput& input, const std::optional<Vec3>& from) {
-    SnapResult res = inferPointer(input, InferOptions{from, std::nullopt, std::nullopt, std::nullopt});
+    SnapResult res = inferPointer(input, InferOptions{from, std::nullopt, std::nullopt, std::nullopt, true});
     // inferPointer reports a miss as SnapKind::None, but so is a plain ground
     // point with grid snap off: only a ray that misses the ground is a miss.
     if (res.kind == SnapKind::None && !intersectHorizontalPlane(input.ray, 0.0)) {

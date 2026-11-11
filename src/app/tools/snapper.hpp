@@ -64,6 +64,9 @@ struct InferOptions {
     std::optional<ObjectId> exclude;
     /// Ground fallback: a point not to infer from (see ground()).
     std::optional<Vec3> skip;
+    /// Fall back to the ground (ground()) when nothing else applies. Move
+    /// turns it off: its own free move keeps the object's height.
+    bool groundFallback = true;
 };
 
 /// The shared inference engine for every tool, against an editor's document
@@ -89,7 +92,8 @@ public:
     /// Ground snap (z = 0): a point snap projected down, else X/Y inference
     /// with a remembered reference (skipping `skip`, the rectangle's own first
     /// corner), else the grid.
-    std::optional<SnapResult> ground(const PointerInput& input, std::optional<Vec3> skip = std::nullopt);
+    std::optional<SnapResult> ground(const PointerInput& input, std::optional<Vec3> skip = std::nullopt,
+                                     std::optional<ObjectId> exclude = std::nullopt);
 
     /// Height inference along a vertical axis: another object's corner whose
     /// height is within the snap radius of `axisPoint`.

@@ -42,9 +42,12 @@ double PointSnapper::tolerance(const PointerInput& input, const Vec3& at) const 
 }
 
 void PointSnapper::dropStaleReferences() {
-    // New / Open replace the project: points from the old one must not guide the new one.
+    // New / Open replace the project: points and edges from the old one must not guide the new one.
     if (referencesGeneration_ == editor_.projectGeneration()) return;
     references_.clear();
+    referenceEdges_.clear();
+    lock_.reset();
+    lastConstraint_.reset();
     referencesGeneration_ = editor_.projectGeneration();
 }
 
@@ -133,7 +136,7 @@ std::optional<SnapResult> PointSnapper::infer(const PointerInput& input, const I
             res->constraint = SnapConstraint{SnapConstraint::Type::Plane, options.plane->point, options.plane->normal, SnapKind::OnFace, -1, std::nullopt};
         }
     }
-    if (!res && !options.plane) res = ground(input, options.skip);
+    if (!res && !options.plane && options.groundFallback) res = ground(input, options.skip, options.exclude);
     if (!lock_) lastConstraint_ = res ? res->constraint : std::nullopt;
     return res;
 }
@@ -150,13 +153,14 @@ std::optional<SnapResult> PointSnapper::point(const PointerInput& input, std::op
     return hit;
 }
 
-std::optional<SnapResult> PointSnapper::ground(const PointerInput& input, std::optional<Vec3> skip) {
-    auto hit = point(input);
+std::optional<SnapResult> PointSnapper::ground(const PointerInput& input, std::optional<Vec3> skip, std::optional<ObjectId> exclude) {
+    auto hit = point(input, exclude);
     if (!hit && active(input)) {
         // Then a point on an edge (also remembered as a parallel reference).
         std::optional<double> occluder;
         if (input.pick) occluder = input.pick->distance;
-        hit = index_.nearestEdge(input.ray, input.pixelAngle * settings_.radiusPx, occluder);
+        if (input.pick && exclude && input.pick->objectId == *exclude) occluder.reset();
+        hit = index_.nearestEdge(input.ray, input.pixelAngle * settings_.radiusPx, occluder, exclude);
         if (hit && hit->edge) rememberEdge(*hit->edge);
     }
     if (hit) {

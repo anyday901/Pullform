@@ -356,3 +356,40 @@ TEST_CASE("inference: Move puts the picked corner exactly on another object's co
     CHECK_FALSE(tools.active());
     CHECK(editor.document().find(b)->transform.translation == Vec3{1.0, 1.0, 0.0});
 }
+
+TEST_CASE("inference: New / Open forgets remembered edges and the lock") {
+    Editor editor;
+    ToolController tools(editor);
+    line(editor, kEdgeA, kEdgeB);
+    tools.setTool(Tool::TapeMeasure);
+    const Vec3 u = glm::normalize(kEdgeB - kEdgeA);
+    const Vec3 onEdge = kEdgeA + u * 0.5 + Vec3{-u.y, u.x, 0.0} * 0.05;
+    tools.pointerMove(snapAt(editor, onEdge.x, onEdge.y));
+    REQUIRE(tools.snapIndicator());
+    REQUIRE(tools.snapIndicator()->kind == SnapKind::OnEdge);
+    editor.resetDocument(Document{});
+    // A start point and a pointer along the old edge's direction: no parallel inference.
+    const Vec3 start{4.0, -3.0, 0.0};
+    click(tools, snapAt(editor, start.x, start.y, {300, 300}));
+    const Vec3 aim = start + u * 2.0 + Vec3{-u.y, u.x, 0.0} * 0.1;
+    tools.pointerMove(snapAt(editor, aim.x, aim.y, {400, 250}));
+    REQUIRE(tools.snapIndicator());
+    CHECK(tools.snapIndicator()->kind != SnapKind::Parallel);
+    CHECK_FALSE(tools.snapIndicator()->edge.has_value());
+}
+
+TEST_CASE("inference: Move never snaps to the moving object's own corners on the ground") {
+    Editor editor;
+    ToolController tools(editor);
+    const ObjectId box = test::makeBox(editor, tools, "1000, 1000", "1000");
+    tools.setTool(Tool::Move);
+    // Grab the top corner (1,1,1) and hover the opposite top corner (0,0,1).
+    tools.pointerDown(snapAt(editor, 0.98, 0.97, {300, 300}));
+    tools.pointerUp(snapAt(editor, 0.98, 0.97, {300, 300}));
+    REQUIRE(tools.active());
+    tools.pointerMove(snapAt(editor, 0.03, 0.02, {200, 200}));
+    const auto* preview = std::get_if<MovePreview>(&editor.preview());
+    REQUIRE(preview);
+    CHECK(preview->offset.z == 0.0); // the free move keeps the height
+    if (tools.snapIndicator()) CHECK(tools.snapIndicator()->objectId != std::optional<ObjectId>(box));
+}
