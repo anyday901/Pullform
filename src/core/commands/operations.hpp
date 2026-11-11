@@ -167,5 +167,12 @@ Expected<OpResult> drawArc(const Document& doc, std::optional<ObjectId> target, 
 /// `pushed`, when given, receives the face where it ended up (the new cap of an extrusion).
 Expected<OpResult> pushPullFace(const Document& doc, ObjectId id, mesh::FaceId face, double distance,
                                 mesh::FaceId* pushed = nullptr);
+/// Offsets face `face` of a group by `distance` in its own plane (see
+/// mesh::offsetFace): positive goes into the face, which becomes a ring around
+/// a new inner face; negative goes out and adds a ring around it. A rectangle
+/// or box is converted to a mesh group first (same face ids). `ring`, when
+/// given, receives the ring face between the face's outer loop and its offset.
+Expected<OpResult> offsetFace(const Document& doc, ObjectId id, mesh::FaceId face, double distance,
+                              mesh::FaceId* ring = nullptr);
 
 } // namespace pf

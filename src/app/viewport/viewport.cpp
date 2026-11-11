@@ -640,6 +640,12 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
             lines.push_back({movePreview->from, movePreview->from + movePreview->offset, guide});
         }
     }
+    if (const auto* off = std::get_if<OffsetPreview>(&editor.preview())) {
+        const glm::vec4 color = off->error ? kErrorEdge : kPreviewEdge;
+        for (const auto& loop : off->loops) {
+            for (std::size_t i = 0; i < loop.size(); ++i) lines.emplace_back(loop[i], loop[(i + 1) % loop.size()], color);
+        }
+    }
     if (const auto* fh = std::get_if<FreehandPreview>(&editor.preview())) {
         for (std::size_t i = 1; i < fh->points.size(); ++i) lines.emplace_back(fh->points[i - 1], fh->points[i], kPreviewEdge);
         // The closing edge, dimmed, while releasing would close the loop.

@@ -4,6 +4,7 @@
 #include "core/document/validate.hpp"
 #include "core/geometry/measure.hpp"
 #include "core/geometry/mesh.hpp"
+#include "core/geometry/offset.hpp"
 #include "core/geometry/solid.hpp"
 
 #include <algorithm>
@@ -761,6 +762,19 @@ Expected<OpResult> drawArc(const Document& doc, std::optional<ObjectId> target, 
     result.document.nextId = doc.nextId + 1;
     result.document.objects.push_back(std::make_shared<const ProfileObject>(std::move(o)));
     return result;
+}
+
+Expected<OpResult> offsetFace(const Document& doc, ObjectId id, mesh::FaceId face, double distance, mesh::FaceId* ring) {
+    const auto* o = doc.find(id);
+    if (!o) return Error{"Object " + idString(id) + " no longer exists."};
+    ProfileObject changed = asMeshGroup(*o); // a rectangle or box keeps its face ids
+    mesh::Mesh m = *changed.mesh;
+    if (!m.face(face)) return Error{"That face no longer exists."};
+    auto result = mesh::offsetFace(m, face, distance);
+    if (!result) return Error{result.error()};
+    if (ring && result->ring) *ring = *result->ring;
+    changed.mesh = std::make_shared<const mesh::Mesh>(std::move(m));
+    return replaceObject(doc, std::move(changed));
 }
 
 } // namespace pf

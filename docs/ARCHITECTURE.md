@@ -418,6 +418,26 @@ resolved pick, screen position), so tests drive it with synthetic events and no 
   keys held at release decide. Soft edges are not drawn or picked; faces keep using them.
   There is no separate "hidden" edge flag (the file format has soft and smooth only), so
   hide and soften differ only in the smooth flag, which shading does not use yet.
+- Offset (`app/tools/offset_tool.*`, `core/geometry/offset.*`): a click on a face starts
+  the gesture; the pointer ray meets the face's plane and the distance is how much further
+  inside the face (`mesh::signedBoundaryDistance`: distance to the nearest edge, negative
+  outside or in a hole) that point is than the clicked one. A corner or midpoint snap gives
+  an exact distance, otherwise it snaps to the grid. `mesh::offsetLoops` moves every loop of
+  the face to its left (into the face, since outer loops are CCW and holes CW) in 2D plane
+  coordinates: each edge's line moves by the distance and each corner goes where its two
+  lines meet (mitred). Edges whose offset turns round are dropped and their neighbours meet
+  instead, until none does; the outer loop closing up, a loop crossing itself or another,
+  or a grown hole leaving the shrunken outer loop is an error ("too large"), and a hole
+  shrinking to nothing is left out. The `OffsetPreview` carries the loops (world space) or
+  the error. `offsetFace` (a rectangle or box becomes a mesh group first, same face ids)
+  draws the loops with `Mesh::addEdge`, so inward the island rule makes the face a ring
+  around a new inner face (and each grown hole a ring), and outward the closed loop takes
+  the face as a hole; a shrunken hole drawn in empty space would fill it, so that face is
+  turned into the ring between the hole and its offset. Faces made in the face's plane
+  are turned to face the same way. A run of offset edges along consecutive segments of one
+  curve is drawn with `addCurve` (same centre and plane, radius from its inner points), so
+  circles stay circles. Splitting a shape in two (a straight-skeleton split event) is not
+  handled: such distances are refused.
 - Input ownership (`App::handleViewportInput`): Dear ImGui owns the pointer over panels,
   menus and popups (`WantCaptureMouse`); a drag that starts in the viewport belongs to the
   viewport until its button is released. Left button = active tool (or orbit with the

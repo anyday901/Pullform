@@ -7,6 +7,7 @@
 #include "app/tools/freehand_tool.hpp"
 #include "app/tools/measure_tool.hpp"
 #include "app/tools/move_tool.hpp"
+#include "app/tools/offset_tool.hpp"
 #include "app/tools/orbit_tool.hpp"
 #include "app/tools/protractor_tool.hpp"
 #include "app/tools/push_pull_tool.hpp"
@@ -51,6 +52,7 @@ ToolController::ToolController(Editor& editor) : editor_(editor), snapper_(edito
     add<ArcTool>(Tool::Pie, ArcTool::Mode::Pie);
     add<ProtractorTool>(Tool::Protractor);
     add<FreehandTool>(Tool::Freehand);
+    add<OffsetTool>(Tool::Offset);
     for ([[maybe_unused]] const auto& t : tools_) assert(t && "every Tool value needs a registered tool");
 }
 
