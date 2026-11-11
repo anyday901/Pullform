@@ -440,3 +440,58 @@ TEST_CASE("Scale tool: a selected cap scales on its own into a frustum") {
     CHECK(near(solidVolume(editor.document(), id), 1.75 / 3.0, 1e-9));
     CHECK(editor.undoLabel().starts_with("Scale face"));
 }
+
+TEST_CASE("review fixes: crossing boundaries, polygon mirrors and turned objects in a group") {
+    SUBCASE("a corner moved across its face's far side is refused") {
+        Document doc;
+        auto drawn = drawPolyline(doc, std::nullopt, {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0}}, true);
+        REQUIRE(drawn.ok());
+        const ObjectId g = *drawn->objectId;
+        const auto corner = drawn->document.find(g)->mesh->findVertex(Vec3{1, 1, 0});
+        REQUIRE(corner);
+        CHECK_FALSE(moveElements(drawn->document, {vertexRef(g, corner->value)}, Vec3{-2.0, -0.5, 0.0}).ok());
+        CHECK(moveElements(drawn->document, {vertexRef(g, corner->value)}, Vec3{0.5, 0.5, 0.0}).ok());
+    }
+    SUBCASE("a triangle mirrored across its width points the other way") {
+        Document doc;
+        auto tri = createCircle(doc, CirclePlacement{Vec3{0.0}, 1.0, 0.0, 3}, ProfileKind::Polygon);
+        REQUIRE(tri.ok());
+        const ObjectId id = *tri->objectId;
+        CHECK(hasVertexAt(tri->document, id, {1.0, 0.0, 0.0}));
+        const auto mirrored = scaleObject(tri->document, id, Vec3{-1.0, 1.0, 1.0});
+        REQUIRE(mirrored.ok());
+        CHECK(hasVertexAt(mirrored->document, id, {-1.0, 0.0, 0.0}));
+        CHECK_FALSE(hasVertexAt(mirrored->document, id, {1.0, 0.0, 0.0}));
+        const auto flipped = scaleObject(tri->document, id, Vec3{1.0, -1.0, 1.0});
+        REQUIRE(flipped.ok());
+        CHECK(hasVertexAt(flipped->document, id, {1.0, 0.0, 0.0})); // symmetric across x
+    }
+    SUBCASE("a group scaled along world x stretches a turned box along world x") {
+        Document doc;
+        auto a = createRectangle(doc, RectanglePlacement{Vec3{0.0}, 2.0, 1.0});
+        auto ab = extrudeProfile(a->document, *a->objectId, 1.0);
+        auto b = createRectangle(ab->document, RectanglePlacement{Vec3{5.0, 0.0, 0.0}, 2.0, 1.0});
+        auto bb = extrudeProfile(b->document, *b->objectId, 1.0);
+        const ObjectId first = *a->objectId;
+        const ObjectId second = *b->objectId;
+        // Turn the second box a quarter turn: its width now runs along world y.
+        auto turned = rotateObject(bb->document, second, Vec3{5.0, 0.0, 0.0}, Vec3{0, 0, 1}, kPi / 2.0);
+        REQUIRE(turned.ok());
+        const Bounds before = objectBounds(*turned->document.find(second));
+        auto scaled = scaleObjects(turned->document, {first, second}, Vec3{2.0, 1.0, 1.0}, Vec3{0.0});
+        REQUIRE(scaled.ok());
+        const Bounds after = objectBounds(*scaled->document.find(second));
+        CHECK(near(after.size().x, before.size().x * 2.0, 1e-9));
+        CHECK(near(after.size().y, before.size().y, 1e-9));
+        CHECK(near(after.min.x, before.min.x * 2.0, 1e-9));
+        // At 30 degrees it cannot stay a box: its geometry is mapped directly.
+        auto skew = rotateObject(bb->document, second, Vec3{5.0, 0.0, 0.0}, Vec3{0, 0, 1}, kPi / 6.0);
+        const Bounds b30 = objectBounds(*skew->document.find(second));
+        auto sheared = scaleObjects(skew->document, {first, second}, Vec3{2.0, 1.0, 1.0}, Vec3{0.0});
+        REQUIRE_MESSAGE(sheared.ok(), (sheared.ok() ? "" : sheared.error()));
+        const Bounds a30 = objectBounds(*sheared->document.find(second));
+        CHECK(near(a30.size().x, b30.size().x * 2.0, 1e-9));
+        CHECK(near(a30.size().y, b30.size().y, 1e-9));
+        CHECK(near(solidVolume(sheared->document, second), 4.0, 1e-9));
+    }
+}

@@ -258,13 +258,24 @@ Expected<OpResult> scaleObject(const Document& doc, ObjectId id, const Vec3& f) 
         }
     }
     if (!o->isMeshGroup() && (f.x < 0.0 || f.y < 0.0 || f.z < 0.0)) {
-        // A rectangle, circle or polygon is symmetric about its base centre, so
-        // mirroring across its width or depth gives the same shape; mirroring
-        // its height flips the prism to the other side of the base.
+        // A rectangle is symmetric across its width and depth about its base
+        // centre, so mirroring there gives the same shape. A circle or polygon
+        // mirrors by turning its first vertex's angle (x: pi - a, y: -a, both:
+        // a + pi), which keeps the boundary counter-clockwise. Mirroring the
+        // height flips the prism to the other side of the base.
         auto scaled = scaleObject(doc, id, Vec3{std::abs(f.x), std::abs(f.y), f.z == 0.0 ? 1.0 : std::abs(f.z)});
-        if (!scaled || !(f.z < 0.0) || !o->extrusion) return scaled;
+        if (!scaled) return scaled;
         ProfileObject flipped = *scaled->document.find(id);
-        flipped.transform.translation -= profileNormalWorld(flipped) * flipped.extrusion->height;
+        if (o->profile.kind != ProfileKind::Rectangle && (f.x < 0.0 || f.y < 0.0)) {
+            const auto shape = regularShape(flipped.profile.boundary);
+            if (!shape) return Error{shape.error()};
+            double start = shape->start;
+            if (f.x < 0.0 && f.y < 0.0) start += std::numbers::pi;
+            else if (f.x < 0.0) start = std::numbers::pi - start;
+            else start = -start;
+            flipped.profile.boundary = regularBoundary(shape->radius, shape->segments, std::remainder(start, 2.0 * std::numbers::pi));
+        }
+        if (f.z < 0.0 && o->extrusion) flipped.transform.translation -= profileNormalWorld(flipped) * flipped.extrusion->height;
         return replaceObject(scaled->document, std::move(flipped));
     }
     if (o->isMeshGroup()) {
@@ -657,10 +668,33 @@ Expected<OpResult> scaleObjects(const Document& doc, const std::vector<ObjectId>
     if (!std::isfinite(pivot.x) || !std::isfinite(pivot.y) || !std::isfinite(pivot.z)) {
         return Error{"The scale centre is not valid."};
     }
-    return forEachObject(doc, ids, [&factors, &pivot, &frame](const Document& d, ObjectId id) -> Expected<OpResult> {
+    const bool uniformFactors = factors.x == factors.y && factors.y == factors.z;
+    return forEachObject(doc, ids, [&](const Document& d, ObjectId id) -> Expected<OpResult> {
         const ProfileObject& before = *d.find(id);
+        // The factors run along `frame`; scaleObject takes them along the
+        // object's own axes. Those match when each own axis lies along a frame
+        // axis (either way): the factors are then reordered. Otherwise a
+        // non-uniform scale would shear the object, so its geometry is mapped
+        // directly (it becomes a mesh group).
+        Vec3 own = factors;
+        if (!uniformFactors) {
+            const Mat3 a = glm::transpose(frame) * objectAxes(before); // own axes in frame coordinates
+            for (int i = 0; i < 3; ++i) {
+                int along = -1;
+                for (int j = 0; j < 3; ++j) {
+                    if (std::abs(std::abs(a[i][j]) - 1.0) < 1e-9) along = j;
+                }
+                if (along < 0) {
+                    const mesh::MeshPtr m = mesh::objectMesh(before);
+                    std::vector<ElementRef> all;
+                    for (const auto& [vid, v] : m->vertices()) all.push_back(ElementRef{id, ElementKind::Vertex, vid});
+                    return transformElements(d, all, AffineMap::scale(pivot, factors, frame));
+                }
+                own[i] = factors[along];
+            }
+        }
         const Vec3 centre = objectBaseCenter(before);
-        auto scaled = scaleObject(d, id, factors); // keeps `centre` fixed
+        auto scaled = scaleObject(d, id, own); // keeps `centre` fixed
         if (!scaled) return scaled;
         // The base centre goes where the scale about `pivot` (along `frame`) takes it.
         const Vec3 shift = frame * ((glm::transpose(frame) * (centre - pivot)) * (factors - Vec3{1.0}));
@@ -911,7 +945,7 @@ Expected<OpResult> transformElements(const Document& doc, const std::vector<Elem
         const Vec3 translation = rt * (map.linear * x + map.translation - x);
         const auto volumeBefore = closedVolume(m);
         if (!m.transformVertices(vertices, linear, translation)) {
-            return Error{"That would bend a face that cannot be folded (a face with holes, or one that would cross itself)."};
+            return Error{"That would make a face cross itself, or bend a face with holes (which cannot be folded yet)."};
         }
         if (auto e = mesh::validateMesh(m, "mesh")) return Error{transformProblem(*e)};
         // Faces stay valid one by one when a solid is pushed through itself;

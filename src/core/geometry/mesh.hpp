@@ -228,8 +228,8 @@ public:
     /// pieces (auto-fold). Curves move along when all their vertices do and the
     /// map keeps circles round; otherwise the record is dropped and the
     /// segments stay as plain edges. Returns nothing, with the mesh unchanged,
-    /// when no id exists, the map is singular, or a face with holes would have
-    /// to fold. The result may still be invalid (an edge shrunk to nothing, a
+    /// when no id exists, the map is singular, a face's boundary would cross
+    /// itself, or a face with holes would have to fold. The result may still be invalid (an edge shrunk to nothing, a
     /// face turned inside out): check it with validateMesh.
     std::optional<TransformResult> transformVertices(const std::vector<VertexId>& ids, const Mat3& linear,
                                                      const Vec3& translation);

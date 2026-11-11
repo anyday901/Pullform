@@ -939,6 +939,42 @@ bool isSimilarity(const Mat3& m, double& scale) {
            std::abs(glm::dot(m[0], m[2])) <= eps * a && std::abs(glm::dot(m[1], m[2])) <= eps * a;
 }
 
+/// Whether any two non-adjacent sides of the loops (2D, closed) cross or touch.
+bool loopsCross(const std::vector<std::vector<Vec2>>& loops) {
+    struct Side {
+        Vec2 a;
+        Vec2 b;
+        std::size_t loop;
+        std::size_t index;
+    };
+    std::vector<Side> sides;
+    for (std::size_t l = 0; l < loops.size(); ++l) {
+        const auto& pts = loops[l];
+        for (std::size_t i = 0; i < pts.size(); ++i) sides.push_back({pts[i], pts[(i + 1) % pts.size()], l, i});
+    }
+    const auto orient = [](const Vec2& p, const Vec2& q, const Vec2& r) { return cross2(q - p, r - p); };
+    for (std::size_t i = 0; i < sides.size(); ++i) {
+        for (std::size_t j = i + 1; j < sides.size(); ++j) {
+            const Side& s = sides[i];
+            const Side& t = sides[j];
+            if (s.loop == t.loop) {
+                const std::size_t n = loops[s.loop].size();
+                if ((s.index + 1) % n == t.index || (t.index + 1) % n == s.index) continue; // share a corner
+            }
+            if (segmentDistance2d(s.a, t.a, t.b) <= tol::kWeldDistance || segmentDistance2d(s.b, t.a, t.b) <= tol::kWeldDistance ||
+                segmentDistance2d(t.a, s.a, s.b) <= tol::kWeldDistance || segmentDistance2d(t.b, s.a, s.b) <= tol::kWeldDistance) {
+                return true;
+            }
+            const double d1 = orient(s.a, s.b, t.a);
+            const double d2 = orient(s.a, s.b, t.b);
+            const double d3 = orient(t.a, t.b, s.a);
+            const double d4 = orient(t.a, t.b, s.b);
+            if (((d1 > 0.0) != (d2 > 0.0)) && ((d3 > 0.0) != (d4 > 0.0))) return true;
+        }
+    }
+    return false;
+}
+
 /// Disjoint-set forest over triangle indices.
 struct Groups {
     std::vector<std::size_t> parent;
@@ -1053,6 +1089,15 @@ std::optional<TransformResult> Mesh::transformVertices(const std::vector<VertexI
             }
         }
         if (planar) {
+            // Still flat, but the boundary may now cross itself.
+            const PlaneAxes axes = axesFor(n);
+            const Vec3 origin = next.vertices_.at(next.useStart(face.loops[0].front()).value).position;
+            std::vector<std::vector<Vec2>> flat;
+            for (const Loop& loop : face.loops) {
+                auto& pts = flat.emplace_back();
+                for (const Vec3& p : next.loopPositions(loop)) pts.push_back(project(axes, origin, p));
+            }
+            if (loopsCross(flat)) return std::nullopt;
             face.normal = n;
             continue;
         }
