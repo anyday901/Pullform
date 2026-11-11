@@ -175,10 +175,18 @@ TEST_CASE("offset: a face with a hole shrinks its outer loop and grows the hole"
         CHECK(m.findVertex({1.2, 1.2, 0.0}).has_value());
         for (const auto& [id, f] : m.faces()) CHECK(f.normal.z > 0.99);
     }
-    SUBCASE("outward far enough closes the hole, which is left out") {
+    SUBCASE("outward far enough closes the hole, which is filled") {
         const auto loops = mesh::offsetLoops(m, face, -0.6);
         REQUIRE(loops);
         CHECK(loops->size() == 1);
+        const auto r = mesh::offsetFace(m, face, -0.6);
+        REQUIRE(r);
+        CHECK_FALSE(mesh::validateMesh(m, "m").has_value());
+        // The face, the ring round it, and the hole filled.
+        REQUIRE(m.faces().size() == 3);
+        CHECK(faceWith(m, 1.0, 1).has_value());
+        CHECK(faceWith(m, 4.2 * 4.2 - 9.0, 2).has_value());
+        for (const auto& [id, f] : m.faces()) CHECK(f.normal.z > 0.99);
     }
     SUBCASE("inward until the hole meets the outer loop is refused") {
         CHECK_FALSE(mesh::offsetLoops(m, face, 0.5));
@@ -435,11 +443,17 @@ TEST_CASE("offset tool: a typed distance offsets the selected face; double-click
     REQUIRE(editor.selection());
     REQUIRE_FALSE(tools.submit("-20").has_value()); // negative: outward
     CHECK(meshOf(editor, a).findVertex({-0.02, -0.02, 1.0}).has_value());
-    // Double-click wall b's top: the same offset again.
-    PointerInput dbl = test::downAt(editor, 1.0, 1.1, {300, 10});
-    dbl.clicks = 2;
-    tools.pointerDown(dbl);
+    // Double-click wall b's top (down, up, down, up as the app sends it): the same offset again.
+    const std::size_t depth = editor.undoDepth();
+    PointerInput press = test::downAt(editor, 1.0, 1.1, {300, 10});
+    tools.pointerDown(press);
+    tools.pointerUp(press);
+    CHECK(tools.active());
+    press.clicks = 2;
+    tools.pointerDown(press);
+    tools.pointerUp(press);
     CHECK_FALSE(tools.active());
+    CHECK(editor.undoDepth() == depth + 1);
     CHECK(hasWorldVertex(editor, b, {-0.02, 0.98, 1.0}));
 }
 

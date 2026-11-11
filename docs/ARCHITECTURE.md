@@ -428,7 +428,7 @@ resolved pick, screen position), so tests drive it with synthetic events and no 
   lines meet (mitred). Edges whose offset turns round are dropped and their neighbours meet
   instead, until none does; the outer loop closing up, a loop crossing itself or another,
   or a grown hole leaving the shrunken outer loop is an error ("too large"), and a hole
-  shrinking to nothing is left out. The `OffsetPreview` carries the loops (world space) or
+  shrinking to nothing is left out (and `offsetFace` fills it). The `OffsetPreview` carries the loops (world space) or
   the error. `offsetFace` (a rectangle or box becomes a mesh group first, same face ids)
   draws the loops with `Mesh::addEdge`, so inward the island rule makes the face a ring
   around a new inner face (and each grown hole a ring), and outward the closed loop takes

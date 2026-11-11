@@ -13,7 +13,7 @@ include breaking changes, but project files will keep a migration path.
   press, drag and release), or type a distance. Every loop of the face is copied that far
   in its own plane, with mitred corners: inward the face becomes a ring around a smaller
   copy of itself (each hole grows and gets a ring of its own), outward a ring forms around
-  it (and inside each hole, which shrinks). Concave shapes work, and short edges that would
+  it (and inside each hole, which shrinks, or is filled once it closes up). Concave shapes work, and short edges that would
   turn inside out (a small chamfer) are dropped; a distance too large for the shape is
   refused with a message and the preview turns red. Arcs, circles and polygons stay true
   curves at the offset radius. Rectangles and boxes become mesh groups, keeping their face

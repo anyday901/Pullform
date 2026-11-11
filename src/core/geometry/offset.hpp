@@ -51,7 +51,8 @@ struct OffsetResult {
 /// Draws the offset loops of `face` into the mesh (Mesh::addEdge, so they stick
 /// to the geometry they meet). Inward, the face becomes a ring around a new
 /// inner face, and each hole gets a ring of its own; outward, a ring face forms
-/// around the face and around each shrunken hole. Faces made in the face's
+/// around the face and around each shrunken hole, and a hole that closes up is
+/// filled. Faces made in the face's
 /// plane face the same way as it. Arcs, circles and polygons stay curves (with
 /// the offset radius). On failure the mesh is unchanged.
 Expected<OffsetResult> offsetFace(Mesh& mesh, FaceId face, double distance);

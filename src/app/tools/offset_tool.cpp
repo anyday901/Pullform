@@ -50,6 +50,17 @@ std::optional<std::pair<ObjectId, std::uint32_t>> OffsetTool::faceUnder(const Po
 }
 
 void OffsetTool::pointerDown(const PointerInput& input) {
+    if (gesture_ && input.clicks == 2 && last_) {
+        // The second press of a double-click: its first press started a
+        // gesture that has not moved yet. Drop it and repeat the last offset.
+        const auto* preview = std::get_if<OffsetPreview>(&editor().preview());
+        const auto under = faceUnder(input);
+        if (under && (!preview || std::abs(preview->distance) < tol::kMinDimension)) {
+            abandon();
+            commit(under->first, under->second, *last_);
+            return;
+        }
+    }
     if (gesture_) {
         finish(); // second click of click-move-click
         return;

@@ -365,6 +365,16 @@ Expected<OffsetResult> offsetFace(Mesh& mesh, FaceId id, double distance) {
         }
     }
     if (distance > 0.0 && m.face(id)) result.ring = id;
+    if (distance < 0.0) {
+        // A hole that closed up on the way out is filled, as a smaller offset
+        // would have filled all but its middle. A hole with a face in it already is left as it is.
+        for (std::size_t h = 1; h < original.loops.size(); ++h) {
+            if (std::ranges::any_of(*loops, [h](const OffsetLoop& l) { return l.source == h; })) continue;
+            const Loop& hole = original.loops[h];
+            const bool filled = std::ranges::any_of(m.faces(), [&](const auto& kv) { return sameEdges(kv.second.loops[0], hole); });
+            if (!filled) m.insertFace(FaceId{m.nextFaceId()}, Face{{reversed(hole)}, normal});
+        }
+    }
 
     // Faces made in the face's plane face the same way as it.
     for (const auto& [fid, f] : m.faces()) {
