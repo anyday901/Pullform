@@ -35,9 +35,11 @@ const ImVec4 kMutedColor{0.40f, 0.43f, 0.48f, 1.0f};
 const ImVec4 kAccent{0.16f, 0.45f, 0.85f, 1.0f};
 
 constexpr const char* kLimitsText =
-    "This version supports rectangles drawn on the ground plane and their straight extrusions.\n"
-    "- Push/Pull works on a rectangle or on an extrusion's top cap.\n"
-    "- Side and base faces cannot be pushed yet.\n"
+    "This version supports rectangles drawn on the ground plane and their straight extrusions, and edges "
+    "drawn with the Line tool.\n"
+    "- Push/Pull works on a rectangle, an extrusion's top cap, a drawn face standing on its own, and the ends "
+    "of a drawn prism.\n"
+    "- Side and base faces of rectangles and boxes cannot be pushed yet.\n"
     "- Heights must be positive: pushing below the base, holes and cutting are not supported.\n"
     "- Touching or overlapping objects stay separate (no merging).\n"
     "- Move, Duplicate, Rotate and Scale work on whole objects; Rotate turns about the X, Y or Z\n"
@@ -185,6 +187,14 @@ std::string Ui::measurementLive(const UiContext& ctx) const {
         const double w = std::abs(r->end.x - r->start.x), d = std::abs(r->end.y - r->start.y);
         return formatLength(w, u) + ", " + formatLength(d, u);
     }
+    if (const auto* l = std::get_if<LinePreview>(&ctx.editor.preview())) {
+        std::string text = formatLength(glm::length(l->end - l->start), u);
+        if (l->axis) text += std::string("   (along ") + axisName(*l->axis) + (l->locked ? ", locked)" : ")");
+        return text;
+    }
+    if (const auto* p = std::get_if<PushPullPreview>(&ctx.editor.preview()); p && p->face == FaceKind::Mesh) {
+        return (p->delta >= 0 ? "+" : "") + formatLength(p->delta, u);
+    }
     if (const auto* p = std::get_if<PushPullPreview>(&ctx.editor.preview())) {
         return (p->delta >= 0 ? "+" : "") + formatLength(p->delta, u) + "   (total height " + formatLength(p->height, u) + ")";
     }
@@ -280,6 +290,7 @@ void Ui::menuBar(UiContext& ctx) {
         const Tool t = ctx.tools.tool();
         if (ImGui::MenuItem("Select", shortcuts::kSelect, t == Tool::Select)) ctx.tools.setTool(Tool::Select);
         if (ImGui::MenuItem("Rectangle", shortcuts::kRectangle, t == Tool::Rectangle)) ctx.tools.setTool(Tool::Rectangle);
+        if (ImGui::MenuItem("Line", shortcuts::kLine, t == Tool::Line)) ctx.tools.setTool(Tool::Line);
         if (ImGui::MenuItem("Push/Pull", shortcuts::kPushPull, t == Tool::PushPull)) ctx.tools.setTool(Tool::PushPull);
         if (ImGui::MenuItem("Move", shortcuts::kMove, t == Tool::Move)) ctx.tools.setTool(Tool::Move);
         if (ImGui::MenuItem("Rotate", shortcuts::kRotate, t == Tool::Rotate)) ctx.tools.setTool(Tool::Rotate);
@@ -311,7 +322,9 @@ void Ui::toolbar(UiContext& ctx, float y, float height, float width) {
     ImGui::SameLine();
     if (toolButton("Rectangle", t == Tool::Rectangle, "Rectangle (R)\nClick two corners on the ground, or type width, depth.")) ctx.tools.setTool(Tool::Rectangle);
     ImGui::SameLine();
-    if (toolButton("Push/Pull", t == Tool::PushPull, "Push/Pull (P)\nClick a rectangle or a top cap and move up, or type a distance.")) ctx.tools.setTool(Tool::PushPull);
+    if (toolButton("Line", t == Tool::Line, "Line (L)\nClick points to draw connected edges, or type each length.\nClose a loop to make a face. Arrow keys lock an axis; Esc ends the line.")) ctx.tools.setTool(Tool::Line);
+    ImGui::SameLine();
+    if (toolButton("Push/Pull", t == Tool::PushPull, "Push/Pull (P)\nClick a rectangle, a top cap or a drawn face and move, or type a distance.")) ctx.tools.setTool(Tool::PushPull);
     ImGui::SameLine();
     if (toolButton("Move", t == Tool::Move, "Move (M)\nClick an object and move it, or type a distance.\nX, Y, Z or the arrow keys lock an axis.\n" PF_COPY_KEY " (tap) places a copy instead.")) ctx.tools.setTool(Tool::Move);
     ImGui::SameLine();
@@ -537,7 +550,7 @@ void Ui::bottomBar(UiContext& ctx, float y, float width, float height) {
                                                 measure_.data(), measure_.size(), ImGuiInputTextFlags_EnterReturnsTrue);
     measureEditing_ = ImGui::IsItemActive();
     tooltip("Type here, or just start typing in the viewport.\nUnits: mm (default), cm, m, in or \", ft or '. "
-            "Unitless values use the display unit.\nRectangle: width, depth. Push/Pull: distance from the current face. "
+            "Unitless values use the display unit.\nRectangle: width, depth. Line: length toward the pointer, or x, y, z. Push/Pull: distance from the current face. "
             "Move: distance along the locked axis or pointer direction, or x, y, z. Select: total height.\n"
             "Rotate: angle in degrees. Scale: factor (2, 50%) or width, depth, height factors.");
     if (enter) submitMeasurement(ctx);

@@ -456,6 +456,24 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
             temp.transform.translation = rect->placement->corner;
             renderer_.drawMesh(previewMesh(buildMesh(temp)), kPreviewFill);
         }
+    } else if (const auto* line = std::get_if<LinePreview>(&editor.preview())) {
+        glm::vec4 color = line->axis ? axisColor(*line->axis) : kPreviewEdge;
+        if (line->axis && line->locked) {
+            // Show the locked axis through the last point, as Move does.
+            const Vec3 dir = axisVector(*line->axis);
+            const double reach = std::max(camera_.distance(), 1.0);
+            lines.push_back({line->start - dir * reach, line->start + dir * reach, dim(color, 0.35f)});
+        }
+        if (line->error) color = kErrorEdge;
+        lines.push_back({line->start, line->end, color});
+    } else if (pushPreview && pushPreview->face == FaceKind::Mesh) {
+        if (pushPreview->result) {
+            const MeshData mesh = buildMesh(*pushPreview->result);
+            renderer_.drawMesh(previewMesh(mesh), glm::vec4(0.70f, 0.82f, 0.97f, 1.0f));
+            appendEdges(lines, mesh, kSelectedEdge);
+        } else if (const auto* obj = doc.find(pushPreview->objectId)) {
+            appendEdges(lines, buildMesh(*obj), kErrorEdge);
+        }
     } else if (pushPreview) {
         if (const auto* obj = doc.find(pushPreview->objectId)) {
             const bool valid = !pushPreview->error.has_value();

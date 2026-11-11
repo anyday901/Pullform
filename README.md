@@ -25,12 +25,16 @@ is not affiliated with SketchUp and does not read or write `.skp` files.
 7. Select and delete a whole object.
 8. Undo and redo every committed modeling operation.
 9. Save an editable, versioned project file (`.pullform.json`), reopen it, and keep editing.
+10. Draw connected edges with the **Line** tool (L): click points or type each length
+    (arrow keys lock an axis). A closed planar loop becomes a face, which push/pull
+    extrudes into a solid.
 
 ### Current limits
 
 - Shapes are rectangles and their straight extrusions only. They are drawn on the ground
   plane (z = 0); Move and Rotate can then place them anywhere.
-- Push/pull works on a planar rectangle and on an extrusion's top cap. Side and base faces
+- Push/pull works on a planar rectangle, an extrusion's top cap, a drawn face standing on
+  its own and the end faces of a drawn prism. Side and base faces of rectangles and boxes
   cannot be pushed yet. Heights must be positive: pushing below the base, holes, cutting
   through solids and merging touching geometry are not supported.
 - Objects stay independent when they touch or overlap.
