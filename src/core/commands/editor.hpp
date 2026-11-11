@@ -56,6 +56,7 @@ struct MovePreview {
     Vec3 offset{0.0};
     std::optional<MoveAxis> axis;     ///< locked axis, if any
     std::optional<std::string> error; ///< why the current offset cannot be committed
+    bool copy = false;                ///< committing places a copy; the original stays put
 };
 
 /// Transient feedback drawn by the viewport. Never part of the document or history.

@@ -29,7 +29,7 @@ is not affiliated with SketchUp and does not read or write `.skp` files.
   cannot be pushed yet. Heights must be positive: pushing below the base, holes, cutting
   through solids and merging touching geometry are not supported.
 - Objects stay independent when they touch or overlap.
-- No move, rotate, scale or copy tools yet; objects stay where they were drawn.
+- No rotate or scale tools yet; Move and Duplicate work on whole objects.
 - Rectangle width and depth cannot be edited after drawing (only the height).
 
 The same limits are listed in the app's Properties panel. See
@@ -117,12 +117,14 @@ tree, configure with `-DFETCHCONTENT_FULLY_DISCONNECTED=ON`.
 | Push/Pull tool | P |
 | Move tool | M |
 | Lock Move to an axis (again to release) | X / Y / Z, or Right / Left / Up arrow |
+| Move: place a copy instead (again to stop) | Tap Ctrl (Option on macOS) |
 | Orbit tool | O |
 | Fit view to model | F |
 | Toggle grid snap | G |
 | Type an exact value | Start typing digits, then Enter (goes to the Measurements box) |
 | Cancel the current operation, or clear the selection | Esc |
 | Delete the selected object | Delete or Backspace |
+| Duplicate the selected object | Ctrl+D (Cmd+D on macOS) |
 | Undo | Ctrl+Z (Cmd+Z on macOS) |
 | Redo | Ctrl+Y or Ctrl+Shift+Z (Cmd+Shift+Z on macOS) |
 | New / Open / Save / Save As | Ctrl+N / Ctrl+O / Ctrl+S / Ctrl+Shift+S |

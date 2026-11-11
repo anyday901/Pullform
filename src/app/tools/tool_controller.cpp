@@ -2,6 +2,7 @@
 
 #include "core/commands/operations.hpp"
 #include "core/document/tolerance.hpp"
+#include "core/geometry/solid.hpp"
 
 #include <glm/geometric.hpp>
 
@@ -47,6 +48,7 @@ void ToolController::setTool(Tool tool) {
     if (tool == tool_) return;
     cancel();
     axisLock_.reset();
+    moveCopy_ = false;
     tool_ = tool;
     editor_.setHover(std::nullopt);
     editor_.notify(std::nullopt);
@@ -345,6 +347,15 @@ void ToolController::toggleAxisLock(MoveAxis axis) {
     }
 }
 
+void ToolController::toggleMoveCopy() {
+    moveCopy_ = !moveCopy_;
+    if (const auto* p = std::get_if<MovePreview>(&editor_.preview())) {
+        MovePreview next = *p;
+        next.copy = moveCopy_;
+        editor_.setPreview(next);
+    }
+}
+
 void ToolController::moveDown(const PointerInput& input) {
     if (move_) {
         // Second click of click-move-click. The pointer may have moved in the
@@ -363,7 +374,7 @@ void ToolController::moveDown(const PointerInput& input) {
     editor_.select(Selection{pick.objectId, pick.faceId});
     move_ = MoveGesture{pick.objectId, pick.point, o->transform.translation, input.screen, true, std::nullopt};
     editor_.notify(std::nullopt);
-    editor_.setPreview(MovePreview{pick.objectId, pick.point, Vec3{0.0}, axisLock_, std::nullopt});
+    editor_.setPreview(MovePreview{pick.objectId, pick.point, Vec3{0.0}, axisLock_, std::nullopt, moveCopy_});
 }
 
 std::optional<Vec3> ToolController::moveOffset(const Ray& ray) const {
@@ -409,7 +420,7 @@ void ToolController::updateMovePreview(const Ray& ray) {
             offset = Vec3{last.x, last.y, 0.0};
         }
     }
-    editor_.setPreview(MovePreview{move_->objectId, move_->anchor, *offset, axisLock_, checkMove(*o, *offset)});
+    editor_.setPreview(MovePreview{move_->objectId, move_->anchor, *offset, axisLock_, checkMove(*o, *offset), moveCopy_});
 }
 
 void ToolController::moveMove(const PointerInput& input) {
@@ -441,12 +452,28 @@ void ToolController::moveFinish() {
 
 bool ToolController::commitMove(ObjectId id, const Vec3& offset) {
     const LengthUnit unit = editor_.document().displayUnit;
-    std::string label = "Move " + formatLength(glm::length(offset), unit);
+    const bool copy = moveCopy_;
+    std::string label = (copy ? "Copy " : "Move ") + formatLength(glm::length(offset), unit);
     if (const auto axis = singleAxis(offset)) label += std::string(" along ") + axisName(*axis);
-    const bool ok = editor_.commit(label, [id, &offset](const Document& doc) { return moveObject(doc, id, offset); });
+    bool ok = false;
+    if (copy) {
+        // The copy takes over the selection (with the same face) so it can be
+        // moved or copied again right away.
+        const auto face = editor_.selection() && editor_.selection()->objectId == id ? editor_.selection()->face
+                                                                                    : std::optional<FaceId>{};
+        ok = editor_.commit(
+            label, [id, &offset](const Document& doc) { return duplicateObject(doc, id, offset); },
+            [face](const OpResult& r) -> std::optional<Selection> {
+                if (!r.objectId) return std::nullopt;
+                return Selection{*r.objectId, face};
+            });
+    } else {
+        ok = editor_.commit(label, [id, &offset](const Document& doc) { return moveObject(doc, id, offset); });
+    }
     if (ok) {
         move_.reset();
         axisLock_.reset();
+        moveCopy_ = false;
         editor_.cancelPreview();
     }
     return ok;
@@ -512,7 +539,13 @@ std::string ToolController::hint() const {
         if (push_) return "Push/Pull: move to set the height and click, or type a distance and press Enter. Esc cancels.";
         return "Push/Pull: click a rectangle or an extrusion's top cap, then move up. Side and base faces are not supported yet.";
     case Tool::Move: {
-        const std::string lock = axisLock_ ? std::string(" Locked to ") + axisName(*axisLock_) + "." : std::string();
+        std::string lock = axisLock_ ? std::string(" Locked to ") + axisName(*axisLock_) + "." : std::string();
+#ifdef __APPLE__
+        constexpr const char* copyKey = "Option";
+#else
+        constexpr const char* copyKey = "Ctrl";
+#endif
+        lock += moveCopy_ ? std::string(" Copying (") + copyKey + " to stop)." : std::string(" ") + copyKey + " makes a copy.";
         if (move_) {
             return "Move: click the destination, or type a distance and press Enter. X, Y, Z or the arrow keys lock an "
                    "axis. Esc cancels." + lock;
@@ -524,6 +557,29 @@ std::string ToolController::hint() const {
         return "Orbit: drag with the left button to orbit. Right-drag pans, the wheel zooms.";
     }
     return {};
+}
+
+std::optional<std::string> ToolController::duplicateSelection() {
+    const auto selection = editor_.selection();
+    if (!selection) return std::string{"Select an object to duplicate."};
+    const auto* o = editor_.document().find(selection->objectId);
+    if (!o) return std::string{"The selected object no longer exists."};
+    cancel();
+    const Vec3 offset{objectBounds(*o).size().x, 0.0, 0.0};
+    const auto face = selection->face;
+    const ObjectId id = selection->objectId;
+    if (const bool ok = editor_.commit(
+            "Duplicate " + idString(id), [id, offset](const Document& d) { return duplicateObject(d, id, offset); },
+            [face](const OpResult& r) -> std::optional<Selection> {
+                if (!r.objectId) return std::nullopt;
+                return Selection{*r.objectId, face};
+            });
+        !ok) {
+        return lastError("Could not duplicate the object.");
+    }
+    if (const auto* copy = editor_.selection() ? editor_.document().find(editor_.selection()->objectId) : nullptr)
+        editor_.notify(Message{Message::Kind::Info, "Duplicated as " + copy->name + "."});
+    return std::nullopt;
 }
 
 } // namespace pf
