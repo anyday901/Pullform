@@ -228,8 +228,9 @@ Loop Mesh::makeLoop(const std::vector<VertexId>& vs) const {
         const VertexId a = vs[i];
         const VertexId b = vs[(i + 1) % vs.size()];
         const auto e = findEdge(a, b);
-        if (!e) return {};
-        loop.push_back(EdgeUse{*e, edge(*e)->v0 != a});
+        const Edge* found = e ? edge(*e) : nullptr;
+        if (!found) return {};
+        loop.push_back(EdgeUse{*e, found->v0 != a});
     }
     return loop;
 }
@@ -488,10 +489,13 @@ std::optional<Vec3> interiorPoint(const Mesh& m, const Face& f) {
     // Triangulate through a throwaway mesh holding just this face.
     for (const auto& loop : f.loops) {
         for (const auto& use : loop) {
-            const Edge& e = *m.edge(use.edge);
-            tmp.insertVertex(e.v0, m.vertex(e.v0)->position);
-            tmp.insertVertex(e.v1, m.vertex(e.v1)->position);
-            tmp.insertEdge(use.edge, e);
+            const Edge* e = m.edge(use.edge);
+            const Vertex* v0 = e ? m.vertex(e->v0) : nullptr;
+            const Vertex* v1 = e ? m.vertex(e->v1) : nullptr;
+            if (!v0 || !v1) return std::nullopt; // the face refers to a missing element
+            tmp.insertVertex(e->v0, v0->position);
+            tmp.insertVertex(e->v1, v1->position);
+            tmp.insertEdge(use.edge, *e);
         }
     }
     tmp.insertFace(FaceId{1}, f);
@@ -499,7 +503,11 @@ std::optional<Vec3> interiorPoint(const Mesh& m, const Face& f) {
     double best = 0.0;
     std::optional<Vec3> point;
     for (const auto& t : tris) {
-        const Vec3 a = tmp.vertex(t[0])->position, b = tmp.vertex(t[1])->position, c = tmp.vertex(t[2])->position;
+        const Vertex* va = tmp.vertex(t[0]);
+        const Vertex* vb = tmp.vertex(t[1]);
+        const Vertex* vc = tmp.vertex(t[2]);
+        if (!va || !vb || !vc) continue;
+        const Vec3 a = va->position, b = vb->position, c = vc->position;
         const double area = glm::length(glm::cross(b - a, c - a));
         if (area > best) {
             best = area;
@@ -935,7 +943,9 @@ std::vector<std::array<VertexId, 3>> triangulateFace(const Mesh& m, FaceId fid) 
     };
     const auto loop2d = [&](const Loop& loop) {
         std::vector<Pt> pts;
-        for (const auto v : m.loopVertices(loop)) pts.push_back({v, project(axes, origin, m.vertex(v)->position)});
+        for (const auto v : m.loopVertices(loop)) {
+            if (const Vertex* vertex = m.vertex(v)) pts.push_back({v, project(axes, origin, vertex->position)});
+        }
         return pts;
     };
     std::vector<Pt> poly = loop2d(f->loops[0]);
@@ -1075,6 +1085,7 @@ Connected connectedElements(const Mesh& m, VertexId start) {
         for (const EdgeId e : m.edgesOfVertex(v)) {
             edges.insert(e);
             const Edge* edge = m.edge(e);
+            if (!edge) continue;
             const VertexId other = edge->v0 == v ? edge->v1 : edge->v0;
             if (seen.insert(other).second) stack.push_back(other);
         }
