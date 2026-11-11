@@ -6,6 +6,8 @@
 #include "core/document/units.hpp"
 
 #include <algorithm>
+#include <cmath>
+#include <numbers>
 
 using namespace pf;
 using pf::test::downAt;
