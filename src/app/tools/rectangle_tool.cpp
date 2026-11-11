@@ -35,6 +35,9 @@ std::string_view RectangleTool::measurementLabel() const {
 }
 
 bool RectangleTool::key(ToolKey key) {
+    // Once a rotated rectangle's first side is placed, the plane must keep
+    // containing it: turning the plane could make it parallel to the normal.
+    if (mode_ == Mode::Rotated && gesture_ && gesture_->side) return false;
     if (!plane_.key(key)) return false;
     // Show the new plane right away, from the last pointer position.
     if (lastInput_) pointerMove(*lastInput_);

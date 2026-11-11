@@ -293,6 +293,8 @@ TEST_CASE("rotated rectangle: three clicks in any direction on the plane") {
         click(tools, downAt(editor, 3.0, 4.0, {200, 200}));
         REQUIRE(tools.active());
         CHECK(tools.measurementLabel() == "Depth");
+        // The plane cannot turn away from the placed side.
+        CHECK_FALSE(tools.key(ToolKey::ArrowRight));
         click(tools, downAt(editor, -1.6, 1.2, {150, 300}));
         REQUIRE_FALSE(tools.active());
     }
