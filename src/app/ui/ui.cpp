@@ -132,20 +132,7 @@ void Ui::showError(const std::string& title, const std::string& text) {
     openError_ = true;
 }
 
-std::string Ui::measurementLabel(const UiContext& ctx) const {
-    switch (ctx.tools.tool()) {
-    case Tool::Rectangle: return "Dimensions (width, depth)";
-    case Tool::PushPull: return "Distance (incremental)";
-    case Tool::Move: return "Distance, or x, y, z";
-    case Tool::Rotate: return "Angle (degrees)";
-    case Tool::Scale: return "Scale (factor, or w, d, h)";
-    case Tool::Select: return "Total height";
-    case Tool::Orbit: return "Measurements";
-    case Tool::TapeMeasure: return "Distance";
-    case Tool::Dimension: return "Offset";
-    }
-    return "Measurements";
-}
+std::string Ui::measurementLabel(const UiContext& ctx) const { return std::string(ctx.tools.measurementLabel()); }
 
 std::string Ui::measurementLive(const UiContext& ctx) const {
     const LengthUnit u = ctx.editor.document().displayUnit;
@@ -185,21 +172,7 @@ std::string Ui::measurementLive(const UiContext& ctx) const {
 void Ui::submitMeasurement(UiContext& ctx) {
     const std::string text(measure_.data());
     if (text.empty()) return;
-    std::optional<std::string> error;
-    switch (ctx.tools.tool()) {
-    case Tool::Rectangle: error = ctx.tools.submitRectangleSize(text); break;
-    case Tool::PushPull: error = ctx.tools.submitPushDistance(text); break;
-    case Tool::Move: error = ctx.tools.submitMoveDistance(text); break;
-    case Tool::Rotate: error = ctx.tools.submitRotateAngle(text); break;
-    case Tool::Scale: error = ctx.tools.submitScaleFactors(text); break;
-    case Tool::Select:
-        if (ctx.editor.selection()) error = ctx.tools.setTotalHeight(ctx.editor.selection()->objectId, text);
-        else error = "Select an object first, or pick the Rectangle or Push/Pull tool.";
-        break;
-    case Tool::Orbit: error = "The Orbit tool takes no measurements."; break;
-    case Tool::TapeMeasure:
-    case Tool::Dimension: error = ctx.tools.submitMeasure(text); break;
-    }
+    const std::optional<std::string> error = ctx.tools.submit(text);
     // Clear the box either way: the error stays in the status bar, and a stale
     // value would otherwise keep capturing the single-key shortcuts.
     if (error) ctx.editor.notify(Message{Message::Kind::Error, "\"" + text + "\": " + *error});

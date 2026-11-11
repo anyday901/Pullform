@@ -395,15 +395,9 @@ void App::handleShortcuts() {
     // Axis lock for Move and the Rotate axis. Arrow keys work even while typing
     // a distance or angle (they are not characters): Right = X, Left = Y, Up = Z,
     // as in other modelers.
-    if (tools_.tool() == Tool::Move) {
-        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) tools_.toggleAxisLock(MoveAxis::X);
-        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) tools_.toggleAxisLock(MoveAxis::Y);
-        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, false)) tools_.toggleAxisLock(MoveAxis::Z);
-    } else if (tools_.tool() == Tool::Rotate) {
-        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) tools_.setRotateAxis(MoveAxis::X);
-        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) tools_.setRotateAxis(MoveAxis::Y);
-        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, false)) tools_.setRotateAxis(MoveAxis::Z);
-    }
+    if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) tools_.key(ToolKey::ArrowRight);
+    if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) tools_.key(ToolKey::ArrowLeft);
+    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, false)) tools_.key(ToolKey::ArrowUp);
     const bool typing = ui_.hasMeasurementText();
     for (int i = 0; i < io.InputQueueCharacters.Size; ++i) {
         const unsigned int c = io.InputQueueCharacters[i];
@@ -440,11 +434,9 @@ void App::handleShortcuts() {
     if (ImGui::IsKeyPressed(ImGuiKey_S, false)) tools_.setTool(Tool::Scale);
     if (ImGui::IsKeyPressed(ImGuiKey_O, false)) tools_.setTool(Tool::Orbit);
     if (ImGui::IsKeyPressed(ImGuiKey_M, false)) tools_.setTool(Tool::Move);
-    if (tools_.tool() == Tool::Move) {
-        if (ImGui::IsKeyPressed(ImGuiKey_X, false)) tools_.toggleAxisLock(MoveAxis::X);
-        if (ImGui::IsKeyPressed(ImGuiKey_Y, false)) tools_.toggleAxisLock(MoveAxis::Y);
-        if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) tools_.toggleAxisLock(MoveAxis::Z);
-    }
+    if (ImGui::IsKeyPressed(ImGuiKey_X, false)) tools_.key(ToolKey::X);
+    if (ImGui::IsKeyPressed(ImGuiKey_Y, false)) tools_.key(ToolKey::Y);
+    if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) tools_.key(ToolKey::Z);
     if (ImGui::IsKeyPressed(ImGuiKey_T, false)) tools_.setTool(Tool::TapeMeasure);
     if (ImGui::IsKeyPressed(ImGuiKey_D, false)) tools_.setTool(Tool::Dimension);
     if (ImGui::IsKeyPressed(ImGuiKey_F, false)) fitView();

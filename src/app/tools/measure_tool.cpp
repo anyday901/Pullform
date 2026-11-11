@@ -1,6 +1,6 @@
 #include "app/tools/measure_tool.hpp"
 
-#include "app/tools/tool_controller.hpp"
+#include "app/tools/tool_support.hpp"
 #include "core/commands/operations.hpp"
 #include "core/document/tolerance.hpp"
 #include "core/geometry/measure.hpp"
@@ -20,11 +20,11 @@ std::string deltaText(const Vec3& d, LengthUnit u) {
 } // namespace
 
 void MeasureTool::start(Mode mode) {
-    cancel();
+    reset();
     mode_ = mode;
 }
 
-bool MeasureTool::cancel() {
+bool MeasureTool::reset() {
     const bool had = active();
     start_.reset();
     end_.reset();
@@ -35,7 +35,7 @@ bool MeasureTool::cancel() {
 }
 
 MeasurePoint MeasureTool::pointAt(const SnapResult& snap) const {
-    const Document& doc = editor_.document();
+    const Document& doc = editor().document();
     // Only corners and edge midpoints attach; a point on a face or on the
     // ground stays where it was placed even if the object later changes.
     if (snap.kind == SnapKind::Endpoint || snap.kind == SnapKind::Midpoint) {
@@ -54,10 +54,11 @@ void MeasureTool::publish(const MeasurePoint& cursor) {
     else if (start_) preview.end = cursor.point; // live second point
     preview.fixed = fixed_;
     preview.offset = offset_;
-    editor_.setPreview(preview);
+    editor().setPreview(preview);
 }
 
-void MeasureTool::pointerMove(const PointerInput& input, const std::optional<SnapResult>& snap) {
+void MeasureTool::pointerMove(const PointerInput& input) {
+    const auto snap = ctx_.measureSnap(input);
     // Placing the dimension line needs only the ray, so it keeps working when
     // the pointer is above the horizon and hits neither the model nor the ground.
     if (placingLine()) {
@@ -66,18 +67,20 @@ void MeasureTool::pointerMove(const PointerInput& input, const std::optional<Sna
     publish(snap ? pointAt(*snap) : cursor_);
 }
 
-void MeasureTool::pointerDown(const PointerInput& input, const std::optional<SnapResult>& snap) {
+void MeasureTool::pointerDown(const PointerInput& input) {
+    const auto snap = ctx_.measureSnap(input);
     pressScreen_ = input.screen;
     pressed_ = true;
     click(input, snap);
 }
 
-void MeasureTool::pointerUp(const PointerInput& input, const std::optional<SnapResult>& snap) {
+void MeasureTool::pointerUp(const PointerInput& input) {
+    const auto snap = ctx_.measureSnap(input);
     if (!pressed_) return;
     pressed_ = false;
     // Press-drag-release places the next point at the release, like two clicks.
     // Only between the first and second point: the line offset is always a click.
-    if (start_ && !fixed_ && glm::length(input.screen - pressScreen_) > ToolController::kDragThresholdPx) click(input, snap);
+    if (start_ && !fixed_ && isDrag(pressScreen_, input.screen)) click(input, snap);
 }
 
 void MeasureTool::click(const PointerInput& input, const std::optional<SnapResult>& snap) {
@@ -89,29 +92,29 @@ void MeasureTool::click(const PointerInput& input, const std::optional<SnapResul
     }
     if (!snap) return; // nothing under the pointer to measure from
     const MeasurePoint p = pointAt(*snap);
-    const LengthUnit u = editor_.document().displayUnit;
+    const LengthUnit u = editor().document().displayUnit;
     if (!start_ || (mode_ == Mode::Tape && fixed_)) {
         // First point (a click after a finished tape measurement starts over).
-        cancel();
+        reset();
         pressed_ = true;
         start_ = p;
-        editor_.notify(std::nullopt);
+        editor().notify(std::nullopt);
         publish(p);
         return;
     }
     if (!fixed_) {
         const Measurement m = measureBetween(start_->point, p.point);
         if (m.length < tol::kMinDimension) {
-            editor_.notify(Message{Message::Kind::Error, "Pick a second point away from the first."});
+            editor().notify(Message{Message::Kind::Error, "Pick a second point away from the first."});
             return;
         }
         end_ = p;
         fixed_ = true;
         if (mode_ == Mode::Tape) {
-            editor_.notify(Message{Message::Kind::Info, "Distance " + formatLength(m.length, u) + "  (" + deltaText(m.delta, u) + ")"});
+            editor().notify(Message{Message::Kind::Info, "Distance " + formatLength(m.length, u) + "  (" + deltaText(m.delta, u) + ")"});
         } else {
             offset_ = offsetFromRay(start_->point, end_->point, input.ray);
-            editor_.notify(std::nullopt);
+            editor().notify(std::nullopt);
         }
         publish(p);
     }
@@ -121,13 +124,13 @@ bool MeasureTool::commitDimension(const Vec3& offset) {
     if (!start_ || !end_) return false;
     const DimensionAnchor a = start_->anchor;
     const DimensionAnchor b = end_->anchor;
-    const LengthUnit u = editor_.document().displayUnit;
+    const LengthUnit u = editor().document().displayUnit;
     const double length = measureBetween(start_->point, end_->point).length;
-    const bool ok = editor_.commit("Add dimension " + formatLength(length, u),
+    const bool ok = editor().commit("Add dimension " + formatLength(length, u),
                                    [&a, &b, &offset](const Document& doc) { return addDimension(doc, a, b, offset); });
     if (ok) {
         const MeasurePoint keep = cursor_;
-        cancel();
+        reset();
         publish(keep);
     }
     return ok;
@@ -138,15 +141,14 @@ std::optional<std::string> MeasureTool::submit(std::string_view text) {
         return std::string("The tape measure takes no typed value. Click two points to measure between them.");
     }
     if (!fixed_ || !start_ || !end_) return std::string("Click the two points to dimension first, then type the offset.");
-    const auto parsed = parseLength(text, editor_.document().displayUnit);
+    const auto parsed = parseLength(text, editor().document().displayUnit);
     if (!parsed) return parsed.error();
     if (!std::isfinite(*parsed) || std::abs(*parsed) > tol::kMaxCoordinate) return std::string("The offset is out of range.");
     // The typed distance keeps the side the pointer chose; a negative value flips it.
     Vec3 dir = defaultOffsetDirection(start_->point, end_->point);
     if (offset_ && glm::length(*offset_) > tol::kLengthEpsilon) dir = glm::normalize(*offset_);
     if (!commitDimension(dir * *parsed)) {
-        const auto& m = editor_.message();
-        return m && m->kind == Message::Kind::Error ? m->text : std::string("Could not add the dimension.");
+        return ctx_.lastError("Could not add the dimension.");
     }
     return std::nullopt;
 }
