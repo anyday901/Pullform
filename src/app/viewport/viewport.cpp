@@ -33,6 +33,15 @@ constexpr glm::vec4 kGuideFree{0.45f, 0.45f, 0.50f, 1.0f};
 
 glm::vec4 dim(glm::vec4 c, float a) { return {c.r, c.g, c.b, a}; }
 
+glm::vec4 guideColor(int axis) {
+    switch (axis) {
+    case 0: return kAxisX;
+    case 1: return kAxisY;
+    case 2: return kAxisZ;
+    default: return kGuideFree;
+    }
+}
+
 } // namespace
 
 Viewport::Viewport(Renderer& renderer) : renderer_(renderer), meshes_(renderer) {}
@@ -73,12 +82,16 @@ void Viewport::drawSnap(std::vector<LineSegment>& lines, const SnapResult& snap)
 
     // Inference guides: dashed lines in the color of their axis.
     for (const auto& g : snap.guides) {
-        const glm::vec4 color = g.axis == 0 ? kAxisX : g.axis == 1 ? kAxisY : g.axis == 2 ? kAxisZ : kGuideFree;
         const double len = glm::length(g.to - g.from);
         if (len <= 0.0) continue;
         const double dash = std::max(pixels((g.from + g.to) * 0.5, 6.0), len / 400.0);
         const Vec3 dir = (g.to - g.from) / len;
-        for (double s = 0.0; s < len; s += 2.0 * dash) lines.push_back({g.from + dir * s, g.from + dir * std::min(s + dash, len), color});
+        // An integer dash count (at most 200), not a floating-point loop counter.
+        const auto count = static_cast<int>(std::ceil(len / (2.0 * dash)));
+        for (int i = 0; i < count; ++i) {
+            const double s = 2.0 * dash * i;
+            lines.push_back({g.from + dir * s, g.from + dir * std::min(s + dash, len), guideColor(g.axis)});
+        }
     }
 
     // Marker at the snapped point, facing the camera: a square on an endpoint,
