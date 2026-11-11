@@ -1,5 +1,6 @@
 #pragma once
 
+#include "app/tools/measure_tool.hpp"
 #include "core/commands/editor.hpp"
 #include "core/geometry/pick.hpp"
 #include "core/geometry/snap.hpp"
@@ -11,7 +12,7 @@
 
 namespace pf {
 
-enum class Tool { Select, Rectangle, PushPull, Orbit };
+enum class Tool { Select, Rectangle, PushPull, Orbit, TapeMeasure, Dimension };
 
 std::string_view toolName(Tool tool);
 
@@ -47,7 +48,7 @@ class ToolController {
 public:
     static constexpr double kDragThresholdPx = 5.0;
 
-    explicit ToolController(Editor& editor) : editor_(editor) {}
+    explicit ToolController(Editor& editor) : editor_(editor), measure_(editor) {}
 
     [[nodiscard]] Tool tool() const { return tool_; }
     void setTool(Tool tool);
@@ -56,7 +57,7 @@ public:
     [[nodiscard]] const SnapSettings& snap() const { return snap_; }
 
     /// True while a gesture is in progress (first corner placed, push/pull started).
-    [[nodiscard]] bool active() const { return rect_.has_value() || push_.has_value(); }
+    [[nodiscard]] bool active() const { return rect_.has_value() || push_.has_value() || measure_.active(); }
 
     /// Escape: cancels the active gesture. Returns whether anything was cancelled.
     bool cancel();
@@ -77,6 +78,11 @@ public:
 
     /// Sets the total extrusion height of an object (properties panel).
     std::optional<std::string> setTotalHeight(ObjectId id, std::string_view height);
+
+    /// Typed value for the tape measure or dimension tool (the dimension line offset).
+    std::optional<std::string> submitMeasure(std::string_view text) { return measure_.submit(text); }
+
+    [[nodiscard]] MeasureTool& measureTool() { return measure_; }
 
     /// Explanation when a face cannot be push/pulled in this milestone.
     static std::optional<std::string> pushableReason(const FaceId& face);
@@ -127,6 +133,9 @@ private:
     void remember(const Vec3& p);
     std::optional<double> snapPushHeight(const PointerInput& input, std::optional<double> raw);
 
+    /// Snaps for the tape measure and dimension tools and shows the marker.
+    SnapResult measureSnap(const PointerInput& input);
+
     void selectDown(const PointerInput& input);
     void rectDown(const PointerInput& input);
     void rectMove(const PointerInput& input);
@@ -147,6 +156,7 @@ private:
     SnapIndex snapIndex_;
     std::optional<SnapResult> indicator_;
     std::vector<Vec3> references_;
+    MeasureTool measure_;
 };
 
 } // namespace pf

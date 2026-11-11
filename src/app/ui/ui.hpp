@@ -1,6 +1,7 @@
 #pragma once
 
 #include "app/tools/tool_controller.hpp"
+#include "app/viewport/labels.hpp"
 #include "core/commands/editor.hpp"
 
 #include <array>
@@ -34,6 +35,9 @@ class Ui {
 public:
     /// Draws the interface and returns the viewport rectangle.
     UiRect draw(UiContext& ctx);
+
+    /// Draws dimension and measurement labels over the viewport.
+    void drawLabels(const std::vector<ViewportLabel>& labels);
 
     /// Actions requested since the last call.
     std::vector<UiAction> takeActions();

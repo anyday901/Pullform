@@ -2,11 +2,13 @@
 
 #include "app/tools/tool_controller.hpp"
 #include "app/viewport/camera.hpp"
+#include "app/viewport/labels.hpp"
 #include "app/viewport/mesh_cache.hpp"
 #include "app/viewport/renderer.hpp"
 #include "core/commands/editor.hpp"
 
 #include <optional>
+#include <vector>
 
 namespace pf {
 
@@ -38,6 +40,9 @@ public:
 
     void render(const Editor& editor, const ToolController& tools);
 
+    /// Text labels for dimensions and the live measurement, in window coordinates.
+    [[nodiscard]] std::vector<ViewportLabel> labels(const Editor& editor) const;
+
     /// Grid spacing currently drawn (meters), for the status bar.
     [[nodiscard]] double gridStep() const { return gridStep_; }
 
@@ -49,6 +54,9 @@ private:
     /// Radians per pixel: world size of one pixel at unit distance from the eye.
     [[nodiscard]] double pixelAngle() const;
     void drawSnap(std::vector<LineSegment>& lines, const SnapResult& snap) const;
+    void appendDimension(std::vector<LineSegment>& lines, const Vec3& a, const Vec3& b, const Vec3& offset,
+                         const glm::vec4& color) const;
+    [[nodiscard]] std::optional<Vec2> toWindow(const Vec3& world) const;
     void drawFaceOverlay(const CachedMesh& cached, const FaceId& face, const glm::vec4& color);
 
     Renderer& renderer_;

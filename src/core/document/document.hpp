@@ -80,13 +80,47 @@ struct ProfileObject {
 /// snapshot. Edits replace the pointer.
 using ObjectPtr = std::shared_ptr<const ProfileObject>;
 
+/// Stable dimension identifier, drawn from the same allocator as object IDs
+/// (Document::nextId), so no number is ever used twice. Serialized as "dim-<n>".
+struct DimensionId {
+    std::uint64_t value = 0;
+    friend auto operator<=>(const DimensionId&, const DimensionId&) = default;
+};
+
+std::string idString(DimensionId id);
+std::optional<DimensionId> parseDimensionId(std::string_view text);
+
+/// One end of a dimension. Attached to an object, it names the object's
+/// corners by index (see objectVertex in core/geometry/measure.hpp): one index
+/// is a corner, two are the midpoint of the edge between them. The point then
+/// follows the object whenever it changes. A free anchor is a fixed world point.
+struct DimensionAnchor {
+    Vec3 point{0.0};                ///< world point of a free anchor; unused when attached
+    std::optional<ObjectId> object; ///< attached object, or empty for a free point
+    std::vector<int> vertices;      ///< 1 (corner) or 2 (edge midpoint) when attached
+    friend bool operator==(const DimensionAnchor&, const DimensionAnchor&) = default;
+};
+
+/// A linear dimension annotation: the distance between two anchors, drawn as a
+/// dimension line displaced from them by `offset` (a world vector,
+/// perpendicular to the measured segment when it was placed).
+struct Dimension {
+    DimensionId id;
+    DimensionAnchor a;
+    DimensionAnchor b;
+    Vec3 offset{0.0};
+    friend bool operator==(const Dimension&, const Dimension&) = default;
+};
+
 struct Document {
     LengthUnit displayUnit = LengthUnit::Millimeter; ///< display and unitless input; storage is meters
-    std::uint64_t nextId = 1;                        ///< allocator for stable object IDs, saved in files
+    std::uint64_t nextId = 1;                        ///< allocator for stable object and dimension IDs, saved in files
     std::vector<ObjectPtr> objects;
+    std::vector<Dimension> dimensions;               ///< annotations; small values, copied per snapshot
 
     [[nodiscard]] const ProfileObject* find(ObjectId id) const;
     [[nodiscard]] std::ptrdiff_t indexOf(ObjectId id) const;
+    [[nodiscard]] const Dimension* findDimension(DimensionId id) const;
 };
 
 /// Deep comparison (object contents, not pointer identity).

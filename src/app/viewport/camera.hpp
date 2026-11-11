@@ -6,6 +6,8 @@
 
 #include <glm/mat4x4.hpp>
 
+#include <optional>
+
 namespace pf {
 
 /// Orbit camera around a target point, Z-up. Pure math (no GPU), so picking
@@ -27,6 +29,12 @@ public:
 
     /// World-space ray through a pixel of a viewport of the given size.
     [[nodiscard]] Ray rayThrough(const Vec2& pixel, const Vec2& viewportSize) const;
+
+    /// Pixel (viewport-local, origin top-left) where a world point appears, or
+    /// nothing when it is behind the eye. Inverse of rayThrough.
+    [[nodiscard]] std::optional<Vec2> project(const Vec3& world, const Vec2& viewportSize) const;
+    /// World length of one pixel at the depth of `world` (for constant-size marks).
+    [[nodiscard]] double worldPerPixel(const Vec3& world, const Vec2& viewportSize) const;
 
     /// Orbit by a pointer delta in pixels.
     void orbit(const Vec2& deltaPixels);

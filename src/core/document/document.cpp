@@ -6,8 +6,10 @@ namespace pf {
 
 std::string idString(ObjectId id) { return "obj-" + std::to_string(id.value); }
 
-std::optional<ObjectId> parseObjectId(std::string_view text) {
-    constexpr std::string_view prefix = "obj-";
+namespace {
+
+/// Parses "<prefix><n>" with a canonical positive n below 2^53.
+std::optional<std::uint64_t> parsePrefixedId(std::string_view text, std::string_view prefix) {
     if (text.size() <= prefix.size() || text.substr(0, prefix.size()) != prefix) return std::nullopt;
     const auto digits = text.substr(prefix.size());
     if (digits.size() > 15 || digits.front() == '0') return std::nullopt; // canonical, below 2^53
@@ -17,7 +19,30 @@ std::optional<ObjectId> parseObjectId(std::string_view text) {
     std::uint64_t value = 0;
     const auto [ptr, ec] = std::from_chars(digits.data(), digits.data() + digits.size(), value);
     if (ec != std::errc{} || ptr != digits.data() + digits.size() || value == 0) return std::nullopt;
-    return ObjectId{value};
+    return value;
+}
+
+} // namespace
+
+std::optional<ObjectId> parseObjectId(std::string_view text) {
+    const auto v = parsePrefixedId(text, "obj-");
+    if (!v) return std::nullopt;
+    return ObjectId{*v};
+}
+
+std::string idString(DimensionId id) { return "dim-" + std::to_string(id.value); }
+
+std::optional<DimensionId> parseDimensionId(std::string_view text) {
+    const auto v = parsePrefixedId(text, "dim-");
+    if (!v) return std::nullopt;
+    return DimensionId{*v};
+}
+
+const Dimension* Document::findDimension(DimensionId id) const {
+    for (const auto& d : dimensions) {
+        if (d.id == id) return &d;
+    }
+    return nullptr;
 }
 
 const ProfileObject* Document::find(ObjectId id) const {
@@ -36,6 +61,7 @@ std::ptrdiff_t Document::indexOf(ObjectId id) const {
 
 bool sameContent(const Document& a, const Document& b) {
     if (a.displayUnit != b.displayUnit || a.nextId != b.nextId || a.objects.size() != b.objects.size()) return false;
+    if (a.dimensions != b.dimensions) return false;
     for (std::size_t i = 0; i < a.objects.size(); ++i) {
         if (!a.objects[i] || !b.objects[i] || !(*a.objects[i] == *b.objects[i])) return false;
     }

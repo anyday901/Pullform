@@ -31,9 +31,11 @@ inline constexpr const char* kSelect = "Space";
 inline constexpr const char* kRectangle = "R";
 inline constexpr const char* kPushPull = "P";
 inline constexpr const char* kOrbit = "O";
+inline constexpr const char* kTape = "T";
+inline constexpr const char* kDimension = "D";
 inline constexpr const char* kSnap = "G";
 
-inline constexpr std::array<std::pair<const char*, const char*>, 18> kTable = {{
+inline constexpr std::array<std::pair<const char*, const char*>, 20> kTable = {{
     {"Left button", "Use the active tool"},
     {"Middle drag", "Orbit"},
     {"Shift + middle drag", "Pan"},
@@ -43,6 +45,8 @@ inline constexpr std::array<std::pair<const char*, const char*>, 18> kTable = {{
     {"R", "Rectangle tool"},
     {"P", "Push/Pull tool"},
     {"O", "Orbit tool (left-drag orbits)"},
+    {"T", "Tape measure tool"},
+    {"D", "Dimension tool"},
     {"F", "Fit view to model"},
     {"G", "Toggle grid snap"},
     {"Type digits, Enter", "Exact size or distance for the active tool"},

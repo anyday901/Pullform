@@ -26,8 +26,14 @@ Expected<OpResult> createRectangle(const Document& doc, const RectanglePlacement
 Expected<OpResult> extrudeProfile(const Document& doc, ObjectId id, double height);
 /// Changes the total height of an existing extrusion (same object, same ID).
 Expected<OpResult> setExtrusionHeight(const Document& doc, ObjectId id, double height);
-/// Removes a whole object.
+/// Removes a whole object, with the dimensions attached to it.
 Expected<OpResult> deleteObject(const Document& doc, ObjectId id);
+/// Adds a dimension between two anchors (allocating a new stable ID from
+/// nextId; the new dimension is the last in Document::dimensions). Rejects
+/// ends closer than 0.1 mm.
+Expected<OpResult> addDimension(const Document& doc, const DimensionAnchor& a, const DimensionAnchor& b, const Vec3& offset);
+/// Removes a dimension.
+Expected<OpResult> deleteDimension(const Document& doc, DimensionId id);
 /// Changes the display unit (storage stays in meters).
 Expected<OpResult> setDisplayUnit(const Document& doc, LengthUnit unit);
 
