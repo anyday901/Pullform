@@ -1,11 +1,13 @@
 #include "app/tools/tool_controller.hpp"
 
 #include "app/tools/eraser_tool.hpp"
+#include "app/tools/arc_tool.hpp"
 #include "app/tools/line_tool.hpp"
 #include "app/tools/circle_tool.hpp"
 #include "app/tools/measure_tool.hpp"
 #include "app/tools/move_tool.hpp"
 #include "app/tools/orbit_tool.hpp"
+#include "app/tools/protractor_tool.hpp"
 #include "app/tools/push_pull_tool.hpp"
 #include "app/tools/rectangle_tool.hpp"
 #include "app/tools/rotate_tool.hpp"
@@ -40,9 +42,13 @@ ToolController::ToolController(Editor& editor) : editor_(editor), snapper_(edito
     rotate_ = &add<RotateTool>(Tool::Rotate);
     scale_ = &add<ScaleTool>(Tool::Scale);
     add<OrbitTool>(Tool::Orbit);
-    add<MeasureTool>(Tool::TapeMeasure, MeasureTool::Mode::Tape);
+    tape_ = &add<MeasureTool>(Tool::TapeMeasure, MeasureTool::Mode::Tape);
     add<MeasureTool>(Tool::Dimension, MeasureTool::Mode::Dimension);
     add<EraserTool>(Tool::Eraser);
+    add<ArcTool>(Tool::Arc, ArcTool::Mode::TwoPoint);
+    add<ArcTool>(Tool::ThreePointArc, ArcTool::Mode::ThreePoint);
+    add<ArcTool>(Tool::Pie, ArcTool::Mode::Pie);
+    add<ProtractorTool>(Tool::Protractor);
     for ([[maybe_unused]] const auto& t : tools_) assert(t && "every Tool value needs a registered tool");
 }
 
@@ -87,11 +93,14 @@ std::optional<SnapResult> ToolController::snapGround(const PointerInput& input) 
 
 SnapResult ToolController::snapPointer(const PointerInput& input) { return ctx_.snapPointer(input, current().groundSkip()); }
 
+std::string ToolController::snapTooltip() const {
+    if (!ctx_.indicator || ctx_.indicator->kind < SnapKind::OnFace || !current().showsSnapInHint()) return {};
+    return snapLabel(*ctx_.indicator);
+}
+
 std::string ToolController::hint() const {
     std::string text = current().hint();
-    if (ctx_.indicator && ctx_.indicator->kind >= SnapKind::OnFace && current().showsSnapInHint()) {
-        text = std::string("[") + snapKindName(ctx_.indicator->kind) + "] " + text;
-    }
+    if (const std::string tip = snapTooltip(); !tip.empty()) text = "[" + tip + "] " + text;
     return text;
 }
 
@@ -130,7 +139,22 @@ std::optional<std::string> ToolController::submitMeasure(std::string_view text) 
     return tools_[static_cast<std::size_t>(lastMeasure_)]->submit(text);
 }
 
+void ToolController::toggleTapeGuides() { tape_->toggleGuides(); }
+bool ToolController::tapeGuides() const { return tape_->guides(); }
+
 // ---- Edit commands --------------------------------------------------------------
+
+std::optional<std::string> ToolController::deleteGuides() {
+    const auto count = editor_.document().guides.size();
+    if (count == 0) return std::string{"There are no guides to delete."};
+    cancel();
+    if (!editor_.commit(count == 1 ? "Delete guide" : "Delete " + std::to_string(count) + " guides",
+                        [](const Document& d) { return pf::deleteGuides(d); })) {
+        return ctx_.lastError("Could not delete the guides.");
+    }
+    editor_.notify(Message{Message::Kind::Info, count == 1 ? std::string("Deleted 1 guide.") : "Deleted " + std::to_string(count) + " guides."});
+    return std::nullopt;
+}
 
 std::optional<std::string> ToolController::duplicateSelection() {
     const auto selection = editor_.selection();

@@ -12,6 +12,7 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <format>
 #include <cmath>
 #include <numbers>
 #include <cstdio>
@@ -108,6 +109,16 @@ void Ui::drawLabels(const std::vector<ViewportLabel>& labels) {
     const ImVec2 pad(4.0f * ImGui::GetFontSize() / 15.0f, 2.0f * ImGui::GetFontSize() / 15.0f);
     for (const auto& label : labels) {
         const ImVec2 size = ImGui::CalcTextSize(label.text.c_str());
+        if (label.style == ViewportLabel::Style::Inference) {
+            // The inference tooltip: on the foreground, so it is never under a dimension label.
+            ImDrawList* fg = ImGui::GetForegroundDrawList();
+            const ImVec2 min(static_cast<float>(label.position.x), static_cast<float>(label.position.y));
+            const ImVec2 max(min.x + size.x + 2 * pad.x, min.y + size.y + 2 * pad.y);
+            fg->AddRectFilled(min, max, IM_COL32(255, 255, 225, 245), 2.0f);
+            fg->AddRect(min, max, IM_COL32(90, 90, 90, 220), 2.0f);
+            fg->AddText(ImVec2(min.x + pad.x, min.y + pad.y), IM_COL32(20, 20, 20, 255), label.text.c_str());
+            continue;
+        }
         const ImVec2 min(static_cast<float>(label.position.x) - size.x * 0.5f - pad.x,
                          static_cast<float>(label.position.y) - size.y * 0.5f - pad.y);
         const ImVec2 max(min.x + size.x + 2 * pad.x, min.y + size.y + 2 * pad.y);
@@ -190,6 +201,32 @@ void Ui::showError(const std::string& title, const std::string& text) {
 
 std::string Ui::measurementLabel(const UiContext& ctx) const { return std::string(ctx.tools.measurementLabel()); }
 
+namespace {
+
+/// Live text for an arc tool: the value being placed, then the arc's radius,
+/// segments and any inference.
+std::string arcLive(const ArcPreview& a, LengthUnit u) {
+    std::string text;
+    using enum ArcPreview::Value;
+    switch (a.value) {
+    case Length:
+    case Bulge:
+    case Radius: text = formatLength(a.amount, u); break;
+    case Angle: text = formatAngle(std::abs(a.amount)); break;
+    case None: break;
+    }
+    std::vector<std::string> details;
+    if (a.radius > 0.0) details.push_back(std::format("radius {}, {} segments", formatLength(a.radius, u), a.segments));
+    if (a.tangent) details.emplace_back("tangent");
+    if (a.halfCircle) details.emplace_back("half circle");
+    if (details.empty()) return text;
+    std::string joined = details.front();
+    for (std::size_t i = 1; i < details.size(); ++i) joined += ", " + details[i];
+    return text.empty() ? std::format("({})", joined) : std::format("{}   ({})", text, joined);
+}
+
+} // namespace
+
 std::string Ui::measurementLive(const UiContext& ctx) const {
     const LengthUnit u = ctx.editor.document().displayUnit;
     if (const auto* r = std::get_if<RectanglePreview>(&ctx.editor.preview())) {
@@ -226,6 +263,7 @@ std::string Ui::measurementLive(const UiContext& ctx) const {
                formatLength(m->offset.z, u, false) + ")";
     }
     if (const auto* r = std::get_if<RotatePreview>(&ctx.editor.preview()); r && r->reference) return formatAngle(r->angle);
+    if (const auto* a = std::get_if<ArcPreview>(&ctx.editor.preview())) return arcLive(*a, u);
     if (const auto* s = std::get_if<ScalePreview>(&ctx.editor.preview())) {
         return formatLength(s->factor * 100.0, LengthUnit::Meter, false) + "%";
     }
@@ -288,11 +326,15 @@ void Ui::menuBar(UiContext& ctx) {
             action(UiAction::SelectAll);
         }
         if (ImGui::MenuItem("Clear selection", "Esc", false, ctx.editor.selection().has_value())) ctx.editor.select(std::nullopt);
+        ImGui::Separator();
+        if (ImGui::MenuItem("Delete Guides", nullptr, false, !ctx.editor.document().guides.empty())) action(UiAction::DeleteGuides);
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("View")) {
         if (ImGui::MenuItem("Fit to model", shortcuts::kFit)) action(UiAction::FitView);
         if (ImGui::MenuItem("Reset view")) action(UiAction::ResetView);
+        ImGui::Separator();
+        ImGui::MenuItem("Guides", nullptr, &ctx.tools.snap().guides); // hidden guides do not snap either
         if (ctx.profileEdges) {
             ImGui::Separator();
             ImGui::MenuItem("Profile edges", nullptr, ctx.profileEdges); // thick outline edges
@@ -307,6 +349,12 @@ void Ui::menuBar(UiContext& ctx) {
         if (ImGui::MenuItem("Polygon", shortcuts::kPolygon, t == Tool::Polygon)) ctx.tools.setTool(Tool::Polygon);
         if (ImGui::MenuItem("Rotated Rectangle", nullptr, t == Tool::RotatedRectangle)) ctx.tools.setTool(Tool::RotatedRectangle);
         if (ImGui::MenuItem("Line", shortcuts::kLine, t == Tool::Line)) ctx.tools.setTool(Tool::Line);
+        if (ImGui::BeginMenu("Arcs")) {
+            if (ImGui::MenuItem("Arc", shortcuts::kArc, t == Tool::Arc)) ctx.tools.setTool(Tool::Arc);
+            if (ImGui::MenuItem("3 Point Arc", nullptr, t == Tool::ThreePointArc)) ctx.tools.setTool(Tool::ThreePointArc);
+            if (ImGui::MenuItem("Pie", nullptr, t == Tool::Pie)) ctx.tools.setTool(Tool::Pie);
+            ImGui::EndMenu();
+        }
         if (ImGui::MenuItem("Push/Pull", shortcuts::kPushPull, t == Tool::PushPull)) ctx.tools.setTool(Tool::PushPull);
         if (ImGui::MenuItem("Move", shortcuts::kMove, t == Tool::Move)) ctx.tools.setTool(Tool::Move);
         if (ImGui::MenuItem("Rotate", shortcuts::kRotate, t == Tool::Rotate)) ctx.tools.setTool(Tool::Rotate);
@@ -315,6 +363,7 @@ void Ui::menuBar(UiContext& ctx) {
         if (ImGui::MenuItem("Tape Measure", shortcuts::kTape, t == Tool::TapeMeasure)) ctx.tools.setTool(Tool::TapeMeasure);
         if (ImGui::MenuItem("Dimension", shortcuts::kDimension, t == Tool::Dimension)) ctx.tools.setTool(Tool::Dimension);
         if (ImGui::MenuItem("Eraser", shortcuts::kEraser, t == Tool::Eraser)) ctx.tools.setTool(Tool::Eraser);
+        if (ImGui::MenuItem("Protractor", nullptr, t == Tool::Protractor)) ctx.tools.setTool(Tool::Protractor);
         ImGui::Separator();
         ImGui::MenuItem("Grid snap", shortcuts::kSnap, &ctx.tools.snap().enabled);
         ImGui::MenuItem("Point snap", nullptr, &ctx.tools.snap().points);
@@ -343,6 +392,12 @@ void Ui::toolbar(UiContext& ctx, float y, float height, float width) {
     ImGui::SameLine();
     if (toolButton("Line", t == Tool::Line, "Line (L)\nClick points to draw connected edges, or type each length.\nClose a loop to make a face. Arrow keys lock an axis; Esc ends the line.")) ctx.tools.setTool(Tool::Line);
     ImGui::SameLine();
+    if (toolButton("Arc", t == Tool::Arc, "Arc (A)\nClick the start and end, then the bulge. From a line end, cyan means tangent;\ndouble-click the end for the tangent arc. Type 12s for 12 segments.")) ctx.tools.setTool(Tool::Arc);
+    ImGui::SameLine();
+    if (toolButton("3Pt Arc", t == Tool::ThreePointArc, "3 Point Arc\nClick the start, a point on the arc, and the end.")) ctx.tools.setTool(Tool::ThreePointArc);
+    ImGui::SameLine();
+    if (toolButton("Pie", t == Tool::Pie, "Pie\nClick the centre, the start of the arc (or type the radius), then the end (or type the angle).")) ctx.tools.setTool(Tool::Pie);
+    ImGui::SameLine();
     if (toolButton("Circle", t == Tool::Circle, "Circle (C)\nClick the center, then a point on the circle, or type the radius.\nType 48s for 48 segments.")) ctx.tools.setTool(Tool::Circle);
     ImGui::SameLine();
     if (toolButton("Polygon", t == Tool::Polygon, "Polygon (Shift+C)\nClick the center, then a corner, or type the radius.\nType 8s for 8 sides.")) ctx.tools.setTool(Tool::Polygon);
@@ -357,11 +412,12 @@ void Ui::toolbar(UiContext& ctx, float y, float height, float width) {
     ImGui::SameLine();
     if (toolButton("Orbit", t == Tool::Orbit, "Orbit (O)\nLeft-drag to orbit. Middle-drag always orbits; right-drag pans.")) ctx.tools.setTool(Tool::Orbit);
     ImGui::SameLine();
-    if (toolButton("Tape", t == Tool::TapeMeasure, "Tape Measure (T)\nClick two points to measure the distance between them.")) ctx.tools.setTool(Tool::TapeMeasure);
+    if (toolButton("Tape", t == Tool::TapeMeasure, "Tape Measure (T)\nClick two points to measure the distance between them.\nFrom an edge it adds a parallel guide; from a point, a guide point.\n" PF_COPY_KEY " (tap) turns guides on or off.")) ctx.tools.setTool(Tool::TapeMeasure);
     ImGui::SameLine();
     if (toolButton("Dimension", t == Tool::Dimension, "Dimension (D)\nClick two points, then click to place the dimension line.")) ctx.tools.setTool(Tool::Dimension);
     ImGui::SameLine();
     if (toolButton("Eraser", t == Tool::Eraser, "Eraser (E)\nClick or drag over edges to erase them; coplanar faces merge.\nShift hides the edges instead, " PF_SOFTEN_KEY " softens them.")) ctx.tools.setTool(Tool::Eraser);
+    if (toolButton("Protractor", t == Tool::Protractor, "Protractor\nClick the centre, then the baseline, then the angle (or type degrees)\nto add an angled guide line. Arrow keys lock the plane.")) ctx.tools.setTool(Tool::Protractor);
     ImGui::SameLine(0, 18);
     if (ImGui::Button("Fit")) action(UiAction::FitView);
     tooltip("Fit view to model (F)");

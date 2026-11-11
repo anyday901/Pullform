@@ -53,12 +53,19 @@ private:
         Vec2 pressScreen{0.0};
         bool pressed = false;
         std::optional<Ray> lastRay; ///< re-evaluates the preview when the axis lock changes
+        std::optional<Vec3> lastSnap; ///< snapped offset of the last pointer event
         std::vector<ObjectId> ids;  ///< every object that moves (objectId and the rest of a multi-selection)
     };
 
     void finish();
-    void updatePreview(const Ray& ray);
+    /// `snapped`: an offset the inference engine found (see snappedOffset);
+    /// it wins over the free or grid move unless an axis is locked.
+    void updatePreview(const Ray& ray, std::optional<Vec3> snapped = std::nullopt);
     [[nodiscard]] std::optional<Vec3> offsetFor(const Ray& ray) const;
+    /// The offset that puts the picked point on an inferred point: a corner,
+    /// midpoint, edge or intersection, or a line from the picked point along
+    /// an axis or an edge. Shows the marker; nothing when there is none.
+    std::optional<Vec3> snappedOffset(const PointerInput& input);
     [[nodiscard]] MovePreview preview(const Vec3& offset, std::optional<std::string> error) const;
     /// First reason the offset cannot be applied to every moving object.
     [[nodiscard]] std::optional<std::string> checkGroup(const std::vector<ObjectId>& ids, const Vec3& offset) const;

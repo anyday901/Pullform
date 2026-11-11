@@ -18,6 +18,36 @@ include breaking changes, but project files will keep a migration path.
   the Eraser takes the corner's edge nearest the pointer.
   Erasing, hiding or softening an edge of a rectangle or box turns it into a mesh group
   (Push/Pull then no longer applies to it).
+- **Inference engine.** Besides endpoints, midpoints and axis guides, the pointer now
+  infers On Edge, On Face, Intersection (edge with edge, or with an inference line), Center
+  of a true arc or circle, Parallel and Perpendicular to an edge (magenta guides, with the
+  reference edge highlighted), lines along X, Y and Z from the start point, and lines from a
+  remembered point along an axis. A tooltip beside the pointer names the inference
+  ("Perpendicular to Edge"). Hold Shift to lock the current inference's line or plane; a
+  corner hovered while locked is projected onto it. The tape measure and dimension tools
+  infer from their first point, Move snaps its start and destination, the rectangle tool
+  also snaps to edges, and snapping now works on lines drawn into mesh groups.
+- **Construction guides and the Protractor.** The Tape Measure started on an edge (or on
+  a guide line) adds a guide line parallel to it through the second click, or at a typed
+  distance on the pointer's side; started on a point it adds a guide point (not on a
+  corner or midpoint that is already there). Tapping Ctrl (Option on macOS) turns guide
+  creation off and on. The new **Protractor** tool adds an angled guide line: click the
+  centre (it lies on the face under the pointer, or the arrow keys lock its plane), a
+  point on the baseline, then the angle (15-degree steps with grid snap, or type degrees).
+  Every tool snaps to guide points, to where guides cross each other or an object edge,
+  and onto guide lines. View > Guides hides them (hidden guides do not snap) and
+  Edit > Delete Guides removes them all in one undo entry. Guides are saved in the
+  project file as an optional `document.guides` list, so files without guides are
+  unchanged.
+- **Arc tools.** Arc (A): click the start and the end, then move to set the bulge and
+  click, or type the chord length and then the bulge. Starting from the open end of a line
+  or arc, the bulge snaps to the tangent arc (drawn cyan), and double-clicking the end point
+  takes it right away; the bulge also snaps to a half circle. 3 Point Arc: start, a point on
+  the arc, end. Pie: centre, start of the arc (or type the radius), end (or type the angle);
+  the pie closes into a face. Type `12s` with any arc tool for 12 segments (default 24 per
+  full turn). Arcs are stored as true arcs (a curve record) plus their segment edges, and a
+  loop closed by an arc becomes a face, so a rounded rectangle drawn from lines and tangent
+  arcs is one face. Tools > Arcs and the toolbar list all three.
 - **Draw on any face and plane.** The Rectangle tool draws on the face under the pointer,
   including walls and tilted faces, or on the ground; once the first corner is placed the
   plane stays fixed, so the second corner can be anywhere on screen. Arrow keys lock the

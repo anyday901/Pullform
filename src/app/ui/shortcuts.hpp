@@ -31,6 +31,7 @@ inline constexpr const char* kSelectAll = PF_MOD "A";
 inline constexpr const char* kFit = "F";
 inline constexpr const char* kSelect = "Space";
 inline constexpr const char* kRectangle = "R";
+inline constexpr const char* kArc = "A";
 inline constexpr const char* kLine = "L";
 inline constexpr const char* kCircle = "C";
 inline constexpr const char* kPolygon = "Shift+C";
@@ -44,7 +45,7 @@ inline constexpr const char* kDimension = "D";
 inline constexpr const char* kEraser = "E";
 inline constexpr const char* kSnap = "G";
 
-inline constexpr std::array<std::pair<const char*, const char*>, 38> kTable = {{
+inline constexpr std::array<std::pair<const char*, const char*>, 41> kTable = {{
     {"Left button", "Use the active tool"},
     {"Middle drag", "Orbit"},
     {"Shift + middle drag", "Pan"},
@@ -56,6 +57,8 @@ inline constexpr std::array<std::pair<const char*, const char*>, 38> kTable = {{
     {"Drag right / left", "Select: window (inside) / crossing (touching)"},
     {PF_MOD "A", "Select all"},
     {"R", "Rectangle tool"},
+    {"A", "Arc tool (3 Point Arc and Pie in Tools > Arcs)"},
+    {"12s, Enter (arc tools)", "Number of segments for the next arcs"},
     {"C", "Circle tool"},
     {"Shift+C", "Polygon tool"},
     {"Type 24s, Enter", "Circle / Polygon: number of segments or sides"},
@@ -74,6 +77,11 @@ inline constexpr std::array<std::pair<const char*, const char*>, 38> kTable = {{
     {"Arrow keys (Rotate)", "Rotation axis: Right X, Left Y, Up Z"},
     {"O", "Orbit tool (left-drag orbits)"},
     {"T", "Tape measure tool"},
+#ifdef __APPLE__
+    {"Option (tap)", "Tape measure: add guides on or off"},
+#else
+    {"Ctrl (tap)", "Tape measure: add guides on or off"},
+#endif
     {"D", "Dimension tool"},
     {"E", "Eraser tool (click or drag over edges)"},
     {"Shift / " PF_MOD "erase", "Eraser: hide / soften the edges instead"},

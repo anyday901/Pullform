@@ -419,6 +419,33 @@ Dimension readDimension(const json& v, const std::string& path) {
     return d;
 }
 
+Guide readGuide(const json& v, const std::string& path) {
+    if (!v.is_object()) fail(path, "must be an object");
+    Guide g;
+    const auto& id = *member(v, "id", path);
+    if (!id.is_string()) fail(path + ".id", "must look like \"guide-1\"");
+    const auto parsed = parseGuideId(id.get<std::string>());
+    if (!parsed) fail(path + ".id", "must look like \"guide-1\"");
+    g.id = *parsed;
+    const auto& kind = *member(v, "kind", path);
+    if (kind == "line") {
+        g.kind = Guide::Kind::Line;
+        g.direction = vec3(*member(v, "direction", path), path + ".direction");
+    } else if (kind == "point") {
+        g.kind = Guide::Kind::Point;
+    } else {
+        fail(path + ".kind", "must be \"line\" or \"point\"");
+    }
+    g.point = vec3(*member(v, "point", path), path + ".point");
+    return g;
+}
+
+json guideToJson(const Guide& g) {
+    json out = {{"id", idString(g.id)}, {"kind", g.kind == Guide::Kind::Line ? "line" : "point"}, {"point", vec3ToJson(g.point)}};
+    if (g.kind == Guide::Kind::Line) out["direction"] = vec3ToJson(g.direction);
+    return out;
+}
+
 Document readDocument(const json& v) {
     if (!v.is_object()) fail("document", "must be an object");
     const auto& lengthUnit = *member(v, "lengthUnit", "document");
@@ -447,6 +474,14 @@ Document readDocument(const json& v) {
         if (!dims->is_array()) fail("document.dimensions", "must be an array");
         for (std::size_t i = 0; i < dims->size(); ++i) {
             doc.dimensions.push_back(readDimension((*dims)[i], "document.dimensions[" + std::to_string(i) + "]"));
+        }
+    }
+    // Optional like dimensions: only written when the project has guides, so
+    // files without them are unchanged, and earlier readers skip the key.
+    if (const auto guides = v.find("guides"); guides != v.end()) {
+        if (!guides->is_array()) fail("document.guides", "must be an array");
+        for (std::size_t i = 0; i < guides->size(); ++i) {
+            doc.guides.push_back(readGuide((*guides)[i], "document.guides[" + std::to_string(i) + "]"));
         }
     }
     return doc;
@@ -562,6 +597,11 @@ std::string serializeProject(const Document& doc, const std::optional<CameraView
             dims.push_back({{"id", idString(d.id)}, {"a", anchorToJson(d.a)}, {"b", anchorToJson(d.b)}, {"offset", vec3ToJson(d.offset)}});
         }
         file["document"]["dimensions"] = std::move(dims);
+    }
+    if (!doc.guides.empty()) {
+        json guides = json::array();
+        for (const auto& g : doc.guides) guides.push_back(guideToJson(g));
+        file["document"]["guides"] = std::move(guides);
     }
     if (view) file["view"] = {{"position", vec3ToJson(view->position)}, {"target", vec3ToJson(view->target)}};
     return file.dump(2) + "\n";

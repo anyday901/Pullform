@@ -56,6 +56,7 @@ struct Document {
     uint64_t nextId;                   // allocator for stable object and dimension IDs (saved in files)
     std::vector<ObjectPtr> objects;    // shared_ptr<const ProfileObject>
     std::vector<Dimension> dimensions; // annotations (small values)
+    std::vector<Guide> guides;         // construction guide lines and points (small values)
 };
 struct ProfileObject {
     ObjectId id;                       // stable: never reused; survives undo/redo/save/load
@@ -97,6 +98,11 @@ resolved from the object every time, so a dimension follows its object. Deleting
 deletes its dimensions in the same commit. A zero-length dimension is refused when it is
 added, but not by validation, so an edit that brings a free end onto an attached one is
 never rejected because of an annotation.
+
+A `Guide` (`guide-<n>`, also numbered from `nextId`) is an infinite line (`point`, unit
+`direction`) or a single point in world space. Guides are not geometry: they belong to no
+object, never make edges or faces, and stay put when objects move. `addGuide` and
+`deleteGuides` commit them like any other edit, so they undo and redo.
 
 Objects are immutable once in a document. Operations (`core/commands/operations.*`:
 `createRectangle`, `createCircle`, `extrudeProfile`, `setExtrusionHeight`, `rotateObject`, `scaleObject`,
@@ -269,6 +275,23 @@ Shared parts live in `ToolContext` (editor, snap settings, the point snapper, th
 indicator, ground and pointer snapping) and `app/tools/tool_support.*` (axis keys and
 locks, grid steps, numeric-entry trimming, drag threshold, `baseCenter`).
 
+**Inference.** Every tool snaps through the one `PointSnapper` (`app/tools/snapper.*`),
+whose `infer` runs the pure engine in `core/geometry/inference.*` against the
+`SnapIndex` of the document (`core/geometry/snap.*`). In priority order it finds a point
+feature (Endpoint, Midpoint, Center of a mesh curve), an Intersection (two edges, or an
+edge and an inference line), On Edge, then a line inference: from the gesture's start
+point along X/Y/Z (Axis), parallel or perpendicular to a reference edge (the magenta
+guides), or from a remembered point along an axis (From Point); two lines crossing near
+the pointer give their crossing. Otherwise the face under the pointer (On Face), the
+drawing plane or the ground grid. Reference edges are the edges the pointer last visited
+plus every edge through the start point. A result carries the line or plane it lies on
+(`SnapConstraint`); holding Shift locks it until Shift is released, and point features are
+then projected onto it. `snapLabel` names the inference for the tooltip beside the pointer
+and the status bar. A tool passes its start point (`InferOptions::from`), its drawing plane
+and the object being edited; today the tape measure, dimension and Move use the full
+engine, the rectangle tool keeps its ground snap (now with On Edge), and push/pull its
+height snaps.
+
 `app/tools/tool_controller.*` owns the tools and routes events, keys and typed values to the
 current one; its tool-specific entry points (`submitMoveDistance`, `toggleAxisLock`, ...)
 forward to the matching tool. Adding a tool means a new `Tool` value with its `toolName`,
@@ -345,6 +368,29 @@ resolved pick, screen position), so tests drive it with synthetic events and no 
   viewport as a marker and dashed guides drawn on top. `snapPointer` and
   `resolveSnapFeature` let other tools (tape measure, dimensions) snap the same way and
   refer to a corner or midpoint by object and feature index.
+- Guides in snapping (`core/geometry/guide_snap.*`): a guide point (`GuidePoint`) and a
+  crossing of a guide line with another guide line or an object edge (`Intersection`) are
+  point candidates that compete with endpoints and midpoints on the same weighted angular
+  score (a guide point weighs like an endpoint, a crossing between an endpoint and a
+  midpoint). The inference engine takes them through `InferenceQuery::guides` and also
+  adds each guide line (in the drawing plane, if there is one) to its inference lines as
+  `OnGuide`, so a guide line crosses edges, axis lines and parallel/perpendicular lines
+  like any other line, and Shift locks it. `PointSnapper::point` (push/pull, the rectangle
+  tool's ground snap) checks the same point candidates, and the ground snap falls back to
+  the nearest guide line after edges. `SnapSettings::guides` (View > Guides) hides guides
+  and turns their snapping off together.
+- Arcs (`app/tools/arc_tool.*`, geometry in `core/geometry/arc.*`): one `ArcTool` class
+  in three modes (Arc, 3 Point Arc, Pie). An arc is an `ArcGeometry` (centre, normal, x axis,
+  radius, start, signed sweep: the fields of `mesh::Curve`), built by `arcFromBulge`,
+  `arcThroughPoints`, `arcFromCenter` or `tangentArc`. The drawing plane is the face under
+  the first point (when the point is on it) or the horizontal plane through it; later
+  points are the pointer on that plane, taking endpoint and midpoint snaps that lie on it.
+  When the first point is the open end of a line or arc (`openEndTangent`: a vertex with
+  one edge; for an arc segment the arc's exact tangent), the bulge snaps to the tangent
+  arc within the snap radius and the preview turns cyan. The pie's sweep is unwrapped
+  as the pointer moves (`unwrapSweep`), so it can pass half a turn. `drawArc` commits one
+  entry: `Mesh::addCurve` draws the segments with `addEdge` (so loops close into faces
+  as for lines) and records the curve over the resulting chain of edges.
 - Tape measure and dimensions (`app/tools/measure_tool.*`): `MeasureTool` snaps each
   pointer event with `ToolContext::measureSnap` (built on `snapPointer`). An endpoint or
   midpoint snap becomes an attached anchor through `anchorAt`, which matches the point
@@ -353,7 +399,15 @@ resolved pick, screen position), so tests drive it with synthetic events and no 
   pointer ray meets the plane through the measured segment that faces the viewer, and the
   offset is the part of that hit perpendicular to the segment. The viewport draws
   dimensions and the live measurement on top of the model; their labels are drawn by the
-  UI at `Camera::project` of the line's middle.
+  UI at `Camera::project` of the line's middle. With guide creation on (Ctrl or Option
+  tap), a tape started on an edge (`PointerInput::element`) or on a guide line adds a
+  parallel guide line through the second point, and one started on a point adds a guide
+  point; the live guide is in `MeasurePreview::guide`.
+- Protractor (`app/tools/protractor_tool.*`): centre, baseline, angle, like Rotate, but the
+  plane is the face under the pointer (or the ground, or the arrow-key axis lock) and the
+  result is a guide line through the centre (`ProtractorPreview`, `protractorDirection`).
+- The viewport draws guide lines as dashes of constant screen size out to a far
+  distance, and guide points as small three-axis crosses, depth-tested like edges.
 - Eraser (`app/tools/eraser_tool.*`): a press starts a stroke, and every edge the
   pointer passes over until release (`edgeUnder`: the picked edge, or for a picked vertex
   its edge nearest the pointer ray; plus `edgesCrossed`: visible edges whose screen image
@@ -410,7 +464,10 @@ resolved pick, screen position), so tests drive it with synthetic events and no 
 - `document` is exactly the editable model; `view` (camera) is optional and ignored if
   invalid.
 - `document.dimensions` is optional and only written when the project has dimensions, so
-  files without annotations are unchanged. An anchor is `{"point": [x,y,z]}` or
+  files without annotations are unchanged. `document.guides` works the same way: each
+  entry is `{"id": "guide-N", "kind": "line", "point": [x,y,z], "direction": [x,y,z]}` or
+  `{"id": "guide-N", "kind": "point", "point": [x,y,z]}`. It is additive within version 3:
+  earlier readers skip the key, so they still open such a file (without its guides). An anchor is `{"point": [x,y,z]}` or
   `{"object": "obj-N", "vertices": [i]}` (a corner) / `[i, j]` (an edge midpoint). It is
   part of file format version 2 together with rotation. Version 1 files saved while
   dimensions were new can carry the key; the migration keeps it, and readers that predate
@@ -446,6 +503,7 @@ resolved pick, screen position), so tests drive it with synthetic events and no 
 ## Geometry boundaries (what this design does not do yet)
 
 The edge/face mesh exists in the core, but push/pull on a drawn group works only on a
-face standing on its own or the end of a prism, there are no booleans, no healing of collinear edges left after an erase, and no
-arc tool (curves exist for circles and polygons only). Dimension anchors still name corners by index
+face standing on its own or the end of a prism, there are no booleans, and no healing of
+collinear edges left after an erase. Arcs are drawn by the Arc tools; a curve record gives
+centre snapping but is not yet used for selecting a whole curve. Dimension anchors still name corners by index
 (vertex id - 1) rather than by vertex id. See docs/GEOMETRY.md and the roadmap.

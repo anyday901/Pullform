@@ -12,7 +12,10 @@ namespace pf {
 
 /// Every tool the controller can switch to. Adding a tool: a value here, a
 /// name in toolName(), and one registration line in ToolController's constructor.
-enum class Tool { Select, Rectangle, RotatedRectangle, Line, Circle, Polygon, PushPull, Move, Rotate, Scale, Orbit, TapeMeasure, Dimension, Eraser };
+enum class Tool {
+    Select, Rectangle, RotatedRectangle, Line, Circle, Polygon, PushPull, Move, Rotate, Scale, Orbit, TapeMeasure, Dimension,
+    Arc, ThreePointArc, Pie, Protractor, Eraser
+};
 inline constexpr int kToolCount = static_cast<int>(Tool::Eraser) + 1;
 
 std::string_view toolName(Tool tool);
@@ -42,12 +45,18 @@ public:
     std::optional<SnapResult> snapGround(const PointerInput& input, const std::optional<Vec3>& skip = std::nullopt);
     /// Point snap for any tool (see ToolController::snapPointer).
     SnapResult snapPointer(const PointerInput& input, const std::optional<Vec3>& skip = std::nullopt);
+    /// The full inference engine (PointSnapper::infer): pass `from` while a
+    /// gesture has a start point (a line's first point) for axis, parallel and
+    /// perpendicular inference from it, and `plane` to draw on a face. A miss
+    /// is SnapKind::None at the ray origin. Does not set the indicator.
+    SnapResult inferPointer(const PointerInput& input, const InferOptions& options);
     /// Ground snap that also shows the marker; nothing when the ray misses the ground.
     std::optional<Vec3> groundPoint(const PointerInput& input, const std::optional<Vec3>& skip = std::nullopt);
-    /// Snaps for the tape measure and dimension tools and shows the marker.
-    /// Empty when the pointer reaches neither the model nor the ground (an
-    /// unsnapped ground point, with grid snap off, is still a point).
-    std::optional<SnapResult> measureSnap(const PointerInput& input);
+    /// Snaps for the tape measure and dimension tools and shows the marker;
+    /// `from` is the first point once placed. Empty when the pointer reaches
+    /// neither the model nor the ground (an unsnapped ground point, with grid
+    /// snap off, is still a point).
+    std::optional<SnapResult> measureSnap(const PointerInput& input, const std::optional<Vec3>& from = std::nullopt);
 
     /// The editor's last error message, or `fallback`.
     [[nodiscard]] std::string lastError(const char* fallback) const;

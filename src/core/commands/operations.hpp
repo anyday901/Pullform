@@ -3,6 +3,7 @@
 #include "core/document/document.hpp"
 #include "core/document/element_ref.hpp"
 #include "core/document/result.hpp"
+#include "core/geometry/arc.hpp"
 #include "core/geometry/circle.hpp"
 #include "core/geometry/mesh.hpp"
 #include "core/geometry/rectangle.hpp"
@@ -87,6 +88,14 @@ Expected<OpResult> deleteObject(const Document& doc, ObjectId id);
 Expected<OpResult> addDimension(const Document& doc, const DimensionAnchor& a, const DimensionAnchor& b, const Vec3& offset);
 /// Removes a dimension.
 Expected<OpResult> deleteDimension(const Document& doc, DimensionId id);
+/// Adds a construction guide (a line or a point), allocating a new stable ID
+/// from nextId; the new guide is the last in Document::guides. A line's
+/// direction is normalized; a zero direction or a point outside the model
+/// range is rejected.
+Expected<OpResult> addGuide(const Document& doc, const Guide& guide);
+/// Removes every guide (Edit > Delete Guides). Fails when there are none, so
+/// a no-op never becomes an undo entry.
+Expected<OpResult> deleteGuides(const Document& doc);
 // Operations on several objects (a multi-selection). Each runs the
 // single-object operation on every object in turn and fails as a whole if any
 // one fails, so a selection always changes in one commit and one undo entry.
@@ -139,6 +148,12 @@ Expected<OpResult> eraseEdges(const Document& doc, const std::vector<ElementRef>
 /// faces keep using them. A rectangle or box is converted to a mesh group first.
 Expected<OpResult> setEdgesSoft(const Document& doc, const std::vector<ElementRef>& edges, bool soft, bool smooth);
 
+/// Draws an arc (world space) as `segments` edges plus a curve record, into a
+/// group's mesh like drawEdge: ends weld, a closed planar loop makes a face.
+/// With `pie`, also draws the two radii from the centre to the arc's ends, so
+/// the pie closes into a face. Target selection is as for drawEdge.
+Expected<OpResult> drawArc(const Document& doc, std::optional<ObjectId> target, const ArcGeometry& arc, int segments,
+                           bool pie = false);
 /// Pushes or pulls face `face` of a mesh group by `distance` along its normal
 /// (see mesh::Mesh::pushPull): a free face becomes a closed solid, and the end
 /// face of a prism moves with its walls stretching. Same object, same id.

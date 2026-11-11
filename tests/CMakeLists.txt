@@ -9,6 +9,7 @@ add_executable(pullform_tests
   duplicate_tests.cpp
   tools_tests.cpp
   snap_tests.cpp
+  inference_tests.cpp
   move_tests.cpp
   project_file_tests.cpp
   transform_tests.cpp
@@ -22,6 +23,8 @@ add_executable(pullform_tests
   drawing_plane_tests.cpp
   mesh_tests.cpp
   format_v3_tests.cpp
+  guide_tests.cpp
+  arc_tests.cpp
   line_tool_tests.cpp
   circle_tests.cpp
   fake_renderer.hpp)

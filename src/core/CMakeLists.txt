@@ -7,6 +7,7 @@ add_library(pullform_core STATIC
   document/validate.cpp
   document/project_file.cpp
   geometry/rectangle.cpp
+  geometry/arc.cpp
   geometry/circle.cpp
   geometry/plane.cpp
   geometry/solid.cpp
@@ -15,6 +16,8 @@ add_library(pullform_core STATIC
   geometry/topology.cpp
   geometry/element_pick.cpp
   geometry/snap.cpp
+  geometry/inference.cpp
+  geometry/guide_snap.cpp
   geometry/measure.cpp
   geometry/region_select.cpp
   commands/operations.cpp

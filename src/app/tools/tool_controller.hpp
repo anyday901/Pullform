@@ -117,6 +117,14 @@ public:
     /// selection, so repeating it builds a row. One undo entry.
     std::optional<std::string> duplicateSelection();
 
+    /// Tape measure guide creation (tap Ctrl, or Option on macOS, with the
+    /// tape measure). On by default; it persists across tool changes.
+    void toggleTapeGuides();
+    [[nodiscard]] bool tapeGuides() const;
+
+    /// Deletes every construction guide (Edit > Delete Guides): one undo entry.
+    std::optional<std::string> deleteGuides();
+
     /// Typed value for the tape measure or dimension tool (the dimension line offset).
     std::optional<std::string> submitMeasure(std::string_view text);
 
@@ -142,6 +150,10 @@ public:
     /// Points recently snapped to; inference guides align with these.
     [[nodiscard]] const std::vector<Vec3>& inferenceReferences() const { return snapper_.references(); }
 
+    /// The name of the inference shown ("On Edge", "Perpendicular to Edge"),
+    /// for the tooltip beside the pointer; empty when there is none to show.
+    [[nodiscard]] std::string snapTooltip() const;
+
     /// Status bar hint for the current tool and gesture state.
     [[nodiscard]] std::string hint() const;
 
@@ -164,6 +176,7 @@ private:
     MoveTool* move_ = nullptr;
     RotateTool* rotate_ = nullptr;
     ScaleTool* scale_ = nullptr;
+    MeasureTool* tape_ = nullptr;
 };
 
 } // namespace pf

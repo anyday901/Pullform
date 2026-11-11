@@ -68,6 +68,21 @@ struct MeasurePreview {
     bool fixed = false;        ///< both points placed (tape: finished; dimension: placing the line)
     std::optional<Vec3> offset; ///< dimension line offset while placing it
     Vec3 cursor{0.0};          ///< snapped pointer point
+    /// Tape measure: the guide a click (or a typed distance) would add here,
+    /// drawn like a real guide. Empty when guide creation is off or nothing
+    /// would be added (the pointer is on the start line, or on a point already).
+    std::optional<Guide> guide;
+};
+
+/// Protractor: an angled guide line through `center`, in the plane with unit
+/// normal `normal`, measured from the `reference` direction.
+struct ProtractorPreview {
+    Vec3 center{0.0};
+    Vec3 normal{0.0, 0.0, 1.0};
+    std::optional<Vec3> reference; ///< baseline direction (from the centre), once clicked
+    std::optional<Vec3> current;   ///< pointer direction in the plane (from the centre)
+    double angle = 0.0;            ///< radians from the reference, counter-clockwise about the normal
+    std::optional<Guide> guide;    ///< the guide line a click would add
 };
 
 /// A world axis that a gesture is locked to (Move: the direction of travel).
@@ -135,6 +150,23 @@ struct ScalePreview {
     std::vector<ObjectId> objectIds;
 };
 
+/// Live arc (Arc, 3 Point Arc and Pie tools). `points` is the polyline drawn:
+/// the chord or radius line while the second point is placed, then the arc's
+/// segments (a pie also runs from the centre and back).
+struct ArcPreview {
+    /// What the measurements box shows and a typed value sets.
+    enum class Value { Length, Bulge, Radius, Angle, None };
+    std::vector<Vec3> points;
+    std::vector<std::pair<Vec3, Vec3>> guides; ///< construction lines (chord, radii), drawn faint
+    Value value = Value::None;
+    double amount = 0.0; ///< meters, or radians for Angle
+    double radius = 0.0; ///< of the arc, once it has one
+    int segments = 0;
+    bool tangent = false;    ///< the arc continues the edge it starts from (shown cyan)
+    bool halfCircle = false; ///< snapped to a semicircle
+    std::optional<std::string> error;
+};
+
 /// Live window (left to right) or crossing (right to left) selection
 /// rectangle, in the pointer's screen coordinates (PointerInput::screen), with
 /// the objects that will be selected when it is released.
@@ -153,8 +185,8 @@ struct ErasePreview {
 
 /// Transient feedback drawn by the viewport. Never part of the document or history.
 using Preview =
-    std::variant<std::monostate, RectanglePreview, CirclePreview, LinePreview, PushPullPreview, MovePreview, RotatePreview, ScalePreview, MeasurePreview,
-                 SelectBoxPreview, ErasePreview>;
+    std::variant<std::monostate, RectanglePreview, CirclePreview, LinePreview, PushPullPreview, MovePreview, RotatePreview, ScalePreview,
+                 MeasurePreview, SelectBoxPreview, ArcPreview, ProtractorPreview, ErasePreview>;
 
 /// The object a preview draws in place of the document's version (push/pull,
 /// rotate and scale), if any. The viewport hides the original while it is set.
