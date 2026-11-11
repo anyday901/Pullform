@@ -160,7 +160,7 @@ with selection, not item 14).
       closed solids (groups or components), probably through Manifold if item 3 picks it.
       *Depends on:* 3, 22. *Accept:* subtracting a cylinder from a box gives a closed solid
       with a round hole that passes `checkSolid`.
-- [ ] **21. Edge and face cleanup.** Soften/smooth edges with an angle slider, Reverse
+- [x] **21. Edge and face cleanup.** Soften/smooth edges with an angle slider, Reverse
       Faces and Orient Faces, Hide/Unhide geometry, Flip Along an axis. *Depends on:* 5.
       *Accept:* a 48-sided cylinder can be shown smooth with no visible segment edges.
 

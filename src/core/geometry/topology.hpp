@@ -32,7 +32,8 @@ struct ElementTopology {
         std::uint32_t a = 0;              ///< vertex index of one end
         std::uint32_t b = 0;              ///< vertex index of the other end
         std::vector<std::uint32_t> faces; ///< faces bordered by this edge (0, 1 or 2 for a manifold)
-        bool soft = false;                ///< hidden: not drawn and not picked
+        bool soft = false;                ///< not drawn and not picked: a soft or hidden edge, unless hidden geometry is shown
+        bool ghost = false;               ///< a soft or hidden edge shown because hidden geometry is shown: drawn faint, picked
     };
     struct Face {
         std::uint32_t id = 0;
@@ -42,6 +43,7 @@ struct ElementTopology {
         std::vector<std::vector<std::uint32_t>> holes; ///< hole loops, vertex indices
         std::vector<std::uint32_t> edges; ///< bounding edges in loop order
         bool twoSided = false;            ///< not part of a closed shell: visible and pickable from both sides
+        bool hidden = false;              ///< a hidden face: it has no triangles (not drawn or picked) unless hidden geometry is shown
     };
     struct Triangle {
         std::uint32_t face = 0;
@@ -66,7 +68,10 @@ struct ElementTopology {
 /// Builds the topology of a mesh placed by `object`'s transform. Element ids
 /// are the mesh's ids. A face is two-sided when any of its edges does not
 /// border exactly two faces (a sheet, or a face with an open boundary).
-ElementTopology buildTopology(const mesh::Mesh& mesh, const ProfileObject& object);
+/// Soft and hidden edges and hidden faces are kept (adjacency stays whole) but
+/// are not drawn or picked; with `showHidden` (View > Hidden Geometry) they are
+/// drawn faint and picked like the rest, so they can be selected and unhidden.
+ElementTopology buildTopology(const mesh::Mesh& mesh, const ProfileObject& object, bool showHidden = false);
 
 /// Builds the topology from logical face polygons. Corners that coincide
 /// (within `tolerance` meters) are merged into one vertex, and every
@@ -75,7 +80,7 @@ ElementTopology buildTopology(const mesh::Mesh& mesh, const ProfileObject& objec
 ElementTopology buildTopology(const std::vector<FacePolygon>& faces, double tolerance = 1e-9);
 
 /// Topology of a document object: of its mesh (mesh::objectMesh).
-ElementTopology buildTopology(const ProfileObject& object);
+ElementTopology buildTopology(const ProfileObject& object, bool showHidden = false);
 
 /// Edges that outline the shape from the eye: border edges (one face, as on a
 /// sheet) and silhouette edges, where one neighbor faces the eye and the other

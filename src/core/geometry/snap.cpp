@@ -153,7 +153,7 @@ SnapFeatures meshFeatures(const ProfileObject& object) {
         f.vertices.push_back(localToWorld(object, v.position));
     }
     for (const auto& [id, e] : m.edges()) {
-        if (e.soft) continue; // hidden geometry neither draws nor snaps
+        if (e.soft || e.hidden) continue; // hidden geometry neither draws nor snaps
         const auto a = index.find(e.v0.value);
         const auto b = index.find(e.v1.value);
         if (a == index.end() || b == index.end() || a->second == b->second) continue;

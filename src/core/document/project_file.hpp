@@ -17,7 +17,7 @@ inline constexpr std::string_view kProjectFormat = "pullform-project";
 /// Current file version. Version 2 added transform.rotation; version 3 made every
 /// object a group holding an edge/face mesh. Older files are migrated when opened
 /// and saved as the current version.
-inline constexpr int kProjectVersion = 3;
+inline constexpr int kProjectVersion = 4;
 inline constexpr std::string_view kProjectExtension = ".pullform.json";
 inline constexpr std::size_t kMaxProjectBytes = 50u * 1024u * 1024u;
 

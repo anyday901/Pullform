@@ -307,6 +307,7 @@ UiRect Ui::draw(UiContext& ctx) {
     const float bodyH = std::max(1.0f, vp->Size.y - menuH - toolbarH - bottomH);
     properties(ctx, vp->Pos.x + vp->Size.x - panelW, bodyY, panelW, bodyH);
     bottomBar(ctx, vp->Pos.y + vp->Size.y - bottomH, vp->Size.x, bottomH);
+    cleanup_.softenWindow(ctx);
     modals();
     return UiRect{vp->Pos.x, bodyY, std::max(1.0f, vp->Size.x - panelW), bodyH};
 }
@@ -336,6 +337,8 @@ void Ui::menuBar(UiContext& ctx) {
         if (ImGui::MenuItem("Clear selection", "Esc", false, ctx.editor.selection().has_value())) ctx.editor.select(std::nullopt);
         ImGui::Separator();
         if (ImGui::MenuItem("Delete Guides", nullptr, false, !ctx.editor.document().guides.empty())) action(UiAction::DeleteGuides);
+        ImGui::Separator();
+        cleanup_.editMenuItems(ctx);
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("View")) {
@@ -347,6 +350,7 @@ void Ui::menuBar(UiContext& ctx) {
             ImGui::Separator();
             ImGui::MenuItem("Profile edges", nullptr, ctx.profileEdges); // thick outline edges
         }
+        if (ctx.hiddenGeometry) ImGui::MenuItem("Hidden Geometry", nullptr, ctx.hiddenGeometry); // soft and hidden edges dashed, pickable
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Tools")) {

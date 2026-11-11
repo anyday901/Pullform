@@ -9,6 +9,20 @@ include breaking changes, but project files will keep a migration path.
 
 ### Added
 
+- **Edge and face cleanup** (Edit menu). *Soften/Smooth Edges...* opens a window with an
+  angle slider (default 20 degrees) and Smooth normals / Soften coplanar boxes: every
+  selected edge between two faces that meet at no more than the angle becomes soft (not
+  drawn) and smooth (shaded across), and the rest become hard again, one undo entry each
+  time the slider is released. A 48-sided polygon prism softened this way reads as a
+  smooth cylinder. *Faces > Reverse Faces* turns faces over; *Faces > Orient Faces* walks
+  out from the selected face and turns its neighbors to agree with it. *Hide* and
+  *Unhide > Selected / All* hide edges and faces without removing them (solids stay
+  closed). *View > Hidden Geometry* draws soft and hidden edges dashed and makes hidden
+  faces and edges visible and selectable again. *Flip Along > Red / Green / Blue* mirrors
+  the selection in place about the centre of its bounding box; mirrored solids keep facing
+  out and arcs, circles and polygons stay true curves. The Eraser's Shift now sets the new
+  hidden flag instead of softening without smoothing.
+
 - **Freehand tool** (Tools > Freehand, or the toolbar). Press and drag to draw a curve; on
   release it is smoothed (within 3 screen pixels of the stroke) into a polyline of straight
   edges and committed as one undo entry. It draws on the horizontal plane through the press
@@ -18,8 +32,7 @@ include breaking changes, but project files will keep a migration path.
 - **Eraser tool (E).** Click an edge, or press and drag over several, and release: every
   edge the stroke touched is erased in one undo entry. Erasing the edge between two
   coplanar faces leaves one face; other faces that used the edge go with it. Hold Shift
-  to hide the edges instead, or Ctrl (Cmd on macOS) to soften them (hidden and marked smooth;
-  the renderer does not smooth shading across edges yet); faces are kept. A fast drag
+  to hide the edges instead, or Ctrl (Cmd on macOS) to soften them (soft and smooth); faces are kept. A fast drag
   also takes the visible edges passed over between two pointer events, and near a corner
   the Eraser takes the corner's edge nearest the pointer.
   Erasing, hiding or softening an edge of a rectangle or box turns it into a mesh group

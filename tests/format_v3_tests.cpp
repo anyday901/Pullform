@@ -102,12 +102,12 @@ TEST_CASE("format v3: every version 1 and 2 test file opens, renders the same an
             for (const auto& d : doc.dimensions) CHECK(layoutDimension(doc, d).has_value());
         }
 
-        // Saved as version 3, reopened: identical content and identical render meshes.
+        // Saved as the current version, reopened: identical content and identical render meshes.
         const std::string saved = serializeProject(doc, loaded->view);
-        CHECK(saved.find("\"version\": 3") != std::string::npos);
+        CHECK(saved.find("\"version\": 4") != std::string::npos);
         const auto again = parseProject(saved);
         REQUIRE_MESSAGE(again.ok(), (again.ok() ? "" : again.error()));
-        CHECK(again->fileVersion == 3);
+        CHECK(again->fileVersion == 4);
         CHECK(sameContent(again->document, doc));
         for (std::size_t i = 0; i < doc.objects.size(); ++i) {
             CHECK(sameMeshData(buildMesh(*again->document.objects[i]), buildMesh(*doc.objects[i])));

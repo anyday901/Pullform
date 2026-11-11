@@ -22,6 +22,7 @@ add_library(pullform_core STATIC
   geometry/region_select.cpp
   geometry/freehand.cpp
   commands/operations.cpp
+  commands/cleanup.cpp
   commands/selection.cpp
   commands/editor.cpp)
 

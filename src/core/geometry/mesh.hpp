@@ -52,6 +52,7 @@ struct Edge {
     std::optional<CurveId> curve; ///< the arc or circle this segment belongs to
     bool soft = false;            ///< hidden unless "show hidden geometry"
     bool smooth = false;          ///< shading is smoothed across it
+    bool hidden = false;          ///< hidden (Edit > Hide): not drawn, picked or snapped unless hidden geometry is shown
     friend bool operator==(const Edge&, const Edge&) = default;
 };
 
@@ -69,6 +70,7 @@ using Loop = std::vector<EdgeUse>;
 struct Face {
     std::vector<Loop> loops;
     Vec3 normal{0.0, 0.0, 1.0}; ///< unit; cached plane (with any loop vertex)
+    bool hidden = false;        ///< hidden (Edit > Hide): not drawn or picked unless hidden geometry is shown
     friend bool operator==(const Face&, const Face&) = default;
 };
 
@@ -201,6 +203,8 @@ public:
 
     /// Drops curves whose edges are missing or no longer form a chain.
     void pruneCurves();
+    /// Drops one curve record (its edges stay, as plain segments).
+    void removeCurve(CurveId id);
 
     /// Moves every vertex by `f` (component-wise scale about the origin) and
     /// recomputes face normals. Factors must be non-zero.

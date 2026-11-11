@@ -47,6 +47,7 @@ add_executable(pullform WIN32
   viewport/gl_renderer.cpp
   viewport/viewport.cpp
   ui/ui.cpp
+  ui/cleanup_ui.cpp
   platform/file_dialog.cpp)
 if(WIN32)
   target_sources(pullform PRIVATE ${PROJECT_SOURCE_DIR}/packaging/windows/pullform.rc)

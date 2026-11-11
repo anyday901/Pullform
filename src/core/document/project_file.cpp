@@ -174,8 +174,9 @@ ProfileObject readProfileObjectV2(const json& v, const std::string& path) {
 //
 // "mesh": {
 //   "vertices": [[id, x, y, z], ...],
-//   "edges":    [[id, v0, v1, flags], ...],      flags: 1 = soft, 2 = smooth
-//   "faces":    [{"id": n, "loops": [[use, ...], ...]}, ...],
+//   "edges":    [[id, v0, v1, flags], ...],      flags: 1 = soft, 2 = smooth, 4 = hidden (version 4)
+//   "faces":    [{"id": n, "loops": [[use, ...], ...], "hidden": true}, ...],
+//                "hidden" (version 4) is written only for a hidden face;
 //                use = +edgeId (walked v0 -> v1) or -edgeId (reversed);
 //                loops[0] is the outer loop, the rest are holes
 //   "curves":   [{"id", "kind": "arc"|"circle"|"polygon", "center", "normal", "xAxis",
@@ -198,7 +199,7 @@ json meshToJson(const mesh::Mesh& m) {
     for (const auto& [id, v] : m.vertices()) vertices.push_back(json::array({id, v.position.x, v.position.y, v.position.z}));
     json edges = json::array();
     for (const auto& [id, e] : m.edges()) {
-        edges.push_back(json::array({id, e.v0.value, e.v1.value, (e.soft ? 1 : 0) | (e.smooth ? 2 : 0)}));
+        edges.push_back(json::array({id, e.v0.value, e.v1.value, (e.soft ? 1 : 0) | (e.smooth ? 2 : 0) | (e.hidden ? 4 : 0)}));
     }
     json faces = json::array();
     for (const auto& [id, f] : m.faces()) {
@@ -208,7 +209,9 @@ json meshToJson(const mesh::Mesh& m) {
             for (const auto& u : loop) uses.push_back(u.reversed ? -static_cast<std::int64_t>(u.edge.value) : static_cast<std::int64_t>(u.edge.value));
             loops.push_back(std::move(uses));
         }
-        faces.push_back({{"id", id}, {"loops", std::move(loops)}});
+        json face = {{"id", id}, {"loops", std::move(loops)}};
+        if (f.hidden) face["hidden"] = true;
+        faces.push_back(std::move(face));
     }
     json curves = json::array();
     for (const auto& [id, c] : m.curves()) {
@@ -256,10 +259,10 @@ mesh::Mesh readMesh(const json& v, const std::string& path) {
         if (!e.is_array() || e.size() != 4) fail(p, "must be [id, v0, v1, flags]");
         const mesh::EdgeId id{elementId(e[0], p + "[0]")};
         if (m.edge(id)) fail(p, "duplicate edge id");
-        if (!e[3].is_number_integer() || e[3].get<std::int64_t>() < 0 || e[3].get<std::int64_t>() > 3) fail(p + "[3]", "must be 0 to 3");
+        if (!e[3].is_number_integer() || e[3].get<std::int64_t>() < 0 || e[3].get<std::int64_t>() > 7) fail(p + "[3]", "must be 0 to 7");
         const auto flags = e[3].get<std::int64_t>();
         m.insertEdge(id, mesh::Edge{mesh::VertexId{elementId(e[1], p + "[1]")}, mesh::VertexId{elementId(e[2], p + "[2]")}, std::nullopt,
-                                    (flags & 1) != 0, (flags & 2) != 0});
+                                    (flags & 1) != 0, (flags & 2) != 0, (flags & 4) != 0});
     }
     const auto& faces = array("faces");
     for (std::size_t i = 0; i < faces.size(); ++i) {
@@ -289,6 +292,10 @@ mesh::Mesh readMesh(const json& v, const std::string& path) {
         const Vec3 n = mesh::loopNormal(m.loopPositions(face.loops[0]));
         if (glm::length(n) == 0.0) fail(p, "outer loop is degenerate");
         face.normal = n;
+        if (const auto hidden = f.find("hidden"); hidden != f.end()) {
+            if (!hidden->is_boolean()) fail(p + ".hidden", "must be true or false");
+            face.hidden = hidden->get<bool>();
+        }
         m.insertFace(id, face);
     }
     if (const auto curves = v.find("curves"); curves != v.end()) {
@@ -531,10 +538,16 @@ void migrateV2ToV3(json& file) {
     }
 }
 
+/// Version 3 -> 4: edges and faces can be hidden (edge flag 4, face "hidden").
+/// Nothing in a version 3 file is hidden, and its soft and smooth flags keep
+/// their meaning, so the file needs no change.
+void migrateV3ToV4(json& /*file*/) {}
+
 void migrateProject(json& file, int fromVersion) {
     switch (fromVersion) {
     case 1: migrateV1ToV2(file); break;
     case 2: migrateV2ToV3(file); break;
+    case 3: migrateV3ToV4(file); break;
     default: fail("version", "no migration from version " + std::to_string(fromVersion));
     }
     file["version"] = fromVersion + 1;

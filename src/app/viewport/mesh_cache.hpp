@@ -43,6 +43,12 @@ public:
     /// Destroys every mesh.
     void clear();
 
+    /// View > Hidden Geometry: soft and hidden edges and hidden faces are built
+    /// into the meshes and topologies (drawn faint and picked). Changing it
+    /// drops every mesh, so the next sync rebuilds them all.
+    void setShowHidden(bool show);
+    [[nodiscard]] bool showHidden() const { return showHidden_; }
+
     /// Nearest hit of `ray` against every cached mesh.
     [[nodiscard]] std::optional<PickHit> pick(const Ray& ray) const;
 
@@ -59,6 +65,7 @@ private:
     Renderer& renderer_;
     std::map<ObjectId, Entry> entries_;
     std::vector<ObjectPtr> synced_; ///< document.objects as of the last sync
+    bool showHidden_ = false;
 };
 
 } // namespace pf

@@ -252,7 +252,8 @@ void App::frame() {
 
     // A key that closes a popup this frame must not also act as a shortcut.
     const bool popupWasOpen = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
-    UiContext ctx{editor_, tools_, projectName(), editor_.isDirty(), viewport_->gridStep(), &viewport_->profileEdges()};
+    UiContext ctx{editor_, tools_, projectName(), editor_.isDirty(), viewport_->gridStep(), &viewport_->profileEdges(),
+                      &viewport_->hiddenGeometry()};
     const UiRect rect = ui_.draw(ctx);
     const ImGuiIO& io = ImGui::GetIO();
     int fbw = 0, fbh = 0, ww = 0, wh = 0;
@@ -438,7 +439,8 @@ void App::handleShortcuts() {
     if (ui_.hasMeasurementText()) {
         backspaceGuard_.noteTyping(ImGui::GetTime());
         if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter)) {
-            UiContext ctx{editor_, tools_, projectName(), editor_.isDirty(), viewport_->gridStep(), &viewport_->profileEdges()};
+            UiContext ctx{editor_, tools_, projectName(), editor_.isDirty(), viewport_->gridStep(), &viewport_->profileEdges(),
+                      &viewport_->hiddenGeometry()};
             ui_.submitMeasurement(ctx);
         } else if (ImGui::IsKeyPressed(ImGuiKey_Backspace)) {
             ui_.eraseMeasurementChar();
