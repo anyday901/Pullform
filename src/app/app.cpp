@@ -432,6 +432,7 @@ void App::handleShortcuts() {
     }
     if (ImGui::IsKeyPressed(ImGuiKey_Space, false)) tools_.setTool(Tool::Select);
     if (ImGui::IsKeyPressed(ImGuiKey_R, false)) tools_.setTool(Tool::Rectangle);
+    if (ImGui::IsKeyPressed(ImGuiKey_L, false)) tools_.setTool(Tool::Line);
     if (ImGui::IsKeyPressed(ImGuiKey_P, false)) tools_.setTool(Tool::PushPull);
     if (ImGui::IsKeyPressed(ImGuiKey_Q, false)) tools_.setTool(Tool::Rotate);
     if (ImGui::IsKeyPressed(ImGuiKey_S, false)) tools_.setTool(Tool::Scale);

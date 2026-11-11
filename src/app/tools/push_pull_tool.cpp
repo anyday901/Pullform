@@ -2,7 +2,11 @@
 
 #include "app/tools/tool_support.hpp"
 #include "core/commands/operations.hpp"
+#include "core/document/tolerance.hpp"
+#include "core/geometry/mesh.hpp"
 #include "core/geometry/pick.hpp"
+
+#include <glm/geometric.hpp>
 
 #include <cmath>
 
@@ -17,7 +21,7 @@ std::optional<std::string> PushPullTool::pushableReason(const FaceId& face) {
         return std::string("Push/pull of the base face is not supported yet. Pick the top cap to change the height.");
     case Side:
         return "Push/pull of side faces (" + faceLabel(face) + ") is not supported yet. Pick the top cap to change the height.";
-    case Mesh: return std::string("Push/pull of drawn faces is not supported yet.");
+    case Mesh: return std::nullopt; // drawn faces: the operation says when one cannot be pushed
     }
     return std::nullopt;
 }
@@ -41,6 +45,17 @@ void PushPullTool::pointerDown(const PointerInput& input) {
     if (!o) return;
     gesture_ = Gesture{pick.objectId, pick.faceId.kind, pick.point, o->extrusion ? o->extrusion->height : 0.0,
                        profileToWorld(*o, Vec2{0.0}, 0.0).z, input.screen, true};
+    if (pick.faceId.kind == FaceKind::Mesh) {
+        const auto* f = o->mesh ? o->mesh->face(mesh::FaceId{static_cast<std::uint32_t>(pick.faceId.side)}) : nullptr;
+        if (!f) {
+            gesture_.reset();
+            return;
+        }
+        gesture_->meshFace = static_cast<std::uint32_t>(pick.faceId.side);
+        gesture_->normal = glm::normalize(rotationMatrix(o->transform) * f->normal);
+        gesture_->startHeight = 0.0;
+        gesture_->baseZ = pick.point.z;
+    }
     editor().notify(std::nullopt);
     setPreview(0.0);
 }
@@ -53,16 +68,33 @@ void PushPullTool::pointerUp(const PointerInput& input) {
 
 void PushPullTool::setPreview(double delta) {
     if (!gesture_) return;
+    if (gesture_->face == FaceKind::Mesh) {
+        PushPullPreview p{gesture_->objectId, FaceKind::Mesh, 0.0, delta, delta, std::nullopt, std::nullopt};
+        const Document& doc = editor().document();
+        if (std::abs(delta) < tol::kMinDimension) {
+            if (const auto* o = doc.find(gesture_->objectId)) p.result = *o; // nothing pushed yet
+        } else if (auto r = pushPullFace(doc, gesture_->objectId, mesh::FaceId{gesture_->meshFace}, delta)) {
+            p.result = *r->document.find(gesture_->objectId);
+        } else {
+            p.error = r.error();
+        }
+        editor().setPreview(std::move(p));
+        return;
+    }
     const double height = gesture_->startHeight + delta;
     // A planar face may be pushed backwards (into a wall); a cap stays above its base.
     const auto error = gesture_->face == FaceKind::Profile ? checkProfileHeight(height) : checkHeight(height);
-    editor().setPreview(PushPullPreview{gesture_->objectId, gesture_->face, gesture_->startHeight, delta, height, error});
+    editor().setPreview(PushPullPreview{gesture_->objectId, gesture_->face, gesture_->startHeight, delta, height, error, std::nullopt});
 }
 
 void PushPullTool::pointerMove(const PointerInput& input) {
     if (!gesture_) {
         if (const auto& pick = input.pick; pick && !pushableReason(pick->faceId)) editor().setHover(Selection{pick->objectId, pick->faceId});
         else editor().setHover(std::nullopt);
+        return;
+    }
+    if (gesture_->face == FaceKind::Mesh) {
+        moveMeshFace(input);
         return;
     }
     const auto* o = editor().document().find(gesture_->objectId);
@@ -82,6 +114,22 @@ void PushPullTool::pointerMove(const PointerInput& input) {
     }
     const auto total = snapHeight(input, raw);
     if (total.has_value()) setPreview(*total - gesture_->startHeight);
+}
+
+void PushPullTool::moveMeshFace(const PointerInput& input) {
+    const Vec3 n = gesture_->normal;
+    const auto t = closestParameterOnAxis(gesture_->anchor, n, input.ray);
+    if (std::abs(std::abs(n.z) - 1.0) > 1e-9) {
+        // A tilted or vertical face: the distance snaps to the grid only.
+        ctx_.indicator.reset();
+        if (t.has_value()) setPreview(ctx_.snap.toGrid(*t));
+        return;
+    }
+    // A horizontal face: heights snap like a cap (snapHeight works in world z
+    // from the picked point, so a face looking down pushes the other way).
+    const double sign = n.z > 0.0 ? 1.0 : -1.0;
+    const auto rise = snapHeight(input, t.has_value() ? std::optional(*t * sign) : std::nullopt);
+    if (rise.has_value()) setPreview(*rise * sign);
 }
 
 std::optional<double> PushPullTool::snapHeight(const PointerInput& input, std::optional<double> raw) {
@@ -119,7 +167,26 @@ void PushPullTool::finish() {
         editor().notify(Message{Message::Kind::Error, *preview->error});
         return;
     }
+    if (gesture_->face == FaceKind::Mesh) {
+        commitMeshFace(gesture_->objectId, gesture_->meshFace, preview->delta);
+        return;
+    }
     commitHeight(gesture_->objectId, gesture_->face, preview->height);
+}
+
+bool PushPullTool::commitMeshFace(ObjectId id, std::uint32_t face, double distance) {
+    const LengthUnit unit = editor().document().displayUnit;
+    mesh::FaceId pushed{face};
+    const bool ok = editor().commit(
+        "Push/pull " + formatLength(distance, unit),
+        [id, face, distance, &pushed](const Document& doc) { return pushPullFace(doc, id, mesh::FaceId{face}, distance, &pushed); },
+        [id, &pushed](const OpResult&) -> std::optional<Selection> { return Selection{id, FaceId::meshFace(pushed.value)}; });
+    if (ok) {
+        gesture_.reset();
+        ctx_.indicator.reset();
+        editor().cancelPreview();
+    }
+    return ok;
 }
 
 bool PushPullTool::commitHeight(ObjectId id, FaceKind face, double height) {
@@ -145,6 +212,16 @@ std::optional<std::string> PushPullTool::submitDistance(std::string_view text) {
     ObjectId id;
     FaceKind face = FaceKind::Profile;
     double start = 0.0;
+    if (gesture_ && gesture_->face == FaceKind::Mesh) {
+        if (std::abs(*parsed) < tol::kMinDimension) return std::string("Distance must be at least 0.1 mm.");
+        if (!commitMeshFace(gesture_->objectId, gesture_->meshFace, *parsed)) return ctx_.lastError("Push/pull failed.");
+        return std::nullopt;
+    }
+    if (const auto& sel = editor().selection(); !gesture_ && sel && sel->face && sel->face->kind == FaceKind::Mesh) {
+        if (std::abs(*parsed) < tol::kMinDimension) return std::string("Distance must be at least 0.1 mm.");
+        if (!commitMeshFace(sel->objectId, static_cast<std::uint32_t>(sel->face->side), *parsed)) return ctx_.lastError("Push/pull failed.");
+        return std::nullopt;
+    }
     if (gesture_) {
         id = gesture_->objectId;
         face = gesture_->face;
@@ -179,7 +256,8 @@ std::optional<std::string> PushPullTool::setTotalHeight(ObjectId id, std::string
 
 std::string PushPullTool::hint() const {
     if (gesture_) return "Push/Pull: move to set the height and click, or type a distance and press Enter. Esc cancels.";
-    return "Push/Pull: click a rectangle and move either way, or an extrusion's top cap. Side and base faces are not supported yet.";
+    return "Push/Pull: click a rectangle (it moves either way), an extrusion's top cap or a drawn face, then move. Side and "
+           "base faces of boxes are not supported yet.";
 }
 
 } // namespace pf

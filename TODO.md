@@ -26,13 +26,14 @@ Merged into `main`:
 - [x] Tape Measure (T) and attached Dimension annotations (D) (#9).
 - [x] Rotate (Q) and Scale (S), file format version 2 with migration from version 1 (#10).
 - [x] Duplicate (Ctrl+D) with a new stable ID (#11).
+- [x] Phase 1 foundations, items 1 to 5: per-tool classes, multi-selection, the geometry
+      decision in `docs/GEOMETRY.md`, the edge/face mesh with file format version 3, and
+      edge/face rendering and picking (#13).
 
-What SketchUp has that Pullform does not, in short: free-form edges and faces that stick
-together, a Line tool, curves, drawing on any face, push/pull on any face (including
-cutting holes), Offset and Follow Me, groups and components, multi-selection, materials,
-styles, scenes, shadows, section planes, and import/export. The biggest single gap is the
-geometry model: today every object is an independent rectangular prism, so most of the
-items below wait on the geometry decision in item 3.
+What SketchUp has that Pullform does not, in short: a Line tool, curves, drawing on any
+face, push/pull on any face (including cutting holes), Offset and Follow Me, groups and
+components, materials, styles, scenes, shadows, section planes, and import/export. The
+edge/face mesh from Phase 1 is in place, so these now build on shared geometry.
 
 ## Open items carried over
 
@@ -51,20 +52,20 @@ These are still open from the first batch.
 - [ ] **0d. Release v0.2.0.** Tag it and attach the installer to a GitHub release. Fold in
       the CHANGELOG (its Unreleased section has two `### Added` headings to merge).
 
-## Phase 1: Foundations (do these first)
+## Phase 1: Foundations (done)
 
-- [ ] **1. Split `ToolController` into per-tool classes.** `tool_controller.cpp` is about
+- [x] **1. Split `ToolController` into per-tool classes.** `tool_controller.cpp` is about
       950 lines with every tool's state machine in one class. Give each tool its own class
       behind a small interface (pointer down/move/up, key, typed value, preview, cancel,
       status hint), keep shared parts (snapping, numeric entry, axis locks) in helpers.
       Behavior must not change. *Depends on:* nothing. *Accept:* all existing tests pass
       unchanged; adding a tool touches one new file pair plus a registration line.
-- [ ] **2. Multi-selection of objects.** Shift adds/removes, Ctrl adds, click empty space
+- [x] **2. Multi-selection of objects.** Shift adds/removes, Ctrl adds, click empty space
       clears, Ctrl+A selects all; left-to-right window selection and right-to-left crossing
       selection. Move, Rotate, Scale, Duplicate and Delete act on the whole selection as one
       undo entry. *Depends on:* nothing (works on today's objects). *Accept:* select three
       boxes by window, move them 1 m with one undo entry.
-- [ ] **3. Geometry model decision** (a written document, no product code). SketchUp's feel
+- [x] **3. Geometry model decision** (a written document, no product code). SketchUp's feel
       comes from "sticky" geometry: edges and faces that share vertices, faces that form
       automatically when edges close a loop, and edges that split faces. Compare a
       half-edge planar mesh of our own against building on a kernel (Manifold for booleans,
@@ -73,13 +74,13 @@ These are still open from the first batch.
       as true arcs plus segments, precision and tolerance merging, undo snapshot cost,
       license and binary size. *Depends on:* nothing. *Accept:* `docs/GEOMETRY.md`
       reviewed and merged with a clear recommendation.
-- [ ] **4. Edge/face mesh in the core, file format version 3** (likely two PRs: data model,
+- [x] **4. Edge/face mesh in the core, file format version 3** (likely two PRs: data model,
       then migration). Vertices, edges and faces with holes; automatic face creation from a
       closed planar loop; splitting a face by an edge across it; merging coplanar faces when
       the edge between them is erased; validation. Version 2 files open with a migration.
       *Depends on:* 3. *Accept:* four edges drawn in a loop make one face; a line across it
       splits it in two; every version 1 and 2 test file opens and renders the same.
-- [ ] **5. Render and pick edges and faces.** Draw edges as lines (with a thicker
+- [x] **5. Render and pick edges and faces.** Draw edges as lines (with a thicker
       "profile" outline option), pick vertex/edge/face under the pointer, highlight the
       hovered element, select edges and faces as well as objects (click, double-click for a
       face plus its edges, triple-click for everything connected). *Depends on:* 4.
@@ -265,10 +266,14 @@ These are still open from the first batch.
 
 ## Start now
 
-These have no unfinished dependency and can go to parallel threads today: **1** (tool
-split), **2** (multi-selection), **3** (geometry decision), **29** (views and projection),
-**39** (STL/OBJ/glTF export), **40** (image export), **46** (autosave), **47**
-(preferences), **52** (image tests), and the carried-over **0c** and **0d**.
+Phase 1 is done, so the Phase 2 drawing items are open: **6** (Line), **7** (inference),
+**8** (any face and plane) and **11** (Eraser) have no unfinished dependency, and **9**,
+**10**, **12** and **13** follow them. Also unblocked by Phase 1: **14** (push/pull any
+face), **15** (sub-element transforms), **16** (array copies), **19** (Intersect Faces),
+**21** (edge cleanup), **22** (groups), **28** (lock and hide), **31** (materials), **33**
+(styles), **35** (shadows), **48** (large-model performance) and **51** (terrain). Still
+open from before: **29** (views and projection), **39** (STL/OBJ/glTF export), **40**
+(image export), **46** (autosave), **47** (preferences), **52** (image tests), and the
+carried-over **0c** and **0d**.
 
-Item 3 is the critical path: most of phases 2 to 4 wait on its decision and on item 4.
-Starting item 1 at the same time keeps the new tools from piling into one file.
+Item 22 (groups) is the next critical path: most of phase 4 waits on it.

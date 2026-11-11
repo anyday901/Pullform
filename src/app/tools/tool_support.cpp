@@ -14,6 +14,7 @@ std::string_view toolName(Tool tool) {
     case Select: return "Select";
     case Rectangle: return "Rectangle";
     case RotatedRectangle: return "Rotated Rectangle";
+    case Line: return "Line";
     case PushPull: return "Push/Pull";
     case Rotate: return "Rotate";
     case Scale: return "Scale";
