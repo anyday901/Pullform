@@ -1,0 +1,93 @@
+#pragma once
+
+#include "core/document/document.hpp"
+#include "core/geometry/solid.hpp"
+
+#include <cstdint>
+#include <optional>
+#include <vector>
+
+namespace pf {
+
+/// The kinds of sub-object element that can be picked, hovered and selected.
+enum class ElementKind : std::uint8_t { Vertex, Edge, Face };
+
+/// The vertices, edges and faces of one object as the viewport sees them, in
+/// world space, with the adjacency needed for picking, profile-edge detection
+/// and double/triple-click expansion. Inside the structure elements refer to
+/// each other by index; each element also carries its stable model id (the
+/// mesh's VertexId/EdgeId/FaceId value), which is what selections store.
+///
+/// This is a derived view, like MeshData: it is rebuilt from the model and
+/// never stored. Today it is built from an object's logical faces
+/// (buildFaces); a mesh-based object builds the same structure from its mesh.
+struct ElementTopology {
+    struct Vertex {
+        std::uint32_t id = 0;
+        Vec3 position{0.0};
+        std::vector<std::uint32_t> edges; ///< edges using this vertex
+    };
+    struct Edge {
+        std::uint32_t id = 0;
+        std::uint32_t a = 0, b = 0;       ///< vertex indices
+        std::vector<std::uint32_t> faces; ///< faces bordered by this edge (0, 1 or 2 for a manifold)
+    };
+    struct Face {
+        std::uint32_t id = 0;
+        FaceId logical;                   ///< the model's face id (push/pull, properties)
+        Vec3 normal{0.0};
+        std::vector<std::uint32_t> loop;  ///< outer loop, vertex indices, counter-clockwise from +normal
+        std::vector<std::uint32_t> edges; ///< bounding edges in loop order
+        bool twoSided = false;            ///< a planar sheet, visible and pickable from both sides
+    };
+    struct Triangle {
+        std::uint32_t face = 0;
+        std::uint32_t v[3] = {0, 0, 0};
+    };
+
+    std::vector<Vertex> vertices;
+    std::vector<Edge> edges;
+    std::vector<Face> faces;
+    std::vector<Triangle> triangles; ///< front-side triangulation of every face
+
+    [[nodiscard]] bool empty() const { return vertices.empty(); }
+    /// Index of the face whose semantic id is `logical`, if any.
+    [[nodiscard]] std::optional<std::uint32_t> faceFor(const FaceId& logical) const;
+    /// Index of the element of `kind` whose stable id is `id`, if any.
+    [[nodiscard]] std::optional<std::uint32_t> indexOf(ElementKind kind, std::uint32_t id) const;
+    /// Stable id of the element of `kind` at `index`.
+    [[nodiscard]] std::uint32_t idAt(ElementKind kind, std::uint32_t index) const;
+};
+
+/// Builds the topology from logical face polygons. Corners that coincide
+/// (within `tolerance` meters) are merged into one vertex, and every
+/// undirected vertex pair along a loop becomes one shared edge. Ids are
+/// indices + 1, in order of first appearance.
+ElementTopology buildTopology(const std::vector<FacePolygon>& faces, double tolerance = 1e-9);
+
+/// Topology of a document object.
+ElementTopology buildTopology(const ProfileObject& object);
+
+/// An element of one object, by stable id.
+struct ElementRef {
+    ObjectId object;
+    ElementKind kind = ElementKind::Face;
+    std::uint32_t id = 0;
+    friend auto operator<=>(const ElementRef&, const ElementRef&) = default;
+};
+
+/// Edges that outline the shape from the eye: border edges (one face, as on a
+/// sheet) and silhouette edges, where one neighbor faces the eye and the other
+/// faces away. These are the edges drawn thicker with the "profiles" style.
+std::vector<std::uint32_t> profileEdges(const ElementTopology& topology, const Vec3& eye);
+
+/// Expansions take and return stable ids.
+/// Double-click expansion. A face gives the face and its bounding edges; an
+/// edge gives the edge and the faces it borders; a vertex gives its edges.
+std::vector<ElementRef> expandBounded(ObjectId object, const ElementTopology& topology, ElementKind kind, std::uint32_t id);
+
+/// Triple-click expansion: every vertex-connected edge and face reachable from
+/// the element (all of it, for one of today's single-solid objects).
+std::vector<ElementRef> expandConnected(ObjectId object, const ElementTopology& topology, ElementKind kind, std::uint32_t id);
+
+} // namespace pf

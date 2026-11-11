@@ -1,0 +1,168 @@
+// Sub-object elements: topology of today's objects, vertex/edge/face picking
+// with pixel tolerances and occlusion, profile edges, and click expansion.
+#include "fake_renderer.hpp"
+
+#include "app/tools/click_counter.hpp"
+#include "core/geometry/element_pick.hpp"
+#include "core/geometry/topology.hpp"
+
+#include <glm/geometric.hpp>
+
+#include <doctest/doctest.h>
+
+#include <algorithm>
+
+using namespace pf;
+using pf::test::boxObject;
+
+namespace {
+
+constexpr double kPixel = 1e-3; // radians per pixel used by these tests
+
+std::optional<ElementHit> pickOne(const ElementTopology& topo, const Ray& ray, ObjectId id = ObjectId{1}) {
+    const PickTarget target{id, &topo};
+    return pickElement(ray, std::span<const PickTarget>(&target, 1), ElementPickOptions{kPixel});
+}
+
+/// A ray from `eye` through `at`.
+Ray through(const Vec3& eye, const Vec3& at) { return {eye, glm::normalize(at - eye)}; }
+
+std::optional<std::uint32_t> edgeBetween(const ElementTopology& topo, const Vec3& a, const Vec3& b) {
+    for (std::uint32_t e = 0; e < topo.edges.size(); ++e) {
+        const Vec3 p = topo.vertices[topo.edges[e].a].position;
+        const Vec3 q = topo.vertices[topo.edges[e].b].position;
+        if ((glm::length(p - a) < 1e-9 && glm::length(q - b) < 1e-9) || (glm::length(p - b) < 1e-9 && glm::length(q - a) < 1e-9)) {
+            return topo.edges[e].id;
+        }
+    }
+    return std::nullopt;
+}
+
+std::size_t countKind(const std::vector<ElementRef>& refs, ElementKind kind) {
+    return static_cast<std::size_t>(std::count_if(refs.begin(), refs.end(), [&](const ElementRef& r) { return r.kind == kind; }));
+}
+
+} // namespace
+
+TEST_CASE("a box has 8 shared vertices, 12 shared edges and 6 faces") {
+    const auto topo = buildTopology(*boxObject(1, 0, 0, 1, 1, 1));
+    CHECK(topo.vertices.size() == 8);
+    CHECK(topo.edges.size() == 12);
+    CHECK(topo.faces.size() == 6);
+    CHECK(topo.triangles.size() == 12);
+    for (const auto& e : topo.edges) CHECK(e.faces.size() == 2);
+    for (const auto& v : topo.vertices) CHECK(v.edges.size() == 3);
+    REQUIRE(topo.faceFor(FaceId::cap()));
+    CHECK(topo.faces[*topo.faceFor(FaceId::cap())].normal.z == doctest::Approx(1.0));
+}
+
+TEST_CASE("a planar profile is one two-sided face with four border edges") {
+    auto sheet = std::make_shared<ProfileObject>(*boxObject(1, 0, 0, 2, 1));
+    sheet->extrusion.reset();
+    const auto topo = buildTopology(*sheet);
+    CHECK(topo.vertices.size() == 4);
+    CHECK(topo.edges.size() == 4);
+    REQUIRE(topo.faces.size() == 1);
+    CHECK(topo.faces[0].twoSided);
+    // Every border edge is a profile edge from any viewpoint.
+    CHECK(profileEdges(topo, {1, 0.5, 5}).size() == 4);
+    // Picking works from below too, since a sheet is two-sided.
+    const auto hit = pickOne(topo, {{1.0, 0.5, -5.0}, {0, 0, 1}});
+    REQUIRE(hit);
+    CHECK(hit->element.kind == ElementKind::Face);
+}
+
+TEST_CASE("pick prefers a vertex, then an edge, then the face") {
+    const auto topo = buildTopology(*boxObject(1, 0, 0, 1, 1, 1));
+    const Vec3 eye{0.5, 0.5, 11.0}; // 10 m above the cap: one pixel is ~1 cm there
+
+    SUBCASE("on the face, away from edges") {
+        const auto hit = pickOne(topo, through(eye, {0.5, 0.5, 1.0}));
+        REQUIRE(hit);
+        CHECK(hit->element.kind == ElementKind::Face);
+        CHECK(topo.faces[*topo.indexOf(ElementKind::Face, hit->element.id)].logical == FaceId::cap());
+        CHECK(hit->point.z == doctest::Approx(1.0));
+    }
+    SUBCASE("three pixels from an edge") {
+        const auto hit = pickOne(topo, through(eye, {0.5, 0.97, 1.0}));
+        REQUIRE(hit);
+        CHECK(hit->element.kind == ElementKind::Edge);
+        CHECK(hit->element.id == *edgeBetween(topo, {0, 1, 1}, {1, 1, 1}));
+        CHECK(hit->point.y == doctest::Approx(1.0));
+    }
+    SUBCASE("four pixels from a corner, which beats both of its edges") {
+        const auto hit = pickOne(topo, through(eye, {0.97, 0.97, 1.0}));
+        REQUIRE(hit);
+        CHECK(hit->element.kind == ElementKind::Vertex);
+        CHECK(glm::length(topo.vertices[*topo.indexOf(ElementKind::Vertex, hit->element.id)].position - Vec3{1, 1, 1}) < 1e-12);
+    }
+    SUBCASE("nothing under the pointer") { CHECK_FALSE(pickOne(topo, through(eye, {3.0, 3.0, 1.0}))); }
+}
+
+TEST_CASE("hidden edges and vertices are not picked; the face in front is") {
+    const auto topo = buildTopology(*boxObject(1, 0, 0, 1, 1, 1));
+    // A ray aimed a hair off the bottom corner (1, 1, 0) passes through the cap
+    // first: the corner and its bottom edges are hidden, so the cap is picked.
+    const Vec3 eye{0.6, 0.6, 11.0};
+    const Ray ray = through(eye, {0.95, 0.95, 0.0}); // in front: the cap
+    const auto hit = pickOne(topo, ray);
+    REQUIRE(hit);
+    CHECK(hit->element.kind == ElementKind::Face);
+    CHECK(topo.faces[*topo.indexOf(ElementKind::Face, hit->element.id)].logical == FaceId::cap());
+}
+
+TEST_CASE("another object in front hides an edge") {
+    // A slab floating above the box covers the box's top edges.
+    const auto back = buildTopology(*boxObject(1, 0, 0, 1, 1, 1));
+    auto slab = std::make_shared<ProfileObject>(*boxObject(2, -1, -1, 3, 3, 0.2));
+    slab->transform.translation.z = 2.0;
+    const auto cover = buildTopology(*slab);
+    const PickTarget targets[] = {{ObjectId{1}, &back}, {ObjectId{2}, &cover}};
+    const Vec3 eye{0.5, 0.5, 11.0};
+    const auto hit = pickElement(through(eye, {0.5, 0.995, 1.0}), targets, ElementPickOptions{kPixel});
+    REQUIRE(hit);
+    CHECK(hit->element.object == ObjectId{2});
+    CHECK(hit->element.kind == ElementKind::Face);
+}
+
+TEST_CASE("profile edges of a box are its silhouette") {
+    const auto topo = buildTopology(*boxObject(1, 0, 0, 1, 1, 1));
+    // From straight above, the outline is the cap's four edges (cap faces the
+    // eye, the sides face sideways: exactly perpendicular counts as away).
+    CHECK(profileEdges(topo, {0.5, 0.5, 10}).size() == 4);
+    // From a corner direction, three faces are visible: the silhouette is a hexagon.
+    CHECK(profileEdges(topo, {5, 6, 7}).size() == 6);
+}
+
+TEST_CASE("double-click expands a face to its edges and an edge to its faces") {
+    const auto topo = buildTopology(*boxObject(1, 0, 0, 1, 1, 1));
+    const ObjectId id{1};
+    const auto cap = topo.faces[*topo.faceFor(FaceId::cap())].id;
+    const auto face = expandBounded(id, topo, ElementKind::Face, cap);
+    CHECK(countKind(face, ElementKind::Face) == 1);
+    CHECK(countKind(face, ElementKind::Edge) == 4);
+    CHECK(face.front() == ElementRef{id, ElementKind::Face, cap});
+
+    const auto edge = expandBounded(id, topo, ElementKind::Edge, *edgeBetween(topo, {0, 1, 1}, {1, 1, 1}));
+    CHECK(countKind(edge, ElementKind::Edge) == 1);
+    CHECK(countKind(edge, ElementKind::Face) == 2);
+}
+
+TEST_CASE("triple-click selects everything connected") {
+    const auto topo = buildTopology(*boxObject(1, 0, 0, 1, 1, 1));
+    const auto all = expandConnected(ObjectId{1}, topo, ElementKind::Edge, topo.edges[0].id);
+    CHECK(countKind(all, ElementKind::Edge) == 12);
+    CHECK(countKind(all, ElementKind::Face) == 6);
+    CHECK(countKind(all, ElementKind::Vertex) == 0);
+}
+
+TEST_CASE("clicks at one spot in quick succession count up to three") {
+    ClickCounter clicks;
+    CHECK(clicks.click(0.00, {10, 10}) == 1);
+    CHECK(clicks.click(0.20, {11, 10}) == 2);
+    CHECK(clicks.click(0.40, {11, 11}) == 3);
+    CHECK(clicks.click(0.50, {11, 11}) == 1); // a fourth starts a new series
+    CHECK(clicks.click(1.50, {11, 11}) == 1); // too slow
+    CHECK(clicks.click(1.60, {30, 11}) == 1); // moved too far
+    CHECK(clicks.click(1.70, {30, 11}) == 2);
+}
