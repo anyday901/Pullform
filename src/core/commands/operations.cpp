@@ -823,6 +823,7 @@ Expected<OpResult> intersectFaces(const Document& doc, const std::vector<Element
     for (const Item& c : chosen) {
         for (const Item& p : pool) {
             if (p.ref == c.ref) continue;
+            if (mode == IntersectMode::Context && p.ref.object != c.ref.object) continue; // each face's own object only
             if (!done.insert(std::minmax(c.ref, p.ref)).second) continue;
             for (const auto& s : mesh::faceIntersection(c.world, p.world)) {
                 cuts[c.ref.object].push_back(s);

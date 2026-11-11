@@ -243,6 +243,15 @@ TEST_CASE("With Context cuts faces against the rest of their own object only") {
     REQUIRE(r);
     CHECK(r->objectIds == std::vector<ObjectId>{g});
     CHECK(r->document.find(other) == doc.find(other));
+    // Selecting the crossing box too still cuts each object only against itself.
+    std::vector<ElementRef> both = allFaces(doc, g);
+    for (const auto& f : allFaces(doc, other)) both.push_back(f);
+    const auto r2 = intersectFaces(doc, both, IntersectMode::Context);
+    REQUIRE(r2);
+    CHECK(r2->objectIds == std::vector<ObjectId>{g});
+    CHECK(r2->document.find(other) == doc.find(other));
+    CHECK_FALSE(intersectFaces(doc, allFaces(doc, other), IntersectMode::Context));
+
     const auto& m = meshOf(r->document, g);
     // The wall splits at the ground; the square gets the crossing line (loose
     // inside it: its ends do not reach the square's edges).
@@ -302,4 +311,23 @@ TEST_CASE("Intersect works on rotated objects") {
     CHECK(meshOf(r->document, b).faces().size() > 6);
     CHECK(test::near(area(meshOf(r->document, a)), 24.0, 1e-9));
     CHECK(test::near(area(meshOf(r->document, b)), 24.0, 1e-9));
+}
+
+TEST_CASE("faceIntersection: nearly parallel faces still meet where they cross") {
+    // Planes 1e-8 rad apart, crossing along the y axis: 1 km out they are 10 um apart.
+    const double angle = 1e-8;
+    mesh::PlanarFace flat;
+    flat.loops = {{{-1000, -1, 0}, {1000, -1, 0}, {1000, 1, 0}, {-1000, 1, 0}}};
+    flat.normal = {0, 0, 1};
+    mesh::PlanarFace tilted;
+    const double z = 1000.0 * std::tan(angle);
+    tilted.loops = {{{-1000, -1, z}, {1000, -1, -z}, {1000, 1, -z}, {-1000, 1, z}}};
+    tilted.normal = glm::normalize(Vec3{std::sin(angle), 0.0, std::cos(angle)});
+    const auto segs = mesh::faceIntersection(flat, tilted);
+    REQUIRE_FALSE(segs.empty());
+    for (const auto& s : segs) {
+        CHECK(std::isfinite(s.first.x));
+        CHECK(std::abs(s.first.x) < 1e-3);
+        CHECK(std::abs(s.second.x) < 1e-3);
+    }
 }

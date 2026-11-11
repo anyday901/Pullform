@@ -123,17 +123,16 @@ std::vector<Segment> faceIntersection(const PlanarFace& a, const PlanarFace& b) 
 
     const Vec3 n1 = a.normal;
     const Vec3 n2 = b.normal;
-    Vec3 d = glm::cross(n1, n2);
-    const double sine = glm::length(d);
-    if (sine <= kParallelSine) return segments; // parallel or coplanar
-    d /= sine;
+    const Vec3 dir = glm::cross(n1, n2);
+    const double sine2 = glm::dot(dir, dir);
+    if (sine2 <= kParallelSine * kParallelSine) return segments; // parallel or coplanar
 
-    // A point on both planes (n . x = h), the one closest to the origin of the frame.
+    // A point on both planes (n . x = h). Dividing by |n1 x n2|^2 rather than
+    // 1 - (n1 . n2)^2 avoids cancellation when the faces are nearly parallel.
     const double h1 = glm::dot(n1, a.loops.front().front());
     const double h2 = glm::dot(n2, b.loops.front().front());
-    const double k = glm::dot(n1, n2);
-    const double den = 1.0 - k * k;
-    const Vec3 p0 = n1 * ((h1 - h2 * k) / den) + n2 * ((h2 - h1 * k) / den);
+    const Vec3 p0 = (glm::cross(dir, n1) * h2 + glm::cross(n2, dir) * h1) / sine2;
+    const Vec3 d = dir / std::sqrt(sine2);
 
     std::vector<double> ts;
     breakpoints(a, p0, d, ts);
