@@ -27,7 +27,16 @@ std::optional<std::string> checkHeight(double height);
 
 /// Adds a planar rectangle (allocating a new stable ID).
 Expected<OpResult> createRectangle(const Document& doc, const RectanglePlacement& placement);
+/// Checks a push/pull of a planar face: like checkHeight, but a negative
+/// height (pushing the face backwards, into a wall) is allowed.
+std::optional<std::string> checkProfileHeight(double height);
+/// The same planar rectangle facing the other way: the footprint stays put
+/// and the normal is reversed (corner i becomes corner 3 - i).
+ProfileObject flippedProfile(const ProfileObject& object);
 /// Turns a planar rectangle into a closed prism of total height `height`.
+/// A negative height extrudes backwards (against the face's normal): the
+/// rectangle is flipped first, so the prism still has a positive height and
+/// its cap is the far face.
 Expected<OpResult> extrudeProfile(const Document& doc, ObjectId id, double height);
 /// Changes the total height of an existing extrusion (same object, same ID).
 Expected<OpResult> setExtrusionHeight(const Document& doc, ObjectId id, double height);
@@ -108,5 +117,12 @@ Expected<OpResult> drawEdge(const Document& doc, std::optional<ObjectId> target,
 /// that used it are removed. A rectangle or box is converted to a mesh group
 /// first. A group left with nothing is deleted.
 Expected<OpResult> eraseEdge(const Document& doc, ObjectId id, mesh::EdgeId edge);
+
+/// Pushes or pulls face `face` of a mesh group by `distance` along its normal
+/// (see mesh::Mesh::pushPull): a free face becomes a closed solid, and the end
+/// face of a prism moves with its walls stretching. Same object, same id.
+/// `pushed`, when given, receives the face where it ended up (the new cap of an extrusion).
+Expected<OpResult> pushPullFace(const Document& doc, ObjectId id, mesh::FaceId face, double distance,
+                                mesh::FaceId* pushed = nullptr);
 
 } // namespace pf

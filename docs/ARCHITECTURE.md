@@ -289,12 +289,36 @@ a new file pair, and one `add<...>(Tool::...)` registration line in the
 `ToolController` constructor. The controller receives a `PointerInput` (world ray,
 resolved pick, screen position), so tests drive it with synthetic events and no window.
 
-- Rectangle: ground-plane intersection, optional grid snap, normalization of any drawing
-  direction to a positive-size, counter-clockwise rectangle. Typed sizes follow the
-  pointer's direction from the first corner. Mouse and numeric entry call the same
-  `createRectangle` operation.
-- Push/pull: the pointer ray is projected onto the vertical line through the clicked point
-  (closest point between two lines). The **total** height snaps to the grid increment when
+- Drawing planes (`app/tools/drawing_plane.*`, math in `core/geometry/plane.*`): a
+  `DrawingPlane` picks the plane a drawing tool draws on and is meant for every drawing
+  tool (Rectangle now; Line and the curve tools). Before the first click it follows the
+  pointer: the face under it (`pickedPlane`: the face's plane through one of its corners,
+  facing the viewer), else the ground. Arrow keys lock a plane facing world X (Right) or
+  Y (Left), a horizontal plane (Up), each through the snapped 3D point under the pointer,
+  or (Down) the plane last hovered; the same key releases. `begin` fixes the plane at the
+  first click and `point` snaps later points onto it; an arrow during the gesture turns
+  the plane about the first point. `snapOnPlane` is the ground snap on any plane: a point
+  snap projected onto the plane (guide from the feature), else ray/plane intersection
+  with inference along the plane's axes and the grid in plane coordinates. Plane frames
+  are `PlaneBasis` values with axes chosen by `planeThrough` (horizontal planes use world
+  X; others use the horizontal in-plane direction and uphill), and an origin at the
+  plane's point nearest the world origin, so axis-aligned planes keep the world grid and
+  exact coordinates. On the ground this reproduces the previous ground snapping exactly.
+- Rectangle: a rectangle on the drawing plane, normalized to a positive-size,
+  counter-clockwise rectangle along the plane's axes (`rectangleOnPlane`). A
+  `RectanglePlacement` carries a rotation (`planeRotation`): the object's transform turns
+  its local XY rectangle onto the plane, so no new profile kind or file field is needed.
+  Typed sizes follow the pointer's direction from the first corner on the plane. The
+  Rotated Rectangle tool is the same class in a three-click mode (`rotatedRectangle`).
+  Mouse and numeric entry call the same `createRectangle` operation.
+- Coplanar objects: a rectangle drawn on a face lies exactly on it. Picks at equal
+  distance go to the later object (`nearerHit`, and the same rule in element picking), and
+  the renderer offsets flat sheets less than solids so the sheet draws in front.
+- Push/pull: the pointer ray is projected onto the line through the clicked point along
+  the face normal (closest point between two lines). A flat rectangle may go either way:
+  a negative height flips it first (`flippedProfile`: half a turn about its local X axis,
+  same footprint, corner i becomes corner 3 - i with dimension anchors renumbered), so the
+  stored height stays positive. The **total** height snaps to the grid increment when
   snap is on. Invalid heights (at or below the base) show as a red preview and cannot be
   committed; the gesture stays active.
 - Move: picks an object and drags it in the horizontal plane through the picked point, or,

@@ -123,6 +123,11 @@ public:
         lock_.reset();
         lastConstraint_.reset();
     }
+    /// The references, after dropping those of a replaced project.
+    const std::vector<Vec3>& currentReferences() {
+        dropStaleReferences();
+        return references_;
+    }
 
 private:
     void dropStaleReferences();

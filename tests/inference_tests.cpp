@@ -393,3 +393,31 @@ TEST_CASE("inference: Move never snaps to the moving object's own corners on the
     CHECK(preview->offset.z == 0.0); // the free move keeps the height
     if (tools.snapIndicator()) CHECK(tools.snapIndicator()->objectId != std::optional<ObjectId>(box));
 }
+
+TEST_CASE("inference: the Line tool draws perpendicular to an angled edge with no typing (item 7 acceptance)") {
+    Editor editor;
+    ToolController tools(editor);
+    line(editor, kEdgeA, kEdgeB);
+    tools.setTool(Tool::Line);
+    // Start on the edge's end, then click roughly perpendicular to the edge.
+    click(tools, snapAt(editor, 2.02, 1.01, {100, 100}));
+    REQUIRE(tools.active());
+    const Vec3 u = glm::normalize(kEdgeB - kEdgeA);
+    const Vec3 perp{-u.y, u.x, 0.0};
+    const Vec3 aim = kEdgeB + perp * 1.5 + u * 0.08;
+    tools.pointerMove(snapAt(editor, aim.x, aim.y, {200, 40}));
+    REQUIRE(tools.snapIndicator());
+    CHECK(tools.snapIndicator()->kind == SnapKind::Perpendicular);
+    click(tools, snapAt(editor, aim.x, aim.y, {200, 40}));
+    // The new edge runs from the end of the angled edge, exactly perpendicular to it.
+    const auto& group = *editor.document().objects[0];
+    REQUIRE(group.mesh);
+    bool found = false;
+    for (const auto& [id, e] : group.mesh->edges()) {
+        const Vec3 a = localToWorld(group, group.mesh->vertex(e.v0)->position);
+        const Vec3 b = localToWorld(group, group.mesh->vertex(e.v1)->position);
+        const Vec3 d = b - a;
+        if (glm::length(d) > 1.0 && std::abs(glm::dot(glm::normalize(d), u)) < 1e-12) found = true;
+    }
+    CHECK(found);
+}

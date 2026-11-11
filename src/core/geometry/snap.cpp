@@ -140,7 +140,8 @@ Vec3 SnapEdge::direction() const {
 
 namespace {
 
-// A mesh group: its own vertices and edges in world space, plus curve centers.
+// A mesh group snaps to every vertex and edge, including loose edges that
+// bound no face yet (a Line tool chain before it closes), plus curve centers.
 SnapFeatures meshFeatures(const ProfileObject& object) {
     SnapFeatures f;
     const mesh::Mesh& m = *object.mesh;
@@ -184,8 +185,10 @@ SnapFeatures snapFeatures(const ProfileObject& object, std::optional<double> hei
         computeBounds(f);
         return f;
     }
+    // A profile object (rectangle or box): its logical faces.
     SnapFeatures f;
-    for (const auto& face : buildFaces(object, heightOverride)) {
+    const auto faces = buildFaces(object, heightOverride);
+    for (const auto& face : faces) {
         const auto n = face.loop.size();
         std::vector<int> ids;
         ids.reserve(n);

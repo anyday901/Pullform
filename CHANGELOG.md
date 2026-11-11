@@ -18,6 +18,28 @@ include breaking changes, but project files will keep a migration path.
   corner hovered while locked is projected onto it. The tape measure and dimension tools
   infer from their first point, Move snaps its start and destination, the rectangle tool
   also snaps to edges, and snapping now works on lines drawn into mesh groups.
+- **Draw on any face and plane.** The Rectangle tool draws on the face under the pointer,
+  including walls and tilted faces, or on the ground; once the first corner is placed the
+  plane stays fixed, so the second corner can be anywhere on screen. Arrow keys lock the
+  plane: Right faces the red axis, Left the green axis, Up is horizontal (each through the
+  point under the pointer), Down holds the plane of the face last hovered; the same key
+  releases it. Typed sizes follow the pointer on that plane.
+- **Rotated Rectangle tool:** click the first corner, the end of the first side (any
+  direction on the plane), then the depth. Type the side's length after the first click and
+  the depth after the second.
+- **Push/pull a rectangle either way:** pushing a flat rectangle backwards (a window drawn
+  on a wall, pushed in) extrudes it behind its face; typed negative distances do the same.
+  A rectangle drawn on a face is still its own object, so it overlaps the wall rather than
+  cutting it (cutting comes with push/pull on any face).
+
+- **Line tool (L).** Click a start point, then each next point, to draw a chain of edges
+  (one undo entry per segment). Type a length to draw the next segment toward the pointer,
+  or `x, y, z` for an offset; the arrow keys (or X, Y, Z) lock an axis, and the pointer
+  infers the X, Y and Z axes through the last point. A segment that closes a planar loop
+  makes a face and ends the chain; Esc ends it and keeps what was drawn. Drawn groups now
+  snap to all their vertices and edges, including loose ones.
+- **Push/pull of drawn faces.** A face standing on its own extrudes into a closed solid
+  (either direction), and the end face of a drawn prism moves with its walls stretching.
 - **Multi-selection.** With the Select tool, Shift-click adds or removes an object,
   Ctrl-click (Cmd on macOS) adds one, clicking empty space clears, and Ctrl+A / Cmd+A
   (Edit > Select all) selects everything. Drag a box left to right to select objects
