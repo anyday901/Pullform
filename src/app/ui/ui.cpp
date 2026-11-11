@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numbers>
 #include <cstdio>
 #include <cstring>
 
@@ -31,10 +32,9 @@ constexpr const char* kLimitsText =
 
 /// "30°" for a turn about the vertical axis, "none", or "tilted" for anything else.
 std::string rotationLabel(const Transform& t) {
-    const Quat& q = t.rotation;
-    if (std::abs(q.x) < 1e-12 && std::abs(q.y) < 1e-12) {
+    if (const Quat& q = t.rotation; std::abs(q.x) < 1e-12 && std::abs(q.y) < 1e-12) {
         if (std::abs(q.z) < 1e-12) return "None";
-        constexpr double kPi = 3.14159265358979323846;
+        constexpr double kPi = std::numbers::pi;
         double a = 2.0 * std::atan2(q.z, q.w);
         if (a > kPi) a -= 2.0 * kPi;
         if (a <= -kPi) a += 2.0 * kPi;

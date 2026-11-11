@@ -24,15 +24,22 @@ std::optional<ObjectId> parseObjectId(std::string_view text) {
     return ObjectId{value};
 }
 
+namespace {
+
+/// Snaps a rotation matrix entry within 1e-15 of -1, 0 or 1 to that value.
+double exactUnit(double v) {
+    for (double exact : {-1.0, 0.0, 1.0}) {
+        if (std::abs(v - exact) <= 1e-15) return exact;
+    }
+    return v;
+}
+
+} // namespace
+
 Mat3 rotationMatrix(const Transform& transform) {
     Mat3 m = glm::mat3_cast(transform.rotation);
     for (int c = 0; c < 3; ++c) {
-        for (int r = 0; r < 3; ++r) {
-            double& v = m[c][r];
-            for (double exact : {-1.0, 0.0, 1.0}) {
-                if (std::abs(v - exact) <= 1e-15) v = exact;
-            }
-        }
+        for (int r = 0; r < 3; ++r) m[c][r] = exactUnit(m[c][r]);
     }
     return m;
 }

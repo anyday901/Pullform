@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numbers>
 
 namespace pf {
 
@@ -27,6 +28,19 @@ constexpr glm::vec4 kErrorFill{0.90f, 0.15f, 0.12f, 0.40f};
 constexpr glm::vec4 kErrorEdge{0.85f, 0.10f, 0.08f, 1.0f};
 
 glm::vec4 dim(glm::vec4 c, float a) { return {c.r, c.g, c.b, a}; }
+
+/// Colour of a world axis direction: red X, green Y, blue Z.
+glm::vec4 axisColor(const Vec3& axis) {
+    if (axis.x != 0.0) return kAxisX;
+    if (axis.y != 0.0) return kAxisY;
+    return kAxisZ;
+}
+
+/// A unit vector perpendicular to `n`.
+Vec3 perpendicular(const Vec3& n) {
+    const Vec3 helper = std::abs(n.z) < 0.9 ? Vec3{0, 0, 1} : Vec3{1, 0, 0};
+    return glm::normalize(glm::cross(n, helper));
+}
 
 } // namespace
 
@@ -200,23 +214,22 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
     }
     if (const auto* rot = std::get_if<RotatePreview>(&editor.preview())) {
         drawTransformResult(rot->result, rot->error.has_value(), doc.find(rot->objectId), lines);
-        const glm::vec4 axisColor = rot->axis.x != 0.0 ? kAxisX : rot->axis.y != 0.0 ? kAxisY : kAxisZ;
+        const glm::vec4 color = axisColor(rot->axis);
         // Protractor: a circle in the rotation plane, the reference and current spokes.
         const auto spoke = rot->reference ? rot->reference : rot->current;
         double radius = spoke ? glm::length(*spoke) : 0.0;
         if (radius < 1e-9) radius = camera_.distance() * 0.05;
         const Vec3 n = rot->axis;
-        const Vec3 u = spoke && glm::length(*spoke) > 1e-9 ? glm::normalize(*spoke)
-                                                            : glm::normalize(glm::cross(n, std::abs(n.z) < 0.9 ? Vec3{0, 0, 1} : Vec3{1, 0, 0}));
+        const Vec3 u = spoke && glm::length(*spoke) > 1e-9 ? glm::normalize(*spoke) : perpendicular(n);
         const Vec3 v = glm::cross(n, u);
         constexpr int kSegments = 72;
         for (int i = 0; i < kSegments; ++i) {
-            const double a0 = 2.0 * 3.14159265358979323846 * i / kSegments;
-            const double a1 = 2.0 * 3.14159265358979323846 * (i + 1) / kSegments;
+            const double a0 = 2.0 * std::numbers::pi * i / kSegments;
+            const double a1 = 2.0 * std::numbers::pi * (i + 1) / kSegments;
             lines.push_back({rot->pivot + (u * std::cos(a0) + v * std::sin(a0)) * radius,
-                             rot->pivot + (u * std::cos(a1) + v * std::sin(a1)) * radius, axisColor});
+                             rot->pivot + (u * std::cos(a1) + v * std::sin(a1)) * radius, color});
         }
-        lines.push_back({rot->pivot - n * radius * 0.25, rot->pivot + n * radius * 0.25, axisColor});
+        lines.push_back({rot->pivot - n * radius * 0.25, rot->pivot + n * radius * 0.25, color});
         if (rot->reference) lines.push_back({rot->pivot, rot->pivot + *rot->reference, kPreviewEdge});
         if (rot->current) lines.push_back({rot->pivot, rot->pivot + *rot->current, rot->error ? kErrorEdge : kPreviewEdge});
     } else if (const auto* sc = std::get_if<ScalePreview>(&editor.preview())) {

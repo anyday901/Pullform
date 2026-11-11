@@ -72,9 +72,7 @@ struct Extrusion {
 struct Transform {
     Vec3 translation{0.0, 0.0, 0.0};
     Quat rotation{1.0, 0.0, 0.0, 0.0}; ///< unit quaternion (w, x, y, z); identity = no rotation
-    friend bool operator==(const Transform& a, const Transform& b) {
-        return a.translation == b.translation && a.rotation == b.rotation;
-    }
+    friend bool operator==(const Transform&, const Transform&) = default;
 };
 
 /// Rotation matrix of a transform. Entries within 1e-15 of -1, 0 or 1 are made

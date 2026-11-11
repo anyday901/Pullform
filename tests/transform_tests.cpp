@@ -10,6 +10,7 @@
 #include <glm/geometric.hpp>
 
 #include <cmath>
+#include <numbers>
 
 using namespace pf;
 using pf::test::downAt;
@@ -17,7 +18,7 @@ using pf::test::near;
 
 namespace {
 
-constexpr double kPi = 3.14159265358979323846;
+constexpr double kPi = std::numbers::pi;
 
 double degrees(double d) { return d * kPi / 180.0; }
 
@@ -262,13 +263,13 @@ TEST_CASE("angle and scale factor input") {
     CHECK(*parseAngle("90") == doctest::Approx(kPi / 2));
     CHECK(*parseAngle("-45") == doctest::Approx(-kPi / 4));
     CHECK(*parseAngle(" 22.5 deg ") == doctest::Approx(kPi / 8));
-    CHECK(*parseAngle("30\xc2\xb0") == doctest::Approx(kPi / 6));
+    CHECK(*parseAngle("30°") == doctest::Approx(kPi / 6));
     CHECK_FALSE(parseAngle("").ok());
     CHECK_FALSE(parseAngle("ninety").ok());
     CHECK_FALSE(parseAngle("1e999").ok());
     CHECK_FALSE(parseAngle("90mm").ok());
-    CHECK(formatAngle(kPi / 2) == "90\xc2\xb0");
-    CHECK(formatAngle(-kPi / 8) == "-22.5\xc2\xb0");
+    CHECK(formatAngle(kPi / 2) == "90°");
+    CHECK(formatAngle(-kPi / 8) == "-22.5°");
 
     CHECK(*parseScaleFactors("2") == std::vector<double>{2, 2, 2});
     CHECK(*parseScaleFactors("150%") == std::vector<double>{1.5, 1.5, 1.5});
@@ -311,7 +312,7 @@ TEST_CASE("Rotate tool: select, centre, reference, angle; one undo entry") {
     tools.pointerDown(groundAt(editor, 0.1, 3.0));
     CHECK_FALSE(tools.active());
     CHECK(editor.undoDepth() == depth + 1);
-    CHECK(editor.undoLabel() == "Rotate 90\xc2\xb0");
+    CHECK(editor.undoLabel() == "Rotate 90°");
     const auto c = baseCorners(*editor.document().find(id));
     CHECK(near(c[1].x, 0.0));
     CHECK(near(c[1].y, 2.0));

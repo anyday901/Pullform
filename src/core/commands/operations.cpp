@@ -5,7 +5,9 @@
 
 #include <glm/geometric.hpp>
 
+#include <array>
 #include <cmath>
+#include <numbers>
 
 namespace pf {
 
@@ -74,13 +76,16 @@ namespace {
 /// Rotates `v` by `radians` about the unit `axis` (Rodrigues). Quarter turns use
 /// exact sines and cosines, so (1, 0, 0) turned 90 degrees about Z is exactly (0, 1, 0).
 Vec3 rotateVector(const Vec3& v, const Vec3& axis, double radians) {
-    double c = std::cos(radians), s = std::sin(radians);
-    const double quarters = radians / (std::acos(-1.0) / 2.0);
-    if (std::abs(quarters - std::round(quarters)) < 1e-12) {
+    // Callers pass angles already reduced to (-pi, pi], so `quarters` is small.
+    constexpr std::array<double, 4> kQuarterCos{1.0, 0.0, -1.0, 0.0};
+    constexpr std::array<double, 4> kQuarterSin{0.0, 1.0, 0.0, -1.0};
+    double c = std::cos(radians);
+    double s = std::sin(radians);
+    if (const double quarters = radians / (std::numbers::pi / 2.0); std::abs(quarters - std::round(quarters)) < 1e-12) {
         const auto k = static_cast<long long>(std::round(quarters));
-        const int m = static_cast<int>(((k % 4) + 4) % 4);
-        c = m == 0 ? 1.0 : m == 2 ? -1.0 : 0.0;
-        s = m == 1 ? 1.0 : m == 3 ? -1.0 : 0.0;
+        const auto m = static_cast<std::size_t>(((k % 4) + 4) % 4);
+        c = kQuarterCos[m];
+        s = kQuarterSin[m];
     }
     return v * c + glm::cross(axis, v) * s + axis * glm::dot(axis, v) * (1.0 - c);
 }
@@ -99,7 +104,7 @@ Expected<OpResult> rotateObject(const Document& doc, ObjectId id, const Vec3& pi
     const Vec3 a = axis / len;
     // Reduce to (-pi, pi] once, so the quaternion and the pivot-relative
     // translation use the same angle and huge typed angles stay well defined.
-    radians = std::remainder(radians, 2.0 * std::acos(-1.0));
+    radians = std::remainder(radians, 2.0 * std::numbers::pi);
     ProfileObject changed = *o;
     changed.transform.rotation = glm::normalize(axisAngle(a, radians) * o->transform.rotation);
     changed.transform.translation = pivot + rotateVector(o->transform.translation - pivot, a, radians);

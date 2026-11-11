@@ -3,6 +3,7 @@
 #include <cctype>
 #include <cmath>
 #include <locale>
+#include <numbers>
 #include <sstream>
 
 namespace pf {
@@ -166,28 +167,43 @@ Expected<std::vector<double>> parseLengthList(std::string_view text, std::size_t
 
 namespace {
 
-constexpr double kPi = 3.14159265358979323846;
+constexpr double kPi = std::numbers::pi;
+
+/// Advances `i` past an optional sign.
+void skipSign(const std::string& s, std::size_t& i) {
+    if (i < s.size() && (s[i] == '+' || s[i] == '-')) ++i;
+}
+
+/// Advances `i` past decimal digits and returns how many there were.
+std::size_t skipDigits(const std::string& s, std::size_t& i) {
+    const std::size_t start = i;
+    while (i < s.size() && isDigit(s[i])) ++i;
+    return i - start;
+}
+
+/// Advances `i` past an exponent ("e", optional sign, digits). Returns false
+/// for an "e" without digits; true when there is no exponent or a valid one.
+bool skipExponent(const std::string& s, std::size_t& i) {
+    if (i >= s.size() || s[i] != 'e') return true;
+    std::size_t j = i + 1;
+    skipSign(s, j);
+    if (skipDigits(s, j) == 0) return false;
+    i = j;
+    return true;
+}
 
 /// A plain decimal number, [+-]? (digits [. digits?] | . digits) (e [+-]? digits)?,
 /// with nothing else around it.
 std::optional<double> plainNumber(std::string_view text) {
     const std::string s = lower(trim(text));
-    std::size_t i = 0, digits = 0;
-    if (i < s.size() && (s[i] == '+' || s[i] == '-')) ++i;
-    while (i < s.size() && isDigit(s[i])) { ++i; ++digits; }
+    std::size_t i = 0;
+    skipSign(s, i);
+    std::size_t digits = skipDigits(s, i);
     if (i < s.size() && s[i] == '.') {
         ++i;
-        while (i < s.size() && isDigit(s[i])) { ++i; ++digits; }
+        digits += skipDigits(s, i);
     }
-    if (digits == 0) return std::nullopt;
-    if (i < s.size() && s[i] == 'e') {
-        std::size_t j = i + 1, expDigits = 0;
-        if (j < s.size() && (s[j] == '+' || s[j] == '-')) ++j;
-        while (j < s.size() && isDigit(s[j])) { ++j; ++expDigits; }
-        if (expDigits == 0) return std::nullopt;
-        i = j;
-    }
-    if (i != s.size()) return std::nullopt;
+    if (digits == 0 || !skipExponent(s, i) || i != s.size()) return std::nullopt;
     std::string number = s;
     if (number.front() == '+') number.erase(0, 1);
     if (!number.empty() && number.back() == '.') number.pop_back();
@@ -197,7 +213,7 @@ std::optional<double> plainNumber(std::string_view text) {
 }
 
 bool removeSuffix(std::string_view& s, std::string_view suffix) {
-    if (s.size() < suffix.size() || s.substr(s.size() - suffix.size()) != suffix) return false;
+    if (!s.ends_with(suffix)) return false;
     s.remove_suffix(suffix.size());
     s = trim(s);
     return true;
@@ -210,11 +226,9 @@ Expected<double> parseAngle(std::string_view input) {
     if (text.empty()) return Error{"Enter an angle in degrees."};
     const std::string low = lower(text);
     std::string_view s = low;
-    if (!removeSuffix(s, "\xc2\xb0")) {
-        if (!removeSuffix(s, "degrees")) removeSuffix(s, "deg");
-    }
+    if (!removeSuffix(s, "°") && !removeSuffix(s, "degrees")) removeSuffix(s, "deg");
     const auto v = plainNumber(s);
-    if (!v) {
+    if (!v.has_value()) {
         return Error{"\"" + std::string(text) + "\" is not a recognized angle. Enter degrees, for example 90, -45 or 22.5."};
     }
     return *v * kPi / 180.0;
@@ -230,7 +244,7 @@ std::string formatAngle(double radians) {
     while (!text.empty() && text.back() == '0') text.pop_back();
     if (!text.empty() && text.back() == '.') text.pop_back();
     if (text == "-0") text = "0";
-    return text + "\xc2\xb0";
+    return text + "°";
 }
 
 Expected<std::vector<double>> parseScaleFactors(std::string_view text) {
@@ -251,7 +265,7 @@ Expected<std::vector<double>> parseScaleFactors(std::string_view text) {
     for (auto part : parts) {
         const bool percent = removeSuffix(part, "%");
         auto v = plainNumber(part);
-        if (!v) return hint();
+        if (!v.has_value()) return hint();
         if (percent) *v /= 100.0;
         if (!(*v > 0.0)) return Error{"Scale factors must be positive. Mirroring (negative factors) is not supported."};
         factors.push_back(*v);

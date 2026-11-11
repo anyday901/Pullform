@@ -26,6 +26,26 @@ std::string join(std::string_view path, std::string_view rest) {
     return out;
 }
 
+/// Rotation and placed extent: a finite unit quaternion, and every corner of the
+/// placed object inside the supported range.
+std::optional<std::string> validatePlacement(const ProfileObject& o, std::string_view path) {
+    const Quat& q = o.transform.rotation;
+    if (!std::isfinite(q.w) || !std::isfinite(q.x) || !std::isfinite(q.y) || !std::isfinite(q.z)) {
+        return join(path, ".transform.rotation: values must be finite");
+    }
+    if (const double len = std::sqrt(q.w * q.w + q.x * q.x + q.y * q.y + q.z * q.z);
+        std::abs(len - 1.0) > tol::kRotationLengthTolerance) {
+        return join(path, ".transform.rotation: must be a unit quaternion [x, y, z, w]");
+    }
+    const double h = o.extrusion ? o.extrusion->height : 0.0;
+    for (const auto& p : o.profile.boundary) {
+        if (!finiteInRange(profileToWorld(o, p, 0.0)) || !finiteInRange(profileToWorld(o, p, h))) {
+            return join(path, ": the object extends beyond the supported range of +/-10 km");
+        }
+    }
+    return std::nullopt;
+}
+
 } // namespace
 
 std::optional<std::string> checkLength(double value, std::string_view label) {
@@ -79,24 +99,7 @@ std::optional<std::string> validateObject(const ProfileObject& o, std::string_vi
     if (!finiteInRange(o.transform.translation)) {
         return join(path, ".transform.translation: values must be finite and within +/-10 km");
     }
-    const Quat& q = o.transform.rotation;
-    if (!std::isfinite(q.w) || !std::isfinite(q.x) || !std::isfinite(q.y) || !std::isfinite(q.z)) {
-        return join(path, ".transform.rotation: values must be finite");
-    }
-    const double qlen = std::sqrt(q.w * q.w + q.x * q.x + q.y * q.y + q.z * q.z);
-    if (std::abs(qlen - 1.0) > tol::kRotationLengthTolerance) {
-        return join(path, ".transform.rotation: must be a unit quaternion [x, y, z, w]");
-    }
-    // Every corner of the placed object must stay inside the supported range.
-    const double h = o.extrusion ? o.extrusion->height : 0.0;
-    for (const auto& p : o.profile.boundary) {
-        for (double offset : {0.0, h}) {
-            if (!finiteInRange(profileToWorld(o, p, offset))) {
-                return join(path, ": the object extends beyond the supported range of +/-10 km");
-            }
-        }
-    }
-    return std::nullopt;
+    return validatePlacement(o, path);
 }
 
 std::optional<std::string> validateDocument(const Document& doc) {

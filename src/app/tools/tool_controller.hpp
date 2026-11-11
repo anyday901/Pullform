@@ -3,6 +3,7 @@
 #include "core/commands/editor.hpp"
 #include "core/geometry/pick.hpp"
 
+#include <numbers>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -42,7 +43,7 @@ struct SnapSettings {
 class ToolController {
 public:
     static constexpr double kDragThresholdPx = 5.0;
-    static constexpr double kRotateSnapRadians = 3.14159265358979323846 / 12.0; ///< 15 degrees with grid snap on
+    static constexpr double kRotateSnapRadians = std::numbers::pi / 12.0; ///< 15 degrees with grid snap on
     static constexpr double kScaleSnapStep = 0.1;                                ///< factor steps with grid snap on
 
     explicit ToolController(Editor& editor) : editor_(editor) {}

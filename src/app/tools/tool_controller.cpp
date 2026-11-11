@@ -33,27 +33,30 @@ std::string_view toolName(Tool tool) {
 }
 
 Vec3 axisVector(RotateAxis axis) {
+    using enum RotateAxis;
     switch (axis) {
-    case RotateAxis::X: return {1.0, 0.0, 0.0};
-    case RotateAxis::Y: return {0.0, 1.0, 0.0};
-    case RotateAxis::Z: return {0.0, 0.0, 1.0};
+    case X: return {1.0, 0.0, 0.0};
+    case Y: return {0.0, 1.0, 0.0};
+    case Z: return {0.0, 0.0, 1.0};
     }
     return {0.0, 0.0, 1.0};
 }
 
 std::string_view axisName(RotateAxis axis) {
+    using enum RotateAxis;
     switch (axis) {
-    case RotateAxis::X: return "X (red)";
-    case RotateAxis::Y: return "Y (green)";
-    case RotateAxis::Z: return "Z (blue)";
+    case X: return "X (red)";
+    case Y: return "Y (green)";
+    case Z: return "Z (blue)";
     }
     return "Z (blue)";
 }
 
 namespace {
 
-RotatePreview rotatePreview(ObjectId id, const Vec3& pivot, const Vec3& axis, std::optional<Vec3> reference = std::nullopt,
-                            std::optional<Vec3> current = std::nullopt) {
+RotatePreview rotatePreview(ObjectId id, const Vec3& pivot, const Vec3& axis,
+                            const std::optional<Vec3>& reference = std::nullopt,
+                            const std::optional<Vec3>& current = std::nullopt) {
     RotatePreview p;
     p.objectId = id;
     p.pivot = pivot;
@@ -454,8 +457,7 @@ void ToolController::rotateMove(const PointerInput& input) {
         double angle = std::atan2(glm::dot(glm::cross(a, b), rotate_->axis), glm::dot(a, b));
         if (snap_.enabled) angle = snapValue(angle, kRotateSnapRadians);
         preview.angle = angle;
-        auto result = rotateObject(editor_.document(), rotate_->objectId, rotate_->pivot, rotate_->axis, angle);
-        if (result) {
+        if (auto result = rotateObject(editor_.document(), rotate_->objectId, rotate_->pivot, rotate_->axis, angle); result) {
             if (const auto* o = result->document.find(rotate_->objectId)) preview.result = *o;
         } else {
             preview.error = result.error();
@@ -466,7 +468,8 @@ void ToolController::rotateMove(const PointerInput& input) {
 
 bool ToolController::commitRotation(ObjectId id, const Vec3& pivot, const Vec3& axis, double angle) {
     const bool ok = editor_.commit(
-        "Rotate " + formatAngle(angle), [&](const Document& doc) { return rotateObject(doc, id, pivot, axis, angle); },
+        "Rotate " + formatAngle(angle),
+        [id, &pivot, &axis, angle](const Document& doc) { return rotateObject(doc, id, pivot, axis, angle); },
         [id](const OpResult&) -> std::optional<Selection> { return Selection{id, std::nullopt}; });
     if (ok) {
         rotate_.reset();
@@ -508,8 +511,7 @@ void ToolController::scaleDown(const PointerInput& input) {
         const Vec3 pivot = baseCenter(*o);
         const Vec3 normal = profileNormalWorld(*o);
         const auto p = intersectPlane(input.ray, pivot, normal);
-        const double size = glm::length(objectBounds(*o).size());
-        if (!p || glm::length(*p - pivot) < size * 1e-3) {
+        if (const double size = glm::length(objectBounds(*o).size()); !p || glm::length(*p - pivot) < size * 1e-3) {
             editor_.notify(Message{Message::Kind::Error, "Click a point away from the object's centre to start scaling."});
             return;
         }
@@ -544,8 +546,7 @@ void ToolController::scaleMove(const PointerInput& input) {
     double factor = glm::length(*p - scale_->pivot) / glm::length(scale_->start - scale_->pivot);
     if (snap_.enabled) factor = std::max(kScaleSnapStep, snapValue(factor, kScaleSnapStep));
     preview.factor = factor;
-    auto result = scaleObject(editor_.document(), scale_->objectId, Vec3{factor});
-    if (result) {
+    if (auto result = scaleObject(editor_.document(), scale_->objectId, Vec3{factor}); result) {
         if (const auto* o = result->document.find(scale_->objectId)) preview.result = *o;
     } else {
         preview.error = result.error();
@@ -562,7 +563,7 @@ bool ToolController::commitScale(ObjectId id, const Vec3& factors) {
     if (factors.x == factors.y && factors.y == factors.z) label += pct(factors.x);
     else label += pct(factors.x) + ", " + pct(factors.y) + ", " + pct(factors.z);
     const bool ok = editor_.commit(
-        label, [&](const Document& doc) { return scaleObject(doc, id, factors); },
+        label, [id, &factors](const Document& doc) { return scaleObject(doc, id, factors); },
         [id](const OpResult&) -> std::optional<Selection> { return Selection{id, std::nullopt}; });
     if (ok) {
         scale_.reset();
@@ -584,8 +585,9 @@ std::optional<std::string> ToolController::submitScaleFactors(std::string_view t
         id = o->id;
     }
     const Vec3 f{(*factors)[0], (*factors)[1], (*factors)[2]};
-    const auto* o = editor_.document().find(id);
-    if (o && f.x == 1.0 && f.y == 1.0 && (f.z == 1.0 || !o->extrusion)) return std::string("A factor of 1 changes nothing.");
+    if (const auto* o = editor_.document().find(id); o && f.x == 1.0 && f.y == 1.0 && (f.z == 1.0 || !o->extrusion)) {
+        return std::string("A factor of 1 changes nothing.");
+    }
     if (!commitScale(id, f)) return lastError("Could not scale the object.");
     return std::nullopt;
 }
@@ -607,7 +609,7 @@ std::string ToolController::hint() const {
             return "Rotate: click the centre of rotation, or type an angle in degrees to turn about the base centre." + axis;
         }
         if (!rotate_->reference) return "Rotate: click to set the reference direction, or type an angle. Esc cancels." + axis;
-        return "Rotate: move to turn (15\xc2\xb0 steps with grid snap) and click, or type an angle. Esc cancels.";
+        return "Rotate: move to turn (15° steps with grid snap) and click, or type an angle. Esc cancels.";
     }
     case Tool::Scale:
         if (!scale_) {
