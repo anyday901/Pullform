@@ -1,11 +1,13 @@
 #include "core/geometry/snap.hpp"
 
 #include "core/document/tolerance.hpp"
+#include "core/geometry/mesh.hpp"
 #include "core/geometry/solid.hpp"
 
 #include <glm/geometric.hpp>
 
 #include <algorithm>
+#include <map>
 #include <unordered_set>
 #include <utility>
 
@@ -91,6 +93,7 @@ const char* snapKindName(SnapKind kind) {
     case OnFace: return "On face";
     case Inference: return "Inference";
     case Midpoint: return "Midpoint";
+    case Center: return "Center";
     case Endpoint: return "Endpoint";
     }
     return "";
@@ -98,7 +101,18 @@ const char* snapKindName(SnapKind kind) {
 
 SnapFeatures snapFeatures(const ProfileObject& object, std::optional<double> heightOverride) {
     SnapFeatures f;
-    for (const auto& face : buildFaces(object, heightOverride)) {
+    if (object.mesh) {
+        // A mesh group snaps to every vertex and edge, including loose edges
+        // that bound no face yet (a Line tool chain before it closes).
+        std::map<std::uint32_t, int> index;
+        for (const auto& [id, v] : object.mesh->vertices()) {
+            index[id] = static_cast<int>(f.vertices.size());
+            f.vertices.push_back(localToWorld(object, v.position));
+        }
+        for (const auto& [id, e] : object.mesh->edges()) f.edges.emplace_back(index.at(e.v0.value), index.at(e.v1.value));
+    }
+    const auto faces = object.mesh ? std::vector<FacePolygon>{} : buildFaces(object, heightOverride);
+    for (const auto& face : faces) {
         const auto n = face.loop.size();
         std::vector<int> ids;
         ids.reserve(n);
@@ -112,12 +126,26 @@ SnapFeatures snapFeatures(const ProfileObject& object, std::optional<double> hei
             if (!seen && a != b) f.edges.emplace_back(a, b);
         }
     }
+    // Curve centers come from the mesh (a circle or polygon profile makes one
+    // per loop; drawn arcs keep theirs), at the previewed height if there is one.
+    const ProfileObject* source = &object;
+    ProfileObject resized;
+    if (heightOverride && !object.isMeshGroup() && object.extrusion) {
+        resized = object;
+        resized.extrusion->height = *heightOverride;
+        source = &resized;
+    }
+    if (const auto m = mesh::objectMesh(*source); !m->curves().empty()) {
+        for (const auto& [id, c] : m->curves()) f.curveCenters.push_back(localToWorld(*source, c.center));
+    }
     if (!f.vertices.empty()) {
         Vec3 lo = f.vertices.front();
         Vec3 hi = lo;
-        for (const auto& v : f.vertices) {
-            lo = glm::min(lo, v);
-            hi = glm::max(hi, v);
+        for (const auto* points : {&f.vertices, &f.curveCenters}) { // an arc's center can lie outside its corners
+            for (const auto& v : *points) {
+                lo = glm::min(lo, v);
+                hi = glm::max(hi, v);
+            }
         }
         f.center = (lo + hi) * 0.5;
         f.radius = glm::length(hi - lo) * 0.5;
@@ -168,6 +196,9 @@ std::optional<SnapResult> SnapIndex::nearest(const Ray& ray, double radiusPerDis
         for (std::size_t i = 0; i < f.edges.size(); ++i) {
             search.consider(SnapKind::Midpoint, id, static_cast<int>(i), f.midpoint(i));
         }
+        for (std::size_t i = 0; i < f.curveCenters.size(); ++i) {
+            search.consider(SnapKind::Center, id, static_cast<int>(i), f.curveCenters[i]);
+        }
     }
     if (!search.found) return std::nullopt;
     return std::move(search.best);
@@ -203,6 +234,7 @@ std::optional<Vec3> resolveSnapFeature(const Document& document, ObjectId id, Sn
     const auto i = static_cast<std::size_t>(feature);
     if (kind == SnapKind::Endpoint && i < f.vertices.size()) return f.vertices[i];
     if (kind == SnapKind::Midpoint && i < f.edges.size()) return f.midpoint(i);
+    if (kind == SnapKind::Center && i < f.curveCenters.size()) return f.curveCenters[i];
     return std::nullopt;
 }
 

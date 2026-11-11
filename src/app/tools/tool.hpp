@@ -12,7 +12,7 @@ namespace pf {
 
 /// Every tool the controller can switch to. Adding a tool: a value here, a
 /// name in toolName(), and one registration line in ToolController's constructor.
-enum class Tool { Select, Rectangle, PushPull, Move, Rotate, Scale, Orbit, TapeMeasure, Dimension, Eraser };
+enum class Tool { Select, Rectangle, RotatedRectangle, Line, Circle, Polygon, PushPull, Move, Rotate, Scale, Orbit, TapeMeasure, Dimension, Eraser };
 inline constexpr int kToolCount = static_cast<int>(Tool::Eraser) + 1;
 
 std::string_view toolName(Tool tool);
@@ -23,7 +23,7 @@ inline constexpr double kDragThresholdPx = 5.0;
 
 /// Keys a tool may react to. Arrow keys work while a value is being typed;
 /// the letters only when no value is being typed (the app decides).
-enum class ToolKey { ArrowRight, ArrowLeft, ArrowUp, X, Y, Z };
+enum class ToolKey { ArrowRight, ArrowLeft, ArrowUp, ArrowDown, X, Y, Z };
 
 /// State and services every tool shares: the editor, the snap settings, the
 /// point snapper and the snap indicator shown in the viewport.

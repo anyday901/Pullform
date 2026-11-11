@@ -3,6 +3,7 @@
 #include "core/document/document.hpp"
 #include "core/document/element_ref.hpp"
 #include "core/document/result.hpp"
+#include "core/geometry/circle.hpp"
 #include "core/geometry/mesh.hpp"
 #include "core/geometry/rectangle.hpp"
 
@@ -28,7 +29,23 @@ std::optional<std::string> checkHeight(double height);
 
 /// Adds a planar rectangle (allocating a new stable ID).
 Expected<OpResult> createRectangle(const Document& doc, const RectanglePlacement& placement);
-/// Turns a planar rectangle into a closed prism of total height `height`.
+/// Adds a planar circle or regular polygon (`kind` Circle or Polygon), centred
+/// on the placement's center, allocating a new stable ID.
+Expected<OpResult> createCircle(const Document& doc, const CirclePlacement& placement, ProfileKind kind = ProfileKind::Circle);
+/// Checks a push/pull of a planar face: like checkHeight, but a negative
+/// height (pushing the face backwards, into a wall) is allowed.
+std::optional<std::string> checkProfileHeight(double height);
+/// The same planar rectangle, circle or polygon facing the other way: the
+/// footprint stays put and the normal is reversed (see flippedCorner).
+ProfileObject flippedProfile(const ProfileObject& object);
+/// The corner index that corner `index` of a planar profile with `count`
+/// corners gets when flippedProfile turns it over: 3 - i for a rectangle,
+/// (n - i) mod n for a circle or polygon.
+int flippedCorner(ProfileKind kind, int count, int index);
+/// Turns a planar rectangle, circle or polygon into a closed prism of total height `height`.
+/// A negative height extrudes backwards (against the face's normal): the
+/// rectangle is flipped first, so the prism still has a positive height and
+/// its cap is the far face.
 Expected<OpResult> extrudeProfile(const Document& doc, ObjectId id, double height);
 /// Changes the total height of an existing extrusion (same object, same ID).
 Expected<OpResult> setExtrusionHeight(const Document& doc, ObjectId id, double height);
@@ -44,7 +61,8 @@ Vec3 objectBaseCenter(const ProfileObject& object);
 /// z = height) about the centre of its base, so a box on the ground stays on
 /// the ground and centred. The result is baked into the real dimensions
 /// (rectangle width/depth and extrusion height); the transform stays rigid.
-/// Factors must be positive; the z factor is ignored for a planar rectangle.
+/// Factors must be positive; the z factor is ignored for a planar profile. A
+/// circle or polygon stays regular, so its width and depth factors must match.
 Expected<OpResult> scaleObject(const Document& doc, ObjectId id, const Vec3& factors);
 
 /// Checks a move of `object` by `offset`: finite, and the new position stays
@@ -120,5 +138,12 @@ Expected<OpResult> eraseEdges(const Document& doc, const std::vector<ElementRef>
 /// only; Ctrl: soften, soft and smooth). Soft edges are not drawn or picked;
 /// faces keep using them. A rectangle or box is converted to a mesh group first.
 Expected<OpResult> setEdgesSoft(const Document& doc, const std::vector<ElementRef>& edges, bool soft, bool smooth);
+
+/// Pushes or pulls face `face` of a mesh group by `distance` along its normal
+/// (see mesh::Mesh::pushPull): a free face becomes a closed solid, and the end
+/// face of a prism moves with its walls stretching. Same object, same id.
+/// `pushed`, when given, receives the face where it ended up (the new cap of an extrusion).
+Expected<OpResult> pushPullFace(const Document& doc, ObjectId id, mesh::FaceId face, double distance,
+                                mesh::FaceId* pushed = nullptr);
 
 } // namespace pf

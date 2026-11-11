@@ -1,5 +1,6 @@
 #include "app/viewport/viewport.hpp"
 
+#include "core/geometry/circle.hpp"
 #include "core/geometry/measure.hpp"
 
 #include <glm/geometric.hpp>
@@ -33,6 +34,7 @@ constexpr glm::vec4 kErrorFill{0.90f, 0.15f, 0.12f, 0.40f};
 constexpr glm::vec4 kErrorEdge{0.85f, 0.10f, 0.08f, 1.0f};
 constexpr glm::vec4 kSnapEndpoint{0.10f, 0.65f, 0.20f, 1.0f};
 constexpr glm::vec4 kSnapMidpoint{0.05f, 0.62f, 0.80f, 1.0f};
+constexpr glm::vec4 kSnapCenter{0.10f, 0.65f, 0.20f, 1.0f}; // same green as an endpoint: a point of the curve itself
 constexpr glm::vec4 kSnapOther{0.70f, 0.20f, 0.75f, 1.0f};
 constexpr glm::vec4 kGuideFree{0.45f, 0.45f, 0.50f, 1.0f};
 constexpr glm::vec4 kDimension{0.20f, 0.24f, 0.32f, 1.0f};
@@ -139,7 +141,7 @@ void Viewport::drawSnap(std::vector<LineSegment>& lines, const SnapResult& snap)
     }
 
     // Marker at the snapped point, facing the camera: a square on an endpoint,
-    // a triangle on a midpoint, a diamond for an inference or face point.
+    // a triangle on a midpoint, a circle on a center, a diamond for an inference or face point.
     const Vec3 p = snap.point;
     const double r = pixels(p, 6.0);
     const auto poly = [&](std::initializer_list<Vec2> corners, const glm::vec4& color) {
@@ -150,6 +152,9 @@ void Viewport::drawSnap(std::vector<LineSegment>& lines, const SnapResult& snap)
     switch (snap.kind) {
     case SnapKind::Endpoint: poly({{-1, -1}, {1, -1}, {1, 1}, {-1, 1}}, kSnapEndpoint); break;
     case SnapKind::Midpoint: poly({{-1.1, -0.8}, {1.1, -0.8}, {0, 1.1}}, kSnapMidpoint); break;
+    case SnapKind::Center: // a small circle (octagon)
+        poly({{1, 0}, {0.71, 0.71}, {0, 1}, {-0.71, 0.71}, {-1, 0}, {-0.71, -0.71}, {0, -1}, {0.71, -0.71}}, kSnapCenter);
+        break;
     case SnapKind::Inference:
     case SnapKind::OnFace: poly({{0, -1.2}, {1.2, 0}, {0, 1.2}, {-1.2, 0}}, kSnapOther); break;
     case SnapKind::Grid:
@@ -449,23 +454,62 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
     if (const auto* rect = std::get_if<RectanglePreview>(&editor.preview())) {
         const Vec3 a = rect->start;
         const Vec3 b = rect->end;
-        const glm::vec4 color = rect->placement ? kPreviewEdge : kErrorEdge;
-        lines.push_back({{a.x, a.y, 0}, {b.x, a.y, 0}, color});
-        lines.push_back({{b.x, a.y, 0}, {b.x, b.y, 0}, color});
-        lines.push_back({{b.x, b.y, 0}, {a.x, b.y, 0}, color});
-        lines.push_back({{a.x, b.y, 0}, {a.x, a.y, 0}, color});
+        std::vector<Vec3> outline = rect->outline;
+        if (outline.empty()) outline = {{a.x, a.y, a.z}, {b.x, a.y, a.z}, {b.x, b.y, a.z}, {a.x, b.y, a.z}};
+        // The first side of a rotated rectangle is a line; a full outline is closed.
+        const bool line = outline.size() == 2;
+        const glm::vec4 color = rect->placement || line ? kPreviewEdge : kErrorEdge;
+        for (std::size_t i = 0; i + (line ? 1 : 0) < outline.size(); ++i) {
+            lines.push_back({outline[i], outline[(i + 1) % outline.size()], color});
+        }
         if (rect->placement) {
             ProfileObject temp;
             temp.profile.boundary = rectangleBoundary(rect->placement->width, rect->placement->depth);
             temp.transform.translation = rect->placement->corner;
+            temp.transform.rotation = rect->placement->rotation;
             renderer_.drawMesh(previewMesh(buildMesh(temp)), kPreviewFill);
+        }
+    } else if (const auto* circle = std::get_if<CirclePreview>(&editor.preview())) {
+        const glm::vec4 color = circle->placement ? kPreviewEdge : kErrorEdge;
+        lines.push_back({circle->center, circle->edge, color}); // the radius
+        if (circle->placement) {
+            ProfileObject temp;
+            temp.profile.kind = circle->kind;
+            temp.profile.boundary = regularBoundary(circle->placement->radius, circle->placement->segments, circle->placement->start);
+            temp.transform.translation = circle->placement->center;
+            temp.transform.rotation = circle->placement->rotation;
+            const MeshData mesh = buildMesh(temp);
+            renderer_.drawMesh(previewMesh(mesh), kPreviewFill);
+            appendEdges(lines, mesh, color);
+        }
+    } else if (const auto* line = std::get_if<LinePreview>(&editor.preview())) {
+        glm::vec4 color = line->axis ? axisColor(*line->axis) : kPreviewEdge;
+        if (line->axis && line->locked) {
+            // Show the locked axis through the last point, as Move does.
+            const Vec3 dir = axisVector(*line->axis);
+            const double reach = std::max(camera_.distance(), 1.0);
+            lines.push_back({line->start - dir * reach, line->start + dir * reach, dim(color, 0.35f)});
+        }
+        if (line->error) color = kErrorEdge;
+        lines.push_back({line->start, line->end, color});
+    } else if (pushPreview && pushPreview->face == FaceKind::Mesh) {
+        if (pushPreview->result) {
+            const MeshData mesh = buildMesh(*pushPreview->result);
+            renderer_.drawMesh(previewMesh(mesh), glm::vec4(0.70f, 0.82f, 0.97f, 1.0f));
+            appendEdges(lines, mesh, kSelectedEdge);
+        } else if (const auto* obj = doc.find(pushPreview->objectId)) {
+            appendEdges(lines, buildMesh(*obj), kErrorEdge);
         }
     } else if (pushPreview) {
         if (const auto* obj = doc.find(pushPreview->objectId)) {
             const bool valid = !pushPreview->error.has_value();
-            const double shown = valid ? pushPreview->height : std::max(pushPreview->height, 1e-4);
+            double shown = valid ? pushPreview->height : std::max(pushPreview->height, 1e-4);
+            // A planar face pushed backwards extrudes from its flipped side.
+            const bool backwards = valid && pushPreview->face == FaceKind::Profile && shown < 0.0;
+            const ProfileObject source = backwards ? flippedProfile(*obj) : *obj;
+            if (backwards) shown = -shown;
             if (shown > 0.0) {
-                const MeshData mesh = buildMesh(*obj, shown);
+                const MeshData mesh = buildMesh(source, shown);
                 renderer_.drawMesh(previewMesh(mesh), valid ? glm::vec4(0.70f, 0.82f, 0.97f, 1.0f) : kErrorFill);
                 appendEdges(lines, mesh, valid ? kSelectedEdge : kErrorEdge);
             } else {

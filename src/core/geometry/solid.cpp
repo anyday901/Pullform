@@ -26,9 +26,29 @@ std::vector<FacePolygon> meshGroupFaces(const ProfileObject& o) {
     return faces;
 }
 
+/// Normal of `face` at `vertex`: the face normal, averaged with the faces
+/// across each smooth edge of the face that meets the vertex (a cylinder's
+/// sides), so smoothed surfaces stay smooth once a group holds a mesh.
+Vec3 shadedNormal(const mesh::Mesh& m, std::uint32_t faceId, const mesh::Face& face, mesh::VertexId vertex) {
+    Vec3 sum = face.normal;
+    for (const auto& loop : face.loops) {
+        for (const auto& use : loop) {
+            const auto* e = m.edge(use.edge);
+            if (!e || !e->smooth || (e->v0 != vertex && e->v1 != vertex)) continue;
+            for (const auto other : m.facesOfEdge(use.edge)) {
+                if (other.value == faceId) continue;
+                const Vec3 n = m.face(other)->normal;
+                sum += glm::dot(n, face.normal) < 0.0 ? -n : n;
+            }
+        }
+    }
+    return glm::normalize(sum);
+}
+
 MeshData meshGroupMesh(const ProfileObject& o) {
     const mesh::Mesh& m = *o.mesh;
     const Mat3 r = rotationMatrix(o.transform);
+    const bool anySmooth = std::ranges::any_of(m.edges(), [](const auto& entry) { return entry.second.smooth; });
     MeshData data;
     for (const auto& [id, f] : m.faces()) {
         const FaceId faceId = FaceId::meshFace(id);
@@ -42,7 +62,7 @@ MeshData meshGroupMesh(const ProfileObject& o) {
                 for (int k = 0; k < 3; ++k) {
                     const auto v = side > 0 ? t[static_cast<std::size_t>(k)] : t[static_cast<std::size_t>(2 - k)];
                     data.positions.push_back(localToWorld(o, m.vertex(v)->position));
-                    data.normals.push_back(n * side);
+                    data.normals.push_back((anySmooth ? glm::normalize(r * shadedNormal(m, id, f, v)) : n) * side);
                 }
                 data.indices.insert(data.indices.end(), {base, base + 1, base + 2});
                 data.triangleFaces.push_back(faceId);
@@ -93,11 +113,21 @@ MeshData buildMesh(const ProfileObject& o, std::optional<double> heightOverride)
     MeshData mesh;
     mesh.closed = faces.size() > 1;
 
-    const auto emit = [&mesh](const FaceId& id, const std::vector<Vec3>& loop, const Vec3& normal) {
+    // A cylinder's sides are shaded smooth: each corner's normal points away
+    // from the axis, so the facets read as one round surface.
+    const bool smoothSides = o.profile.kind == ProfileKind::Circle && faces.size() > 1;
+    const Vec3 axisPoint = profileToWorld(o, Vec2{0.0}, 0.0);
+    const Vec3 axis = profileNormalWorld(o);
+    const auto emit = [&](const FaceId& id, const std::vector<Vec3>& loop, const Vec3& normal) {
         const auto base = static_cast<std::uint32_t>(mesh.positions.size());
         for (const auto& p : loop) {
             mesh.positions.push_back(p);
-            mesh.normals.push_back(normal);
+            Vec3 shaded = normal;
+            if (smoothSides && id.kind == FaceKind::Side) {
+                const Vec3 w = p - axisPoint;
+                if (const Vec3 radial = w - axis * glm::dot(w, axis); glm::length(radial) > 0.0) shaded = glm::normalize(radial);
+            }
+            mesh.normals.push_back(shaded);
         }
         for (std::uint32_t i = 1; i + 1 < loop.size(); ++i) {
             mesh.indices.insert(mesh.indices.end(), {base, base + i, base + i + 1});
@@ -152,7 +182,10 @@ SolidCheck checkSolid(const MeshData& mesh) {
         const Vec3 &a = mesh.positions[ia], &b = mesh.positions[ib], &c = mesh.positions[ic];
         const Vec3 cr = glm::cross(b - a, c - a);
         const double len = glm::length(cr);
-        if (len <= 0.0 || glm::dot(cr / len, mesh.normals[ia]) < 0.999) normalsOk = false;
+        // Flat faces store the face normal; smooth ones (a cylinder's sides) tilt
+        // it toward their neighbours, so compare the triangle's mean normal loosely.
+        const Vec3 shaded = mesh.normals[ia] + mesh.normals[ib] + mesh.normals[ic];
+        if (len <= 0.0 || glm::length(shaded) <= 0.0 || glm::dot(cr / len, glm::normalize(shaded)) < 0.5) normalsOk = false;
         volume += glm::dot(a, glm::cross(b, c)) / 6.0;
         const std::size_t va = vertexId[ia], vb = vertexId[ib], vc = vertexId[ic];
         ++directed[{va, vb}];

@@ -9,6 +9,9 @@ add_library(pullform_app_logic STATIC
   tools/select_tool.cpp
   tools/eraser_tool.cpp
   tools/rectangle_tool.cpp
+  tools/circle_tool.cpp
+  tools/drawing_plane.cpp
+  tools/line_tool.cpp
   tools/push_pull_tool.cpp
   tools/move_tool.cpp
   tools/rotate_tool.cpp

@@ -3,6 +3,7 @@
 #include "app/ui/shortcuts.hpp"
 #include "core/commands/operations.hpp"
 #include "core/document/validate.hpp"
+#include "core/geometry/circle.hpp"
 #include "core/geometry/measure.hpp"
 #include "core/geometry/solid.hpp"
 
@@ -23,6 +24,11 @@ namespace {
 /// What kind of object the properties panel is showing.
 const char* objectTypeLabel(const ProfileObject& o) {
     if (o.isMeshGroup()) return "Group (edges and faces)";
+    switch (o.profile.kind) {
+    case ProfileKind::Circle: return o.extrusion ? "Cylinder" : "Circle (planar face)";
+    case ProfileKind::Polygon: return o.extrusion ? "Polygonal prism" : "Polygon (planar face)";
+    case ProfileKind::Rectangle: break;
+    }
     return o.extrusion ? "Rectangular extrusion" : "Rectangle (planar face)";
 }
 
@@ -35,10 +41,13 @@ const ImVec4 kMutedColor{0.40f, 0.43f, 0.48f, 1.0f};
 const ImVec4 kAccent{0.16f, 0.45f, 0.85f, 1.0f};
 
 constexpr const char* kLimitsText =
-    "This version supports rectangles drawn on the ground plane and their straight extrusions.\n"
-    "- Push/Pull works on a rectangle or on an extrusion's top cap.\n"
-    "- Side and base faces cannot be pushed yet.\n"
-    "- Heights must be positive: pushing below the base, holes and cutting are not supported.\n"
+    "This version supports rectangles, circles and polygons drawn on any face or plane and their straight "
+    "extrusions, and edges drawn with the Line tool.\n"
+    "- Push/Pull works on a rectangle, circle or polygon (either way), an extrusion's top cap, a drawn face "
+    "standing on its own, and the ends of a drawn prism.\n"
+    "- Side and base faces of rectangles and boxes cannot be pushed yet.\n"
+    "- A rectangle drawn on a face is its own object: pushing it into a wall overlaps the wall\n"
+    "  rather than cutting it. Holes and cutting are not supported yet.\n"
     "- Touching or overlapping objects stay separate (no merging).\n"
     "- Move, Duplicate, Rotate and Scale work on whole objects; Rotate turns about the X, Y or Z\n"
     "  axis and Scale cannot mirror.\n"
@@ -184,8 +193,20 @@ std::string Ui::measurementLabel(const UiContext& ctx) const { return std::strin
 std::string Ui::measurementLive(const UiContext& ctx) const {
     const LengthUnit u = ctx.editor.document().displayUnit;
     if (const auto* r = std::get_if<RectanglePreview>(&ctx.editor.preview())) {
-        const double w = std::abs(r->end.x - r->start.x), d = std::abs(r->end.y - r->start.y);
-        return formatLength(w, u) + ", " + formatLength(d, u);
+        if (r->outline.size() == 2) return formatLength(r->width, u); // first side of a rotated rectangle
+        return formatLength(r->width, u) + ", " + formatLength(r->depth, u);
+    }
+    if (const auto* c = std::get_if<CirclePreview>(&ctx.editor.preview())) {
+        const double r = c->placement ? c->placement->radius : glm::length(c->edge - c->center);
+        return formatLength(r, u) + "   (" + std::to_string(c->segments) + (c->kind == ProfileKind::Circle ? " segments)" : " sides)");
+    }
+    if (const auto* l = std::get_if<LinePreview>(&ctx.editor.preview())) {
+        std::string text = formatLength(glm::length(l->end - l->start), u);
+        if (l->axis) text += std::string("   (along ") + axisName(*l->axis) + (l->locked ? ", locked)" : ")");
+        return text;
+    }
+    if (const auto* p = std::get_if<PushPullPreview>(&ctx.editor.preview()); p && p->face == FaceKind::Mesh) {
+        return (p->delta >= 0 ? "+" : "") + formatLength(p->delta, u);
     }
     if (const auto* p = std::get_if<PushPullPreview>(&ctx.editor.preview())) {
         return (p->delta >= 0 ? "+" : "") + formatLength(p->delta, u) + "   (total height " + formatLength(p->height, u) + ")";
@@ -282,6 +303,10 @@ void Ui::menuBar(UiContext& ctx) {
         const Tool t = ctx.tools.tool();
         if (ImGui::MenuItem("Select", shortcuts::kSelect, t == Tool::Select)) ctx.tools.setTool(Tool::Select);
         if (ImGui::MenuItem("Rectangle", shortcuts::kRectangle, t == Tool::Rectangle)) ctx.tools.setTool(Tool::Rectangle);
+        if (ImGui::MenuItem("Circle", shortcuts::kCircle, t == Tool::Circle)) ctx.tools.setTool(Tool::Circle);
+        if (ImGui::MenuItem("Polygon", shortcuts::kPolygon, t == Tool::Polygon)) ctx.tools.setTool(Tool::Polygon);
+        if (ImGui::MenuItem("Rotated Rectangle", nullptr, t == Tool::RotatedRectangle)) ctx.tools.setTool(Tool::RotatedRectangle);
+        if (ImGui::MenuItem("Line", shortcuts::kLine, t == Tool::Line)) ctx.tools.setTool(Tool::Line);
         if (ImGui::MenuItem("Push/Pull", shortcuts::kPushPull, t == Tool::PushPull)) ctx.tools.setTool(Tool::PushPull);
         if (ImGui::MenuItem("Move", shortcuts::kMove, t == Tool::Move)) ctx.tools.setTool(Tool::Move);
         if (ImGui::MenuItem("Rotate", shortcuts::kRotate, t == Tool::Rotate)) ctx.tools.setTool(Tool::Rotate);
@@ -312,9 +337,17 @@ void Ui::toolbar(UiContext& ctx, float y, float height, float width) {
     const Tool t = ctx.tools.tool();
     if (toolButton("Select", t == Tool::Select, "Select (Space)\nClick an object or face. Click empty space to clear.")) ctx.tools.setTool(Tool::Select);
     ImGui::SameLine();
-    if (toolButton("Rectangle", t == Tool::Rectangle, "Rectangle (R)\nClick two corners on the ground, or type width, depth.")) ctx.tools.setTool(Tool::Rectangle);
+    if (toolButton("Rectangle", t == Tool::Rectangle, "Rectangle (R)\nClick two corners on a face or the ground, or type width, depth.\nArrow keys lock a plane: Right red, Left green, Up horizontal, Down the hovered face.")) ctx.tools.setTool(Tool::Rectangle);
     ImGui::SameLine();
-    if (toolButton("Push/Pull", t == Tool::PushPull, "Push/Pull (P)\nClick a rectangle or a top cap and move up, or type a distance.")) ctx.tools.setTool(Tool::PushPull);
+    if (toolButton("Rotated", t == Tool::RotatedRectangle, "Rotated Rectangle\nClick the first corner, the end of the first side, then the depth.\nType the length after the first click and the depth after the second.")) ctx.tools.setTool(Tool::RotatedRectangle);
+    ImGui::SameLine();
+    if (toolButton("Line", t == Tool::Line, "Line (L)\nClick points to draw connected edges, or type each length.\nClose a loop to make a face. Arrow keys lock an axis; Esc ends the line.")) ctx.tools.setTool(Tool::Line);
+    ImGui::SameLine();
+    if (toolButton("Circle", t == Tool::Circle, "Circle (C)\nClick the center, then a point on the circle, or type the radius.\nType 48s for 48 segments.")) ctx.tools.setTool(Tool::Circle);
+    ImGui::SameLine();
+    if (toolButton("Polygon", t == Tool::Polygon, "Polygon (Shift+C)\nClick the center, then a corner, or type the radius.\nType 8s for 8 sides.")) ctx.tools.setTool(Tool::Polygon);
+    ImGui::SameLine();
+    if (toolButton("Push/Pull", t == Tool::PushPull, "Push/Pull (P)\nClick a rectangle, circle, polygon, a top cap or a drawn face and move, or type a distance.")) ctx.tools.setTool(Tool::PushPull);
     ImGui::SameLine();
     if (toolButton("Move", t == Tool::Move, "Move (M)\nClick an object and move it, or type a distance.\nX, Y, Z or the arrow keys lock an axis.\n" PF_COPY_KEY " (tap) places a copy instead.")) ctx.tools.setTool(Tool::Move);
     ImGui::SameLine();
@@ -438,9 +471,15 @@ void Ui::properties(UiContext& ctx, float x, float y, float width, float height)
             row("Position X", formatLength(b.min.x, u));
             row("Position Y", formatLength(b.min.y, u));
             if (b.min.z != 0.0) row("Position Z", formatLength(b.min.z, u)); // shown once an object is lifted
-            const auto size = rectangleSize(o->profile.boundary);
-            row("Width", size ? formatLength(size->width, u) : std::string("-"));
-            row("Depth", size ? formatLength(size->depth, u) : std::string("-"));
+            if (const bool regular = !o->isMeshGroup() && o->profile.kind != ProfileKind::Rectangle; regular) {
+                const auto shape = regularShape(o->profile.boundary);
+                row("Radius", shape ? formatLength(shape->radius, u) : std::string("-"));
+                row(o->profile.kind == ProfileKind::Circle ? "Segments" : "Sides", shape ? std::to_string(shape->segments) : std::string("-"));
+            } else {
+                const auto size = rectangleSize(o->profile.boundary);
+                row("Width", size ? formatLength(size->width, u) : std::string("-"));
+                row("Depth", size ? formatLength(size->depth, u) : std::string("-"));
+            }
             row("Rotation", rotationLabel(o->transform));
             ImGui::EndTable();
         }
@@ -542,7 +581,7 @@ void Ui::bottomBar(UiContext& ctx, float y, float width, float height) {
                                                 measure_.data(), measure_.size(), ImGuiInputTextFlags_EnterReturnsTrue);
     measureEditing_ = ImGui::IsItemActive();
     tooltip("Type here, or just start typing in the viewport.\nUnits: mm (default), cm, m, in or \", ft or '. "
-            "Unitless values use the display unit.\nRectangle: width, depth. Push/Pull: distance from the current face. "
+            "Unitless values use the display unit.\nRectangle: width, depth. Line: length toward the pointer, or x, y, z. Push/Pull: distance from the current face. "
             "Move: distance along the locked axis or pointer direction, or x, y, z. Select: total height.\n"
             "Rotate: angle in degrees. Scale: factor (2, 50%) or width, depth, height factors.");
     if (enter) submitMeasurement(ctx);

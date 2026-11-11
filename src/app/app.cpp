@@ -400,6 +400,7 @@ void App::handleShortcuts() {
     if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) tools_.key(ToolKey::ArrowRight);
     if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) tools_.key(ToolKey::ArrowLeft);
     if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, false)) tools_.key(ToolKey::ArrowUp);
+    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, false)) tools_.key(ToolKey::ArrowDown);
     const bool typing = ui_.hasMeasurementText();
     for (int i = 0; i < io.InputQueueCharacters.Size; ++i) {
         const unsigned int c = io.InputQueueCharacters[i];
@@ -431,6 +432,8 @@ void App::handleShortcuts() {
     }
     if (ImGui::IsKeyPressed(ImGuiKey_Space, false)) tools_.setTool(Tool::Select);
     if (ImGui::IsKeyPressed(ImGuiKey_R, false)) tools_.setTool(Tool::Rectangle);
+    if (ImGui::IsKeyPressed(ImGuiKey_L, false)) tools_.setTool(Tool::Line);
+    if (ImGui::IsKeyPressed(ImGuiKey_C, false)) tools_.setTool(io.KeyShift ? Tool::Polygon : Tool::Circle);
     if (ImGui::IsKeyPressed(ImGuiKey_P, false)) tools_.setTool(Tool::PushPull);
     if (ImGui::IsKeyPressed(ImGuiKey_Q, false)) tools_.setTool(Tool::Rotate);
     if (ImGui::IsKeyPressed(ImGuiKey_S, false)) tools_.setTool(Tool::Scale);
