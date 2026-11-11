@@ -102,6 +102,13 @@ struct EraseEdgeResult {
     std::optional<FaceId> mergedFace; ///< set when two coplanar faces became this one
 };
 
+/// What one pushPull call did.
+struct PushPullResult {
+    FaceId face;                      ///< the pushed face where it ended up (the cap of an extrusion)
+    std::vector<FaceId> createdFaces; ///< new side faces and the cap
+    bool stretched = false;           ///< the face moved and its walls stretched (no new faces)
+};
+
 class Mesh {
 public:
     // ---- Reading ----------------------------------------------------------------
@@ -167,6 +174,16 @@ public:
     /// coplanar inner face merges into the face it is a hole of); any other face
     /// that used the edge is removed. Vertices left without edges are removed.
     std::optional<EraseEdgeResult> eraseEdge(EdgeId id);
+
+    /// Pushes or pulls a face by `distance` along its normal (negative goes
+    /// back). Two cases are supported for now:
+    ///  - a free face (no edge or vertex shared with other geometry) is
+    ///    extruded: a cap at the offset, one side face per loop edge (holes make
+    ///    inner walls), and the face stays as the base, turned to face away;
+    ///  - the end face of a prism (every other edge at its vertices runs along
+    ///    the normal) moves, and its walls stretch, while they keep a length.
+    /// Returns nothing, with the mesh unchanged, in any other case.
+    std::optional<PushPullResult> pushPull(FaceId id, double distance);
 
     /// Removes a face only (its edges stay).
     bool eraseFace(FaceId id);

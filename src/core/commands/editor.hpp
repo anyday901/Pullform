@@ -34,11 +34,14 @@ struct RectanglePreview {
 /// is the resulting total height (what is committed).
 struct PushPullPreview {
     ObjectId objectId;
-    FaceKind face = FaceKind::Profile; ///< Profile (create extrusion) or Cap (change height)
+    FaceKind face = FaceKind::Profile; ///< Profile (create extrusion), Cap (change height) or Mesh (a drawn face)
     double startHeight = 0.0;
     double delta = 0.0;
     double height = 0.0;
     std::optional<std::string> error; ///< why the current height cannot be committed
+    /// A drawn face (FaceKind::Mesh): the object as it would be after the
+    /// push/pull, drawn in place of the real one. Empty while `error` is set.
+    std::optional<ProfileObject> result;
 };
 
 /// Live tape measure or dimension placement. Points are world space.
@@ -54,6 +57,15 @@ struct MeasurePreview {
 
 /// A world axis that a gesture is locked to (Move: the direction of travel).
 enum class MoveAxis { X, Y, Z };
+
+/// Live Line tool segment, from the last point of the chain to the pointer.
+struct LinePreview {
+    Vec3 start{0.0};
+    Vec3 end{0.0};
+    std::optional<MoveAxis> axis;     ///< the segment runs along this axis (locked or inferred)
+    bool locked = false;              ///< `axis` is a lock (arrow keys), not an inference
+    std::optional<std::string> error; ///< why the segment cannot be drawn here
+};
 
 /// Unit vector of a world axis.
 Vec3 axisVector(MoveAxis axis);
@@ -120,7 +132,7 @@ struct SelectBoxPreview {
 
 /// Transient feedback drawn by the viewport. Never part of the document or history.
 using Preview =
-    std::variant<std::monostate, RectanglePreview, PushPullPreview, MovePreview, RotatePreview, ScalePreview, MeasurePreview,
+    std::variant<std::monostate, RectanglePreview, LinePreview, PushPullPreview, MovePreview, RotatePreview, ScalePreview, MeasurePreview,
                  SelectBoxPreview>;
 
 /// The object a preview draws in place of the document's version (push/pull,
