@@ -463,3 +463,24 @@ TEST_CASE("acceptance: rounded rectangle from lines and tangent arcs is one face
 }
 
 } // namespace pf
+
+namespace pf::mesh {
+
+TEST_CASE("a curve whose first edge runs against it survives pruning") {
+    // The arc's first segment reuses half of an existing line, which runs the
+    // other way (v0 at the origin); the curve walks it from v1.
+    Mesh m;
+    REQUIRE(m.addEdge({0, 0, 0}, {2, 0, 0}));
+    Curve c;
+    c.radius = 1.0;
+    c.sweep = 1.0;
+    REQUIRE(m.addCurve(c, {{1, 0, 0}, {0, 0, 0}, {0, 1, 0}}));
+    REQUIRE(m.curves().size() == 1);
+    const auto& edges = m.curves().begin()->second.edges;
+    REQUIRE(edges.size() == 2);
+    CHECK(m.vertex(m.edge(edges[0])->v0)->position == Vec3{0, 0, 0}); // reversed relative to the curve
+    m.pruneCurves(); // as on opening a file
+    CHECK(m.curves().size() == 1);
+}
+
+} // namespace pf::mesh

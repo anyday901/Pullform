@@ -880,9 +880,17 @@ bool Mesh::eraseFace(FaceId id) { return faces_.erase(id.value) > 0; }
 
 void Mesh::pruneCurves() {
     for (auto it = curves_.begin(); it != curves_.end();) {
-        bool ok = !it->second.edges.empty();
+        const auto& list = it->second.edges;
+        bool ok = !list.empty();
+        // The walk starts at the first edge's end that the second edge does not
+        // share (the first edge may run against the curve's direction).
         std::optional<VertexId> last;
-        for (const EdgeId eid : it->second.edges) {
+        if (list.size() >= 2) {
+            const Edge* first = edge(list[0]);
+            const Edge* second = edge(list[1]);
+            if (first && second && (first->v0 == second->v0 || first->v0 == second->v1)) last = first->v1;
+        }
+        for (const EdgeId eid : list) {
             const Edge* e = edge(eid);
             if (!e || !e->curve || e->curve->value != it->first) {
                 ok = false;
