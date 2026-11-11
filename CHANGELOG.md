@@ -7,6 +7,13 @@ include breaking changes, but project files will keep a migration path.
 
 ## [Unreleased]
 
+### Added
+
+- **Duplicate** (Edit > Duplicate, Ctrl+D / Cmd+D, or the Duplicate buttons): copies the
+  selected object with a new stable ID and places it beside the original along +X. The copy
+  becomes the selection, so repeating it builds a row. Editing either object leaves the
+  other unchanged. One undo entry per duplicate.
+
 ### Fixed
 
 - An extra Backspace after clearing a typed value no longer deletes the selected object.

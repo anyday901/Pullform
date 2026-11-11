@@ -378,6 +378,7 @@ void App::handleShortcuts() {
     if (chord(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S)) return void(saveAs());
     if (chord(ImGuiMod_Ctrl | ImGuiKey_S)) return void(save());
     if (chord(ImGuiMod_Ctrl | ImGuiKey_Q)) return requestPending(Pending::Quit);
+    if (chord(ImGuiMod_Ctrl | ImGuiKey_D)) return duplicateSelection();
     if (io.KeyCtrl || io.KeySuper || io.KeyAlt) return;
 
     // Typed measurements (SketchUp-style): digits start a value; once a value is
@@ -448,6 +449,7 @@ void App::handleActions() {
         case UiAction::Undo: tools_.cancel(); editor_.undo(); break;
         case UiAction::Redo: tools_.cancel(); editor_.redo(); break;
         case UiAction::Delete: deleteSelection(); break;
+        case UiAction::Duplicate: duplicateSelection(); break;
         case UiAction::FitView: fitView(); break;
         case UiAction::ResetView: viewport_->camera().reset(); onActivity(); break;
         }
@@ -553,6 +555,11 @@ void App::deleteSelection() {
     tools_.cancel();
     const ObjectId id = sel->objectId;
     editor_.commit("Delete " + idString(id), [id](const Document& d) { return deleteObject(d, id); });
+}
+
+void App::duplicateSelection() {
+    if (!editor_.selection()) return;
+    if (auto e = tools_.duplicateSelection()) editor_.notify(Message{Message::Kind::Error, *e});
 }
 
 void App::fitView() {

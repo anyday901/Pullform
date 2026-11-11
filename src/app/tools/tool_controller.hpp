@@ -80,6 +80,11 @@ public:
     /// Sets the total extrusion height of an object (properties panel).
     std::optional<std::string> setTotalHeight(ObjectId id, std::string_view height);
 
+    /// Duplicates the selected object (Edit > Duplicate). The copy is placed
+    /// beside the original along +X, one object width over, and becomes the
+    /// selection, so repeating it builds a row. One undo entry.
+    std::optional<std::string> duplicateSelection();
+
     /// Explanation when a face cannot be push/pulled in this milestone.
     static std::optional<std::string> pushableReason(const FaceId& face);
 

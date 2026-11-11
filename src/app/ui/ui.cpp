@@ -25,7 +25,7 @@ constexpr const char* kLimitsText =
     "- Side and base faces cannot be pushed yet.\n"
     "- Heights must be positive: pushing below the base, holes and cutting are not supported.\n"
     "- Touching or overlapping objects stay separate (no merging).\n"
-    "- Move works on whole objects; no rotate, scale or copy yet.";
+    "- Move and Duplicate work on whole objects; no rotate or scale yet.";
 
 void tooltip(const char* text) {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", text);
@@ -183,6 +183,7 @@ void Ui::menuBar(UiContext& ctx) {
         if (ImGui::MenuItem(undo.c_str(), shortcuts::kUndo, false, ctx.editor.canUndo())) action(UiAction::Undo);
         if (ImGui::MenuItem(redo.c_str(), shortcuts::kRedo, false, ctx.editor.canRedo())) action(UiAction::Redo);
         ImGui::Separator();
+        if (ImGui::MenuItem("Duplicate", shortcuts::kDuplicate, false, ctx.editor.selection().has_value())) action(UiAction::Duplicate);
         if (ImGui::MenuItem("Delete", shortcuts::kDelete, false, ctx.editor.selection().has_value())) action(UiAction::Delete);
         if (ImGui::MenuItem("Clear selection", "Esc", false, ctx.editor.selection().has_value())) ctx.editor.select(std::nullopt);
         ImGui::EndMenu();
@@ -240,6 +241,11 @@ void Ui::toolbar(UiContext& ctx, float y, float height, float width) {
     if (ImGui::Button("Redo")) action(UiAction::Redo);
     ImGui::EndDisabled();
     tooltip(ctx.editor.canRedo() ? ("Redo " + ctx.editor.redoLabel() + " (" + shortcuts::kRedo + ")").c_str() : "Nothing to redo");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!ctx.editor.selection());
+    if (ImGui::Button("Duplicate")) action(UiAction::Duplicate);
+    ImGui::EndDisabled();
+    tooltip((std::string("Copy the selected object beside it (") + shortcuts::kDuplicate + ")").c_str());
     ImGui::SameLine();
     ImGui::BeginDisabled(!ctx.editor.selection());
     if (ImGui::Button("Delete")) action(UiAction::Delete);
@@ -321,6 +327,9 @@ void Ui::properties(UiContext& ctx, float x, float y, float width, float height)
             heightEdited_ = false;
         }
         ImGui::Spacing();
+        if (ImGui::Button("Duplicate object")) action(UiAction::Duplicate);
+        tooltip((std::string("Copies the object with a new ID, placed beside it (") + shortcuts::kDuplicate + ").").c_str());
+        ImGui::SameLine();
         if (ImGui::Button("Delete object")) action(UiAction::Delete);
         tooltip("Deletes the whole object (Delete). Faces cannot be deleted on their own yet.");
     }

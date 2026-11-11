@@ -62,6 +62,7 @@ private:
     bool saveAs(Pending then = Pending::None);
     bool writeTo(const std::filesystem::path& path);
     void deleteSelection();
+    void duplicateSelection();
     void fitView();
     void updateTitle();
     [[nodiscard]] std::string projectName() const;

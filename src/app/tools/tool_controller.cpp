@@ -2,6 +2,7 @@
 
 #include "core/commands/operations.hpp"
 #include "core/document/tolerance.hpp"
+#include "core/geometry/solid.hpp"
 
 #include <glm/geometric.hpp>
 
@@ -524,6 +525,27 @@ std::string ToolController::hint() const {
         return "Orbit: drag with the left button to orbit. Right-drag pans, the wheel zooms.";
     }
     return {};
+}
+
+std::optional<std::string> ToolController::duplicateSelection() {
+    const auto selection = editor_.selection();
+    if (!selection) return std::string{"Select an object to duplicate."};
+    const auto* o = editor_.document().find(selection->objectId);
+    if (!o) return std::string{"The selected object no longer exists."};
+    cancel();
+    const Vec3 offset{objectBounds(*o).size().x, 0.0, 0.0};
+    const auto face = selection->face;
+    const ObjectId id = selection->objectId;
+    const bool ok = editor_.commit(
+        "Duplicate " + idString(id), [id, offset](const Document& d) { return duplicateObject(d, id, offset); },
+        [face](const OpResult& r) -> std::optional<Selection> {
+            if (!r.objectId) return std::nullopt;
+            return Selection{*r.objectId, face};
+        });
+    if (!ok) return lastError("Could not duplicate the object.");
+    const auto* copy = editor_.selection() ? editor_.document().find(editor_.selection()->objectId) : nullptr;
+    if (copy) editor_.notify(Message{Message::Kind::Info, "Duplicated as " + copy->name + "."});
+    return std::nullopt;
 }
 
 } // namespace pf
