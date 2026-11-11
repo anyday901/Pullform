@@ -6,7 +6,9 @@
 
 #include <glm/geometric.hpp>
 
+#include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace pf {
 
@@ -23,8 +25,6 @@ const char* axisColorName(MoveAxis axis) {
     return "blue";
 }
 
-double snapValue(double v, double step) { return std::round(v / step) * step; }
-
 /// The axis a move runs along when exactly one component is non-zero.
 std::optional<MoveAxis> singleAxis(const Vec3& offset) {
     const bool x = offset.x != 0.0;
@@ -35,6 +35,8 @@ std::optional<MoveAxis> singleAxis(const Vec3& offset) {
     if (z && !x && !y) return MoveAxis::Z;
     return std::nullopt;
 }
+
+double snapValue(double v, double step) { return std::round(v / step) * step; }
 
 std::string trimmed(std::string_view s) {
     while (!s.empty() && (s.front() == ' ' || s.front() == '\t')) s.remove_prefix(1);
@@ -95,6 +97,8 @@ void ToolController::setTool(Tool tool) {
     axisLock_.reset();
     moveCopy_ = false;
     tool_ = tool;
+    indicator_.reset();
+    snapper_.clearReferences();
     editor_.setHover(std::nullopt);
     editor_.notify(std::nullopt);
 }
@@ -106,19 +110,29 @@ bool ToolController::cancel() {
     rotate_.reset();
     scale_.reset();
     move_.reset();
+    indicator_.reset();
     editor_.cancelPreview();
     return had;
 }
 
-Vec3 ToolController::snapPoint(const Vec3& p) const {
-    if (!snap_.enabled || snap_.step <= 0.0) return p;
-    return {snapValue(p.x, snap_.step), snapValue(p.y, snap_.step), p.z};
+std::optional<SnapResult> ToolController::snapGround(const PointerInput& input) {
+    return snapper_.ground(input, rect_ ? std::optional(rect_->start) : std::nullopt);
 }
 
-std::optional<Vec3> ToolController::groundPoint(const PointerInput& input) const {
-    const auto p = intersectHorizontalPlane(input.ray, 0.0);
-    if (!p) return std::nullopt;
-    return snapPoint(*p);
+SnapResult ToolController::snapPointer(const PointerInput& input) {
+    if (auto hit = snapper_.point(input)) return *hit;
+    if (input.pick) {
+        const Vec3 p = input.pick->point;
+        return SnapResult{p, SnapKind::OnFace, input.pick->objectId, -1, p, {}};
+    }
+    return snapGround(input).value_or(SnapResult{input.ray.origin, SnapKind::None, std::nullopt, -1, input.ray.origin, {}});
+}
+
+std::optional<Vec3> ToolController::groundPoint(const PointerInput& input) {
+    auto res = snapGround(input);
+    indicator_ = res;
+    if (!res) return std::nullopt;
+    return res->point;
 }
 
 void ToolController::pointerDown(const PointerInput& input) {
@@ -194,9 +208,8 @@ void ToolController::rectDown(const PointerInput& input) {
 }
 
 void ToolController::rectMove(const PointerInput& input) {
-    if (!rect_) return;
-    const auto p = groundPoint(input);
-    if (!p) return;
+    const auto p = groundPoint(input); // also shows the snap before the first corner
+    if (!p || !rect_) return;
     const auto r = rectangleFromCorners(rect_->start, *p);
     editor_.setPreview(RectanglePreview{rect_->start, *p, r ? std::optional(*r) : std::nullopt});
 }
@@ -223,6 +236,7 @@ bool ToolController::commitRectangle(const RectanglePlacement& placement) {
         });
     if (ok) {
         rect_.reset();
+        indicator_.reset();
         editor_.cancelPreview();
     }
     return ok;
@@ -297,7 +311,7 @@ void ToolController::pushDown(const PointerInput& input) {
     const auto* o = editor_.document().find(pick.objectId);
     if (!o) return;
     push_ = PushGesture{pick.objectId, pick.faceId.kind, pick.point, o->extrusion ? o->extrusion->height : 0.0,
-                        input.screen, true};
+                        profileToWorld(*o, Vec2{0.0}, 0.0).z, input.screen, true};
     editor_.notify(std::nullopt);
     setPushPreview(0.0);
 }
@@ -317,13 +331,42 @@ void ToolController::pushMove(const PointerInput& input) {
     }
     const auto* o = editor_.document().find(push_->objectId);
     if (!o) return;
-    // Along the profile normal, which a rotated object carries with it.
-    const auto t = closestParameterOnAxis(push_->anchor, profileNormalWorld(*o), input.ray);
-    if (!t) return;
-    // Snap the resulting total height to the grid increment.
-    double total = push_->startHeight + *t;
-    if (snap_.enabled && snap_.step > 0.0) total = snapValue(total, snap_.step);
-    setPushPreview(total - push_->startHeight);
+    // Along the profile normal, which a rotated object carries with it. The
+    // pointer ray may be parallel to it (looking straight down); a corner under
+    // the pointer still gives a height then.
+    const Vec3 normal = profileNormalWorld(*o);
+    const auto t = closestParameterOnAxis(push_->anchor, normal, input.ray);
+    const auto raw = t.has_value() ? std::optional(push_->startHeight + *t) : std::nullopt;
+    if (normal != Vec3{0.0, 0.0, 1.0}) {
+        // Point and height snaps compare world heights, so a tipped object
+        // snaps its height to the grid only.
+        indicator_.reset();
+        if (raw.has_value()) setPushPreview(snap_.toGrid(*raw) - push_->startHeight);
+        return;
+    }
+    const auto total = snapPushHeight(input, raw);
+    if (total.has_value()) setPushPreview(*total - push_->startHeight);
+}
+
+std::optional<double> ToolController::snapPushHeight(const PointerInput& input, std::optional<double> raw) {
+    const auto at = [this](double h) { return Vec3{push_->anchor.x, push_->anchor.y, push_->baseZ + h}; };
+    // 1. The pointer is on a corner or edge midpoint of another object: take
+    //    its height. 2. Otherwise the height lines up with another object's
+    //    corner (for example its cap). Both draw a guide from that corner.
+    auto hit = snapper_.point(input, push_->objectId);
+    if (!hit && raw.has_value()) hit = snapper_.height(input, at(*raw), push_->objectId);
+    if (hit) {
+        const double h = hit->featurePoint.z - push_->baseZ;
+        hit->point = at(h);
+        hit->guides.emplace_back(hit->featurePoint, hit->point, -1);
+        indicator_ = *hit;
+        return h;
+    }
+    if (!raw.has_value()) return std::nullopt;
+    // 3. Grid: snap the total height to the increment.
+    const double total = snap_.toGrid(*raw);
+    indicator_ = SnapResult{at(total), snap_.gridOn() ? SnapKind::Grid : SnapKind::None, std::nullopt, -1, at(total), {}};
+    return total;
 }
 
 void ToolController::pushFinish() {
@@ -354,6 +397,7 @@ bool ToolController::commitHeight(ObjectId id, FaceKind face, double height) {
         [id](const OpResult&) -> std::optional<Selection> { return Selection{id, FaceId::cap()}; });
     if (ok) {
         push_.reset();
+        indicator_.reset();
         editor_.cancelPreview();
     }
     return ok;
@@ -794,6 +838,14 @@ std::optional<std::string> ToolController::submitScaleFactors(std::string_view t
 }
 
 std::string ToolController::hint() const {
+    std::string text = toolHint();
+    if (indicator_ && indicator_->kind >= SnapKind::OnFace && (tool_ == Tool::Rectangle || tool_ == Tool::PushPull)) {
+        text = std::string("[") + snapKindName(indicator_->kind) + "] " + text;
+    }
+    return text;
+}
+
+std::string ToolController::toolHint() const {
     switch (tool_) {
     case Tool::Select:
         return "Select: click an object to select it, click empty space to clear. Delete removes the selected object.";

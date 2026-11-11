@@ -9,6 +9,7 @@ add_library(pullform_core STATIC
   geometry/rectangle.cpp
   geometry/solid.cpp
   geometry/pick.cpp
+  geometry/snap.cpp
   commands/operations.cpp
   commands/selection.cpp
   commands/editor.cpp)

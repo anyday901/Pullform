@@ -8,6 +8,7 @@ add_executable(pullform_tests
   history_tests.cpp
   duplicate_tests.cpp
   tools_tests.cpp
+  snap_tests.cpp
   move_tests.cpp
   project_file_tests.cpp
   transform_tests.cpp
