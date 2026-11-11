@@ -164,6 +164,9 @@ public:
     [[nodiscard]] const std::vector<ObjectId>& selectedObjects() const { return selection_.objects(); }
     [[nodiscard]] bool isSelected(ObjectId id) const { return selection_.contains(id); }
     [[nodiscard]] const std::optional<Selection>& hover() const { return hover_; }
+    /// The vertex, edge or face under the pointer in the Select tool, if any.
+    /// Cleared whenever the document changes (ids may no longer exist).
+    [[nodiscard]] const std::optional<ElementRef>& hoverElement() const { return hoverElement_; }
     [[nodiscard]] const Preview& preview() const { return preview_; }
     [[nodiscard]] const std::optional<Message>& message() const { return message_; }
 
@@ -186,6 +189,7 @@ public:
     /// Replaces the whole selection (not model history).
     void setSelection(const SelectionSet& selection);
     void setHover(const std::optional<Selection>& hover);
+    void setHoverElement(const std::optional<ElementRef>& element);
     void setPreview(Preview preview);
     void cancelPreview();
     void notify(std::optional<Message> message);
@@ -221,6 +225,7 @@ private:
     Document document_;
     SelectionSet selection_;
     std::optional<Selection> hover_;
+    std::optional<ElementRef> hoverElement_;
     Preview preview_;
     std::optional<Message> message_;
     std::deque<Snapshot> undo_;

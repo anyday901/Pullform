@@ -17,6 +17,12 @@ inline constexpr double kMaxCoordinate = 1e4;    // largest |coordinate| or dime
 inline constexpr double kRotationLengthTolerance = 1e-6; // |rotation quaternion| must be 1 within this
 inline constexpr double kMinArea = kMinDimension * kMinDimension;
 
+// Edge/face mesh (core/geometry/mesh.*). 1 nm is below the error a few
+// rotations accumulate, so mesh welding uses 1 micrometer (docs/GEOMETRY.md).
+inline constexpr double kWeldDistance = 1e-6;   // points closer than this are one vertex; point-on-edge distance
+inline constexpr double kPlanarity = 1e-6;      // largest distance of a face vertex from the face plane
+inline constexpr double kCoplanarNormal = 1e-9; // faces are coplanar when 1 - dot(n1, n2) <= this (and within kPlanarity)
+
 inline bool isFinite(double v) { return std::isfinite(v); }
 
 inline bool nearlyEqual(double a, double b, double eps = kLengthEpsilon) {

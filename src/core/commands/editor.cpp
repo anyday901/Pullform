@@ -63,6 +63,7 @@ bool Editor::commit(const std::string& label, const Operation& op, const SelectA
     document_ = std::move(result).value().document;
     selection_ = nextSelection;
     hover_ = sanitizeSelection(document_, hover_);
+    hoverElement_.reset();
     stateId_ = nextStateId_++;
     message_.reset();
     touch();
@@ -73,6 +74,7 @@ void Editor::restore(Snapshot snapshot) {
     document_ = std::move(snapshot.document);
     selection_ = sanitizeSelection(document_, snapshot.selection);
     hover_ = sanitizeSelection(document_, hover_);
+    hoverElement_.reset();
     stateId_ = snapshot.stateId;
     preview_ = std::monostate{};
     touch();
@@ -115,6 +117,13 @@ void Editor::setHover(const std::optional<Selection>& hover) {
     touch();
 }
 
+void Editor::setHoverElement(const std::optional<ElementRef>& element) {
+    const auto next = element && document_.find(element->object) ? element : std::nullopt;
+    if (next == hoverElement_) return;
+    hoverElement_ = next;
+    touch();
+}
+
 void Editor::setPreview(Preview preview) {
     preview_ = std::move(preview);
     touch();
@@ -138,6 +147,7 @@ void Editor::resetDocument(Document document) {
     redo_.clear();
     selection_.clear();
     hover_.reset();
+    hoverElement_.reset();
     preview_ = std::monostate{};
     message_.reset();
     stateId_ = nextStateId_++;

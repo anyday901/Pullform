@@ -1,5 +1,6 @@
 #include "app/tools/select_tool.hpp"
 
+#include "app/tools/element_select.hpp"
 #include "app/tools/push_pull_tool.hpp"
 #include "app/tools/tool_support.hpp"
 
@@ -14,11 +15,12 @@ SelectModifier selectModifier(const PointerInput& input) {
 void SelectTool::pointerDown(const PointerInput& input) {
     const SelectModifier modifier = selectModifier(input);
     press_ = Press{input.screen, modifier, editor().selectionSet(), false};
-    // The click applies right away; if the press becomes a box drag, the box
-    // replaces it (starting again from the selection before the press).
-    std::optional<Selection> hit;
-    if (input.pick) hit = Selection{input.pick->objectId, input.pick->faceId};
-    editor().setSelection(applyClick(editor().selectionSet(), hit, modifier));
+    // A click applies right away: it selects the vertex, edge or face under the
+    // pointer (double click: with its edges or faces; triple click: everything
+    // connected), and clicking empty space clears the selection unless Shift or
+    // Ctrl is held. If the press becomes a box drag, the box replaces it,
+    // starting again from the selection before the press.
+    selectElementAt(editor(), input, modifier);
 }
 
 SelectionSet SelectTool::boxSelection(const PointerInput& input, RegionMode mode) const {
@@ -33,12 +35,13 @@ void SelectTool::pointerMove(const PointerInput& input) {
             press_->boxing = true;
             editor().setSelection(press_->before);
             editor().setHover(std::nullopt);
+            editor().setHoverElement(std::nullopt);
         }
         const RegionMode mode = regionModeForDrag(press_->screen, input.screen);
         editor().setPreview(SelectBoxPreview{press_->screen, input.screen, mode, boxSelection(input, mode).objects()});
         return;
     }
-    editor().setHover(input.pick ? std::optional<Selection>(Selection{input.pick->objectId, input.pick->faceId}) : std::nullopt);
+    hoverElementAt(editor(), input);
 }
 
 void SelectTool::pointerUp(const PointerInput& input) {
@@ -71,8 +74,9 @@ std::string SelectTool::hint() const {
         return "Select: release to select. Left to right selects objects entirely inside; right to left also "
                "selects objects the box touches. Esc cancels.";
     }
-    return "Select: click an object, Shift-click to add or remove, Ctrl-click to add, or drag a box. Click empty "
-           "space to clear. Delete removes the selection.";
+    return "Select: click a face or edge (double-click: face and edges, triple-click: everything connected), "
+           "Shift-click to add or remove, Ctrl-click to add, or drag a box. Click empty space to clear; Delete "
+           "removes the selection.";
 }
 
 } // namespace pf

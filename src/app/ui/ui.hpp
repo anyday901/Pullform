@@ -21,6 +21,7 @@ struct UiContext {
     std::string projectName;
     bool dirty = false;
     double gridStep = 0.1;
+    bool* profileEdges = nullptr; ///< viewport "profiles" edge style toggle, if offered
 };
 
 /// Rectangle (window coordinates) left for the 3D viewport after laying out panels.
