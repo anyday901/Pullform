@@ -12,6 +12,7 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <format>
 #include <cmath>
 #include <numbers>
 #include <cstdio>
@@ -188,6 +189,32 @@ void Ui::showError(const std::string& title, const std::string& text) {
 
 std::string Ui::measurementLabel(const UiContext& ctx) const { return std::string(ctx.tools.measurementLabel()); }
 
+namespace {
+
+/// Live text for an arc tool: the value being placed, then the arc's radius,
+/// segments and any inference.
+std::string arcLive(const ArcPreview& a, LengthUnit u) {
+    std::string text;
+    using enum ArcPreview::Value;
+    switch (a.value) {
+    case Length:
+    case Bulge:
+    case Radius: text = formatLength(a.amount, u); break;
+    case Angle: text = formatAngle(std::abs(a.amount)); break;
+    case None: break;
+    }
+    std::vector<std::string> details;
+    if (a.radius > 0.0) details.push_back(std::format("radius {}, {} segments", formatLength(a.radius, u), a.segments));
+    if (a.tangent) details.emplace_back("tangent");
+    if (a.halfCircle) details.emplace_back("half circle");
+    if (details.empty()) return text;
+    std::string joined = details.front();
+    for (std::size_t i = 1; i < details.size(); ++i) joined += ", " + details[i];
+    return text.empty() ? std::format("({})", joined) : std::format("{}   ({})", text, joined);
+}
+
+} // namespace
+
 std::string Ui::measurementLive(const UiContext& ctx) const {
     const LengthUnit u = ctx.editor.document().displayUnit;
     if (const auto* r = std::get_if<RectanglePreview>(&ctx.editor.preview())) {
@@ -224,6 +251,7 @@ std::string Ui::measurementLive(const UiContext& ctx) const {
                formatLength(m->offset.z, u, false) + ")";
     }
     if (const auto* r = std::get_if<RotatePreview>(&ctx.editor.preview()); r && r->reference) return formatAngle(r->angle);
+    if (const auto* a = std::get_if<ArcPreview>(&ctx.editor.preview())) return arcLive(*a, u);
     if (const auto* s = std::get_if<ScalePreview>(&ctx.editor.preview())) {
         return formatLength(s->factor * 100.0, LengthUnit::Meter, false) + "%";
     }
@@ -305,6 +333,12 @@ void Ui::menuBar(UiContext& ctx) {
         if (ImGui::MenuItem("Polygon", shortcuts::kPolygon, t == Tool::Polygon)) ctx.tools.setTool(Tool::Polygon);
         if (ImGui::MenuItem("Rotated Rectangle", nullptr, t == Tool::RotatedRectangle)) ctx.tools.setTool(Tool::RotatedRectangle);
         if (ImGui::MenuItem("Line", shortcuts::kLine, t == Tool::Line)) ctx.tools.setTool(Tool::Line);
+        if (ImGui::BeginMenu("Arcs")) {
+            if (ImGui::MenuItem("Arc", shortcuts::kArc, t == Tool::Arc)) ctx.tools.setTool(Tool::Arc);
+            if (ImGui::MenuItem("3 Point Arc", nullptr, t == Tool::ThreePointArc)) ctx.tools.setTool(Tool::ThreePointArc);
+            if (ImGui::MenuItem("Pie", nullptr, t == Tool::Pie)) ctx.tools.setTool(Tool::Pie);
+            ImGui::EndMenu();
+        }
         if (ImGui::MenuItem("Push/Pull", shortcuts::kPushPull, t == Tool::PushPull)) ctx.tools.setTool(Tool::PushPull);
         if (ImGui::MenuItem("Move", shortcuts::kMove, t == Tool::Move)) ctx.tools.setTool(Tool::Move);
         if (ImGui::MenuItem("Rotate", shortcuts::kRotate, t == Tool::Rotate)) ctx.tools.setTool(Tool::Rotate);
@@ -339,6 +373,12 @@ void Ui::toolbar(UiContext& ctx, float y, float height, float width) {
     if (toolButton("Rotated", t == Tool::RotatedRectangle, "Rotated Rectangle\nClick the first corner, the end of the first side, then the depth.\nType the length after the first click and the depth after the second.")) ctx.tools.setTool(Tool::RotatedRectangle);
     ImGui::SameLine();
     if (toolButton("Line", t == Tool::Line, "Line (L)\nClick points to draw connected edges, or type each length.\nClose a loop to make a face. Arrow keys lock an axis; Esc ends the line.")) ctx.tools.setTool(Tool::Line);
+    ImGui::SameLine();
+    if (toolButton("Arc", t == Tool::Arc, "Arc (A)\nClick the start and end, then the bulge. From a line end, cyan means tangent;\ndouble-click the end for the tangent arc. Type 12s for 12 segments.")) ctx.tools.setTool(Tool::Arc);
+    ImGui::SameLine();
+    if (toolButton("3Pt Arc", t == Tool::ThreePointArc, "3 Point Arc\nClick the start, a point on the arc, and the end.")) ctx.tools.setTool(Tool::ThreePointArc);
+    ImGui::SameLine();
+    if (toolButton("Pie", t == Tool::Pie, "Pie\nClick the centre, the start of the arc (or type the radius), then the end (or type the angle).")) ctx.tools.setTool(Tool::Pie);
     ImGui::SameLine();
     if (toolButton("Circle", t == Tool::Circle, "Circle (C)\nClick the center, then a point on the circle, or type the radius.\nType 48s for 48 segments.")) ctx.tools.setTool(Tool::Circle);
     ImGui::SameLine();

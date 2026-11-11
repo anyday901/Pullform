@@ -344,6 +344,18 @@ resolved pick, screen position), so tests drive it with synthetic events and no 
   viewport as a marker and dashed guides drawn on top. `snapPointer` and
   `resolveSnapFeature` let other tools (tape measure, dimensions) snap the same way and
   refer to a corner or midpoint by object and feature index.
+- Arcs (`app/tools/arc_tool.*`, geometry in `core/geometry/arc.*`): one `ArcTool` class
+  in three modes (Arc, 3 Point Arc, Pie). An arc is an `ArcGeometry` (centre, normal, x axis,
+  radius, start, signed sweep: the fields of `mesh::Curve`), built by `arcFromBulge`,
+  `arcThroughPoints`, `arcFromCenter` or `tangentArc`. The drawing plane is the face under
+  the first point (when the point is on it) or the horizontal plane through it; later
+  points are the pointer on that plane, taking endpoint and midpoint snaps that lie on it.
+  When the first point is the open end of a line or arc (`openEndTangent`: a vertex with
+  one edge; for an arc segment the arc's exact tangent), the bulge snaps to the tangent
+  arc within the snap radius and the preview turns cyan. The pie's sweep is unwrapped
+  as the pointer moves (`unwrapSweep`), so it can pass half a turn. `drawArc` commits one
+  entry: `Mesh::addCurve` draws the segments with `addEdge` (so loops close into faces
+  as for lines) and records the curve over the resulting chain of edges.
 - Tape measure and dimensions (`app/tools/measure_tool.*`): `MeasureTool` snaps each
   pointer event with `ToolContext::measureSnap` (built on `snapPointer`). An endpoint or
   midpoint snap becomes an attached anchor through `anchorAt`, which matches the point
@@ -436,6 +448,7 @@ resolved pick, screen position), so tests drive it with synthetic events and no 
 
 The edge/face mesh exists in the core, but there is no Line or Eraser tool yet (the
 `drawEdge`/`eraseEdge` operations are ready for them), push/pull works only on profile
-groups, there are no booleans, no healing of collinear edges left after an erase, and no
-arc tool (curves exist for circles and polygons only). Dimension anchors still name corners by index
+groups, there are no booleans, and no healing of collinear edges left after an erase. Arcs
+are drawn by the Arc tools; a curve record gives centre snapping but is not yet used for
+selecting a whole curve. Dimension anchors still name corners by index
 (vertex id - 1) rather than by vertex id. See docs/GEOMETRY.md and the roadmap.

@@ -2,6 +2,7 @@
 
 #include "core/document/document.hpp"
 #include "core/document/result.hpp"
+#include "core/geometry/arc.hpp"
 #include "core/geometry/circle.hpp"
 #include "core/geometry/mesh.hpp"
 #include "core/geometry/rectangle.hpp"
@@ -127,6 +128,12 @@ Expected<OpResult> drawEdge(const Document& doc, std::optional<ObjectId> target,
 /// first. A group left with nothing is deleted.
 Expected<OpResult> eraseEdge(const Document& doc, ObjectId id, mesh::EdgeId edge);
 
+/// Draws an arc (world space) as `segments` edges plus a curve record, into a
+/// group's mesh like drawEdge: ends weld, a closed planar loop makes a face.
+/// With `pie`, also draws the two radii from the centre to the arc's ends, so
+/// the pie closes into a face. Target selection is as for drawEdge.
+Expected<OpResult> drawArc(const Document& doc, std::optional<ObjectId> target, const ArcGeometry& arc, int segments,
+                           bool pie = false);
 /// Pushes or pulls face `face` of a mesh group by `distance` along its normal
 /// (see mesh::Mesh::pushPull): a free face becomes a closed solid, and the end
 /// face of a prism moves with its walls stretching. Same object, same id.

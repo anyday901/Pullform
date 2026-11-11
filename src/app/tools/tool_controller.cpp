@@ -1,5 +1,6 @@
 #include "app/tools/tool_controller.hpp"
 
+#include "app/tools/arc_tool.hpp"
 #include "app/tools/line_tool.hpp"
 #include "app/tools/circle_tool.hpp"
 #include "app/tools/measure_tool.hpp"
@@ -41,6 +42,9 @@ ToolController::ToolController(Editor& editor) : editor_(editor), snapper_(edito
     add<OrbitTool>(Tool::Orbit);
     add<MeasureTool>(Tool::TapeMeasure, MeasureTool::Mode::Tape);
     add<MeasureTool>(Tool::Dimension, MeasureTool::Mode::Dimension);
+    add<ArcTool>(Tool::Arc, ArcTool::Mode::TwoPoint);
+    add<ArcTool>(Tool::ThreePointArc, ArcTool::Mode::ThreePoint);
+    add<ArcTool>(Tool::Pie, ArcTool::Mode::Pie);
     for ([[maybe_unused]] const auto& t : tools_) assert(t && "every Tool value needs a registered tool");
 }
 

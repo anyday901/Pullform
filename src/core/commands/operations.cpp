@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <array>
+#include <format>
 #include <cmath>
 #include <numbers>
 #include <string_view>
@@ -568,6 +569,80 @@ Expected<OpResult> deleteObjects(const Document& doc, const std::vector<ObjectId
 Expected<OpResult> setDisplayUnit(const Document& doc, LengthUnit unit) {
     OpResult result{doc, std::nullopt, {}};
     result.document.displayUnit = unit;
+    return result;
+}
+
+} // namespace pf
+
+namespace pf {
+
+namespace {
+
+/// Draws the arc and, for a pie, its radii into `m`, in object-local space.
+bool drawArcInto(mesh::Mesh& m, const ProfileObject& o, const ArcGeometry& arc, int segments, bool pie) {
+    const Mat3 toLocal = glm::transpose(rotationMatrix(o.transform));
+    mesh::Curve curve;
+    curve.kind = mesh::CurveKind::Arc;
+    curve.center = worldToLocal(o, arc.center);
+    curve.normal = toLocal * arc.normal;
+    curve.xAxis = toLocal * arc.xAxis;
+    curve.radius = arc.radius;
+    curve.start = arc.start;
+    curve.sweep = arc.sweep;
+    std::vector<Vec3> points;
+    for (const Vec3& p : arcPoints(arc, segments)) points.push_back(worldToLocal(o, p));
+    if (!m.addCurve(curve, points)) return false;
+    if (pie) {
+        m.addEdge(points.back(), curve.center);
+        m.addEdge(curve.center, points.front());
+    }
+    return true;
+}
+
+} // namespace
+
+Expected<OpResult> drawArc(const Document& doc, std::optional<ObjectId> target, const ArcGeometry& arc, int segments, bool pie) {
+    if (auto e = checkArcSegments(segments)) return Error{*e};
+    const std::vector<Vec3> ends = {arcStartPoint(arc), arcEndPoint(arc), arc.center};
+    for (const Vec3& p : ends) {
+        if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z) || std::abs(p.x) > tol::kMaxCoordinate ||
+            std::abs(p.y) > tol::kMaxCoordinate || std::abs(p.z) > tol::kMaxCoordinate) {
+            return Error{"The arc must stay within the supported range of +/-10 km."};
+        }
+    }
+    if (!target) {
+        // Like a line, an arc sticks to the drawn geometry its ends touch.
+        for (const auto& ptr : doc.objects) {
+            if (!ptr->isMeshGroup()) continue;
+            const auto& m = *ptr->mesh;
+            const bool touches = std::ranges::any_of(ends.begin(), ends.begin() + (pie ? 3 : 2),
+                                                     [&](const Vec3& p) { return m.findVertex(worldToLocal(*ptr, p)).has_value(); });
+            if (touches) {
+                target = ptr->id;
+                break;
+            }
+        }
+    }
+    if (target) {
+        const auto* o = doc.find(*target);
+        if (!o) return Error{std::format("Object {} no longer exists.", idString(*target))};
+        ProfileObject changed = asMeshGroup(*o);
+        mesh::Mesh m = *changed.mesh;
+        if (!drawArcInto(m, changed, arc, segments, pie)) return Error{"The arc is too small to draw."};
+        changed.mesh = std::make_shared<const mesh::Mesh>(std::move(m));
+        return replaceObject(doc, std::move(changed));
+    }
+    ProfileObject o;
+    o.id = ObjectId{doc.nextId};
+    o.name = "Group " + std::to_string(doc.nextId);
+    o.transform.translation = arcStartPoint(arc);
+    mesh::Mesh m;
+    if (!drawArcInto(m, o, arc, segments, pie)) return Error{"The arc is too small to draw."};
+    o.mesh = std::make_shared<const mesh::Mesh>(std::move(m));
+    if (auto e = validateObject(o, "arc")) return Error{*e};
+    OpResult result{doc, o.id, {}};
+    result.document.nextId = doc.nextId + 1;
+    result.document.objects.push_back(std::make_shared<const ProfileObject>(std::move(o)));
     return result;
 }
 
