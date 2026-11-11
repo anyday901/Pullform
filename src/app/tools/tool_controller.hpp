@@ -3,6 +3,7 @@
 #include "app/tools/measure_tool.hpp"
 #include "core/commands/editor.hpp"
 #include "core/geometry/pick.hpp"
+#include "app/tools/snapper.hpp"
 #include "core/geometry/snap.hpp"
 
 #include <optional>
@@ -16,27 +17,6 @@ enum class Tool { Select, Rectangle, PushPull, Orbit, TapeMeasure, Dimension };
 
 std::string_view toolName(Tool tool);
 
-/// What the viewport reports for each pointer event. The tool layer never sees
-/// windowing or GPU types, so tests can drive it with synthetic events.
-struct PointerInput {
-    Ray ray;                     ///< world-space pick ray through the cursor
-    std::optional<PickHit> pick; ///< logical face under the cursor, if any
-    Vec2 screen{0.0};            ///< cursor position in window pixels (tells clicks from drags)
-    /// Size of one screen pixel at unit distance along the ray (radians per
-    /// pixel), so snap tolerances can be given in pixels. The viewport fills
-    /// it from the camera; 0 turns endpoint, midpoint and inference snapping
-    /// off for this event (grid snap still applies).
-    double pixelAngle = 0.0;
-};
-
-struct SnapSettings {
-    bool enabled = true;  ///< grid snap
-    double step = 0.1;    ///< grid increment in meters (100 mm)
-    bool points = true;   ///< endpoint, midpoint and inference snapping
-    double radiusPx = 12; ///< how close (screen pixels) the pointer must be to a point
-    static constexpr std::size_t kMaxReferences = 4; ///< remembered inference reference points
-};
-
 /// Interaction state machines for the modeling tools.
 ///
 /// Pointer movement only updates the editor's transient preview; a completed
@@ -48,7 +28,7 @@ class ToolController {
 public:
     static constexpr double kDragThresholdPx = 5.0;
 
-    explicit ToolController(Editor& editor) : editor_(editor), measure_(editor) {}
+    explicit ToolController(Editor& editor) : editor_(editor), snapper_(editor, snap_), measure_(editor) {}
 
     [[nodiscard]] Tool tool() const { return tool_; }
     void setTool(Tool tool);
@@ -104,7 +84,7 @@ public:
     [[nodiscard]] const std::optional<SnapResult>& snapIndicator() const { return indicator_; }
 
     /// Points recently snapped to; inference guides align with these.
-    [[nodiscard]] const std::vector<Vec3>& inferenceReferences() const { return references_; }
+    [[nodiscard]] const std::vector<Vec3>& inferenceReferences() const { return snapper_.references(); }
 
     /// Status bar hint for the current tool and gesture state.
     [[nodiscard]] std::string hint() const;
@@ -126,11 +106,7 @@ private:
     };
 
     [[nodiscard]] std::string toolHint() const;
-    [[nodiscard]] Vec3 snapPoint(const Vec3& p) const;
     [[nodiscard]] std::optional<Vec3> groundPoint(const PointerInput& input);
-    [[nodiscard]] double tolerance(const PointerInput& input, const Vec3& at) const;
-    std::optional<SnapResult> pointSnap(const PointerInput& input, std::optional<ObjectId> exclude = std::nullopt);
-    void remember(const Vec3& p);
     std::optional<double> snapPushHeight(const PointerInput& input, std::optional<double> raw);
 
     /// Snaps for the tape measure and dimension tools and shows the marker.
@@ -155,9 +131,8 @@ private:
     SnapSettings snap_;
     std::optional<RectGesture> rect_;
     std::optional<PushGesture> push_;
-    SnapIndex snapIndex_;
+    PointSnapper snapper_; // after snap_, which it refers to
     std::optional<SnapResult> indicator_;
-    std::vector<Vec3> references_;
     MeasureTool measure_;
 };
 

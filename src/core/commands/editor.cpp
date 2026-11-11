@@ -93,6 +93,7 @@ void Editor::notify(std::optional<Message> message) {
 }
 
 void Editor::resetDocument(Document document) {
+    ++projectGeneration_;
     document_ = std::move(document);
     undo_.clear();
     redo_.clear();
