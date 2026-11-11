@@ -25,7 +25,7 @@ void clickAt(Editor& editor, ToolController& tools, double x, double y, Vec2 scr
 
 const mesh::Mesh& onlyMesh(const Editor& editor) {
     REQUIRE(editor.document().objects.size() == 1);
-    REQUIRE(editor.document().objects[0]->mesh);
+    REQUIRE(editor.document().objects[0]->mesh != nullptr);
     return *editor.document().objects[0]->mesh;
 }
 
