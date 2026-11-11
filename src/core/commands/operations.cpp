@@ -5,9 +5,11 @@
 
 #include <glm/geometric.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <numbers>
+#include <string_view>
 
 namespace pf {
 
@@ -161,6 +163,34 @@ Expected<OpResult> moveObject(const Document& doc, ObjectId id, const Vec3& offs
     ProfileObject changed = *o;
     changed.transform.translation += offset;
     return replaceObject(doc, std::move(changed));
+}
+
+std::string duplicateName(const std::string& name, ObjectId newId) {
+    for (std::string_view prefix : {std::string_view{"Rectangle "}, std::string_view{"Box "}}) {
+        if (name.size() <= prefix.size() || name.compare(0, prefix.size(), prefix) != 0) continue;
+        const auto rest = std::string_view{name}.substr(prefix.size());
+        if (std::ranges::all_of(rest, [](char c) { return c >= '0' && c <= '9'; })) {
+            std::string renamed{prefix};
+            renamed.append(std::to_string(newId.value));
+            return renamed;
+        }
+    }
+    return name.empty() ? std::string{"Copy"} : name + " copy";
+}
+
+Expected<OpResult> duplicateObject(const Document& doc, ObjectId id, const Vec3& offset) {
+    const auto* o = doc.find(id);
+    if (!o) return Error{"Object " + idString(id) + " no longer exists."};
+    if (auto e = checkMove(*o, offset)) return Error{*e};
+    ProfileObject copy = *o;
+    copy.id = ObjectId{doc.nextId};
+    copy.name = duplicateName(o->name, copy.id);
+    copy.transform.translation += offset;
+    if (auto e = validateObject(copy, "copy")) return Error{*e};
+    OpResult result{doc, copy.id};
+    result.document.nextId = doc.nextId + 1;
+    result.document.objects.push_back(std::make_shared<const ProfileObject>(std::move(copy)));
+    return result;
 }
 
 Expected<OpResult> deleteObject(const Document& doc, ObjectId id) {

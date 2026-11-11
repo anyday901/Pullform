@@ -28,8 +28,8 @@ constexpr const char* kLimitsText =
     "- Side and base faces cannot be pushed yet.\n"
     "- Heights must be positive: pushing below the base, holes and cutting are not supported.\n"
     "- Touching or overlapping objects stay separate (no merging).\n"
-    "- Move, Rotate and Scale work on whole objects; Rotate turns about the X, Y or Z axis and Scale\n"
-    "  cannot mirror. No copy yet.";
+    "- Move, Duplicate, Rotate and Scale work on whole objects; Rotate turns about the X, Y or Z\n"
+    "  axis and Scale cannot mirror.";
 
 /// "30°" for a turn about the vertical axis, "none", or "tilted" for anything else.
 std::string rotationLabel(const Transform& t) {
@@ -43,6 +43,11 @@ std::string rotationLabel(const Transform& t) {
     }
     return "Tilted (rotated about X or Y)";
 }
+#ifdef __APPLE__
+#define PF_COPY_KEY "Option"
+#else
+#define PF_COPY_KEY "Ctrl"
+#endif
 
 void tooltip(const char* text) {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", text);
@@ -133,7 +138,7 @@ std::string Ui::measurementLive(const UiContext& ctx) const {
         return (p->delta >= 0 ? "+" : "") + formatLength(p->delta, u) + "   (total height " + formatLength(p->height, u) + ")";
     }
     if (const auto* m = std::get_if<MovePreview>(&ctx.editor.preview())) {
-        std::string text = formatLength(glm::length(m->offset), u);
+        std::string text = (m->copy ? "Copy " : "") + formatLength(glm::length(m->offset), u);
         if (m->axis) text += std::string(" along ") + axisName(*m->axis);
         return text + "   (" + formatLength(m->offset.x, u, false) + ", " + formatLength(m->offset.y, u, false) + ", " +
                formatLength(m->offset.z, u, false) + ")";
@@ -208,6 +213,7 @@ void Ui::menuBar(UiContext& ctx) {
         if (ImGui::MenuItem(undo.c_str(), shortcuts::kUndo, false, ctx.editor.canUndo())) action(UiAction::Undo);
         if (ImGui::MenuItem(redo.c_str(), shortcuts::kRedo, false, ctx.editor.canRedo())) action(UiAction::Redo);
         ImGui::Separator();
+        if (ImGui::MenuItem("Duplicate", shortcuts::kDuplicate, false, ctx.editor.selection().has_value())) action(UiAction::Duplicate);
         if (ImGui::MenuItem("Delete", shortcuts::kDelete, false, ctx.editor.selection().has_value())) action(UiAction::Delete);
         if (ImGui::MenuItem("Clear selection", "Esc", false, ctx.editor.selection().has_value())) ctx.editor.select(std::nullopt);
         ImGui::EndMenu();
@@ -251,7 +257,7 @@ void Ui::toolbar(UiContext& ctx, float y, float height, float width) {
     ImGui::SameLine();
     if (toolButton("Push/Pull", t == Tool::PushPull, "Push/Pull (P)\nClick a rectangle or a top cap and move up, or type a distance.")) ctx.tools.setTool(Tool::PushPull);
     ImGui::SameLine();
-    if (toolButton("Move", t == Tool::Move, "Move (M)\nClick an object and move it, or type a distance.\nX, Y, Z or the arrow keys lock an axis.")) ctx.tools.setTool(Tool::Move);
+    if (toolButton("Move", t == Tool::Move, "Move (M)\nClick an object and move it, or type a distance.\nX, Y, Z or the arrow keys lock an axis.\n" PF_COPY_KEY " (tap) places a copy instead.")) ctx.tools.setTool(Tool::Move);
     ImGui::SameLine();
     if (toolButton("Rotate", t == Tool::Rotate, "Rotate (Q)\nClick the object, then the centre, a reference direction and the angle.\nOr type degrees. Arrow keys pick the axis.")) ctx.tools.setTool(Tool::Rotate);
     ImGui::SameLine();
@@ -271,6 +277,11 @@ void Ui::toolbar(UiContext& ctx, float y, float height, float width) {
     if (ImGui::Button("Redo")) action(UiAction::Redo);
     ImGui::EndDisabled();
     tooltip(ctx.editor.canRedo() ? ("Redo " + ctx.editor.redoLabel() + " (" + shortcuts::kRedo + ")").c_str() : "Nothing to redo");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!ctx.editor.selection());
+    if (ImGui::Button("Duplicate")) action(UiAction::Duplicate);
+    ImGui::EndDisabled();
+    tooltip((std::string("Copy the selected object beside it (") + shortcuts::kDuplicate + ")").c_str());
     ImGui::SameLine();
     ImGui::BeginDisabled(!ctx.editor.selection());
     if (ImGui::Button("Delete")) action(UiAction::Delete);
@@ -354,6 +365,9 @@ void Ui::properties(UiContext& ctx, float x, float y, float width, float height)
             heightEdited_ = false;
         }
         ImGui::Spacing();
+        if (ImGui::Button("Duplicate object")) action(UiAction::Duplicate);
+        tooltip((std::string("Copies the object with a new ID, placed beside it (") + shortcuts::kDuplicate + ").").c_str());
+        ImGui::SameLine();
         if (ImGui::Button("Delete object")) action(UiAction::Delete);
         tooltip("Deletes the whole object (Delete). Faces cannot be deleted on their own yet.");
     }

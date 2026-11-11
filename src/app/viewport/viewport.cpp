@@ -161,7 +161,7 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
     const auto* movePreview = std::get_if<MovePreview>(&editor.preview());
     // The object a preview stands in for is drawn by the preview below.
     std::optional<ObjectId> previewed = replacedObject(editor.preview());
-    if (!previewed && movePreview) previewed = movePreview->objectId;
+    if (!previewed && movePreview && !movePreview->copy) previewed = movePreview->objectId; // a copy leaves the original drawn
     const auto& selection = editor.selection();
     const auto& hover = editor.hover();
 

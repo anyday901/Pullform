@@ -30,7 +30,7 @@ is not affiliated with SketchUp and does not read or write `.skp` files.
   cannot be pushed yet. Heights must be positive: pushing below the base, holes, cutting
   through solids and merging touching geometry are not supported.
 - Objects stay independent when they touch or overlap.
-- Move, Rotate and Scale work on whole objects; there is no copy tool yet and no mirroring.
+- Move, Rotate and Scale work on whole objects; Scale cannot mirror.
 - Width and depth change only with the Scale tool; the Properties panel edits the height.
 
 The same limits are listed in the app's Properties panel. See
@@ -118,6 +118,7 @@ tree, configure with `-DFETCHCONTENT_FULLY_DISCONNECTED=ON`.
 | Push/Pull tool | P |
 | Move tool | M |
 | Lock Move to an axis (again to release) | X / Y / Z, or Right / Left / Up arrow |
+| Move: place a copy instead (again to stop) | Tap Ctrl (Option on macOS) |
 | Rotate tool | Q (arrow keys pick the axis: Right X, Left Y, Up Z) |
 | Scale tool | S |
 | Orbit tool | O |
@@ -126,6 +127,7 @@ tree, configure with `-DFETCHCONTENT_FULLY_DISCONNECTED=ON`.
 | Type an exact value | Start typing digits, then Enter (goes to the Measurements box) |
 | Cancel the current operation, or clear the selection | Esc |
 | Delete the selected object | Delete or Backspace |
+| Duplicate the selected object | Ctrl+D (Cmd+D on macOS) |
 | Undo | Ctrl+Z (Cmd+Z on macOS) |
 | Redo | Ctrl+Y or Ctrl+Shift+Z (Cmd+Shift+Z on macOS) |
 | New / Open / Save / Save As | Ctrl+N / Ctrl+O / Ctrl+S / Ctrl+Shift+S |

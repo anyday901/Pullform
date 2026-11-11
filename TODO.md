@@ -68,7 +68,7 @@ Suggested order is top to bottom.
 
 - [x] **PR 7: Move tool** with typed distance and axis locking.
 - [ ] **PR 8: Endpoint and midpoint snapping** with inference guides.
-- [ ] **PR 9: Duplicate** objects (depends on Move).
+- [x] **PR 9: Duplicate** objects (depends on Move).
 - [ ] **PR 10: Tape measure** and dimension annotations (depends on snapping).
 - [ ] **PR 11: Rotate and scale**, file format version 2 with a migration from version 1.
 - [ ] Later: polygon profiles, drawing on faces, topology decision for general push/pull,

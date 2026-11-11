@@ -261,6 +261,9 @@ void App::frame() {
     const Vec2 fbScale{ww > 0 ? double(fbw) / ww : 1.0, wh > 0 ? double(fbh) / wh : 1.0};
     viewport_->setRect({rect.x, rect.y}, {rect.width, rect.height}, fbScale, fbh);
 
+    // Before the viewport: a copy-modifier tap released in the same frame as
+    // the click that finishes a move must apply to that move.
+    if (!popupWasOpen && !ImGui::GetIO().WantTextInput) handleMoveCopyTap();
     handleViewportInput();
     if (!popupWasOpen) handleShortcuts();
     handleActions();
@@ -380,6 +383,7 @@ void App::handleShortcuts() {
     if (chord(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S)) return void(saveAs());
     if (chord(ImGuiMod_Ctrl | ImGuiKey_S)) return void(save());
     if (chord(ImGuiMod_Ctrl | ImGuiKey_Q)) return requestPending(Pending::Quit);
+    if (chord(ImGuiMod_Ctrl | ImGuiKey_D)) return duplicateSelection();
     if (io.KeyCtrl || io.KeySuper || io.KeyAlt) return;
 
     // Typed measurements (SketchUp-style): digits start a value; once a value is
@@ -457,6 +461,7 @@ void App::handleActions() {
         case UiAction::Undo: tools_.cancel(); editor_.undo(); break;
         case UiAction::Redo: tools_.cancel(); editor_.redo(); break;
         case UiAction::Delete: deleteSelection(); break;
+        case UiAction::Duplicate: duplicateSelection(); break;
         case UiAction::FitView: fitView(); break;
         case UiAction::ResetView: viewport_->camera().reset(); onActivity(); break;
         }
@@ -567,6 +572,44 @@ void App::deleteSelection() {
     tools_.cancel();
     const ObjectId id = sel->objectId;
     editor_.commit("Delete " + idString(id), [id](const Document& d) { return deleteObject(d, id); });
+}
+
+// Move copy mode: tapping the copy modifier on its own (Ctrl, or Option on
+// macOS, as in other modelers) toggles it, also in the middle of a drag. It
+// fires on release, and only when no other key was pressed while it was held,
+// so shortcuts like Ctrl+Z never toggle it.
+void App::handleMoveCopyTap() {
+#ifdef __APPLE__
+    constexpr ImGuiKey left = ImGuiKey_LeftAlt;
+    constexpr ImGuiKey right = ImGuiKey_RightAlt;
+#else
+    constexpr ImGuiKey left = ImGuiKey_LeftCtrl;
+    constexpr ImGuiKey right = ImGuiKey_RightCtrl;
+#endif
+    if (tools_.tool() != Tool::Move) {
+        copyTapArmed_ = false;
+        return;
+    }
+    if (ImGui::IsKeyPressed(left, false) || ImGui::IsKeyPressed(right, false)) copyTapArmed_ = true;
+    if (!copyTapArmed_) return;
+    for (int k = ImGuiKey_NamedKey_BEGIN; k < ImGuiKey_MouseLeft; ++k) {
+        const auto key = static_cast<ImGuiKey>(k);
+        if (key == left || key == right) continue;
+        if (ImGui::IsKeyPressed(key, false)) {
+            copyTapArmed_ = false; // part of a shortcut, not a tap
+            return;
+        }
+    }
+    if (ImGui::IsKeyReleased(left) || ImGui::IsKeyReleased(right)) {
+        copyTapArmed_ = false;
+        tools_.toggleMoveCopy();
+        onActivity();
+    }
+}
+
+void App::duplicateSelection() {
+    if (!editor_.selection()) return;
+    if (auto e = tools_.duplicateSelection()) editor_.notify(Message{Message::Kind::Error, *e});
 }
 
 void App::fitView() {

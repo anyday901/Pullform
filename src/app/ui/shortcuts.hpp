@@ -26,6 +26,7 @@ inline constexpr const char* kRedo = "Cmd+Shift+Z";
 inline constexpr const char* kRedo = "Ctrl+Y";
 #endif
 inline constexpr const char* kDelete = "Delete";
+inline constexpr const char* kDuplicate = PF_MOD "D";
 inline constexpr const char* kFit = "F";
 inline constexpr const char* kSelect = "Space";
 inline constexpr const char* kRectangle = "R";
@@ -36,7 +37,7 @@ inline constexpr const char* kScale = "S";
 inline constexpr const char* kOrbit = "O";
 inline constexpr const char* kSnap = "G";
 
-inline constexpr std::array<std::pair<const char*, const char*>, 23> kTable = {{
+inline constexpr std::array<std::pair<const char*, const char*>, 25> kTable = {{
     {"Left button", "Use the active tool"},
     {"Middle drag", "Orbit"},
     {"Shift + middle drag", "Pan"},
@@ -47,6 +48,11 @@ inline constexpr std::array<std::pair<const char*, const char*>, 23> kTable = {{
     {"P", "Push/Pull tool"},
     {"M", "Move tool"},
     {"X / Y / Z or arrows", "Move: lock to an axis (again to release)"},
+#ifdef __APPLE__
+    {"Option (tap)", "Move: place a copy instead (again to stop)"},
+#else
+    {"Ctrl (tap)", "Move: place a copy instead (again to stop)"},
+#endif
     {"Q", "Rotate tool"},
     {"S", "Scale tool"},
     {"Arrow keys (Rotate)", "Rotation axis: Right X, Left Y, Up Z"},
@@ -56,6 +62,7 @@ inline constexpr std::array<std::pair<const char*, const char*>, 23> kTable = {{
     {"Type digits, Enter", "Exact size or distance for the active tool"},
     {"Esc", "Cancel the operation, or clear the selection"},
     {"Delete / Backspace", "Delete the selected object"},
+    {PF_MOD "D", "Duplicate the selected object"},
     {PF_MOD "Z", "Undo"},
 #ifdef __APPLE__
     {"Cmd+Shift+Z", "Redo"},

@@ -77,6 +77,14 @@ public:
     void toggleAxisLock(MoveAxis axis);
     [[nodiscard]] const std::optional<MoveAxis>& axisLock() const { return axisLock_; }
 
+    /// Move copy mode (tap Ctrl, or Option on macOS). While on, committing a
+    /// move places a duplicate at the destination and leaves the original where
+    /// it is: one undo entry, and the copy becomes the selection. Like the axis
+    /// lock, it can be set before the first click and lasts until the move is
+    /// committed or the tool changes.
+    void toggleMoveCopy();
+    [[nodiscard]] bool moveCopy() const { return moveCopy_; }
+
     /// Exact move. A single length moves along the locked axis or, while a move
     /// is in progress without a lock, along the current pointer direction.
     /// "x, y, z" moves by that vector. Applies to the active gesture, or else to
@@ -101,6 +109,10 @@ public:
     /// the centre of the object's base. Applies to the active gesture's object or
     /// the selected object.
     std::optional<std::string> submitScaleFactors(std::string_view factors);
+    /// Duplicates the selected object (Edit > Duplicate). The copy is placed
+    /// beside the original along +X, one object width over, and becomes the
+    /// selection, so repeating it builds a row. One undo entry.
+    std::optional<std::string> duplicateSelection();
 
     /// Explanation when a face cannot be push/pulled in this milestone.
     static std::optional<std::string> pushableReason(const FaceId& face);
@@ -185,6 +197,7 @@ private:
     MoveAxis rotateAxis_ = MoveAxis::Z; ///< world axis Rotate turns about
     std::optional<MoveGesture> move_;
     std::optional<MoveAxis> axisLock_;
+    bool moveCopy_ = false;
 };
 
 /// World-space centre of an object's base (the default rotation and the scale centre).
