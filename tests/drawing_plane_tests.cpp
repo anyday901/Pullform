@@ -4,6 +4,8 @@
 // into a wall.
 #include "helpers.hpp"
 
+#include <numbers>
+
 #include "app/tools/drawing_plane.hpp"
 #include "app/tools/rectangle_tool.hpp"
 #include "core/commands/operations.hpp"
@@ -79,6 +81,12 @@ TEST_CASE("plane frames: axes line up with the model and round-trip points") {
     CHECK(m * Vec3{1.0, 0.0, 0.0} == wall.xAxis);
     CHECK(m * Vec3{0.0, 1.0, 0.0} == wall.yAxis);
     CHECK(m * Vec3{0.0, 0.0, 1.0} == Vec3{0.0, -1.0, 0.0});
+
+    // A face tilted by 0.001 degrees keeps its own plane (no snap to the axis).
+    const double tilt = 0.001 * std::numbers::pi / 180.0;
+    const PlaneBasis slight = planeThrough({0.0, 0.0, 1.0}, {0.0, std::sin(tilt), std::cos(tilt)});
+    CHECK(planeNormal(slight).y > 1e-6);
+    CHECK(planeNormal(planeThrough({0.0, 0.0, 1.0}, {0.0, 1e-14, 1.0})) == Vec3{0.0, 0.0, 1.0});
 
     // Facing the viewer flips a plane seen from behind.
     CHECK(planeNormal(facingViewer(wall, {0.0, -1.0, 0.0})) == Vec3{0.0, 1.0, 0.0});
@@ -293,6 +301,8 @@ TEST_CASE("rotated rectangle: three clicks in any direction on the plane") {
         click(tools, downAt(editor, 3.0, 4.0, {200, 200}));
         REQUIRE(tools.active());
         CHECK(tools.measurementLabel() == "Depth");
+        // The plane cannot turn away from the placed side.
+        CHECK_FALSE(tools.key(ToolKey::ArrowRight));
         click(tools, downAt(editor, -1.6, 1.2, {150, 300}));
         REQUIRE_FALSE(tools.active());
     }
