@@ -621,7 +621,7 @@ void App::selectAllObjects() {
     onActivity();
 }
 
-// Move copy mode: tapping the copy modifier on its own (Ctrl, or Option on
+// Move and Rotate copy mode: tapping the copy modifier on its own (Ctrl, or Option on
 // macOS, as in other modelers) toggles it, also in the middle of a drag. It
 // fires on release, and only when no other key was pressed while it was held,
 // so shortcuts like Ctrl+Z never toggle it.
@@ -634,7 +634,7 @@ void App::handleMoveCopyTap() {
     constexpr ImGuiKey right = ImGuiKey_RightCtrl;
 #endif
     // The same tap toggles the tape measure's guide creation.
-    if (tools_.tool() != Tool::Move && tools_.tool() != Tool::TapeMeasure) {
+    if (tools_.tool() != Tool::Move && tools_.tool() != Tool::Rotate && tools_.tool() != Tool::TapeMeasure) {
         copyTapArmed_ = false;
         return;
     }
@@ -651,6 +651,7 @@ void App::handleMoveCopyTap() {
     if (ImGui::IsKeyReleased(left) || ImGui::IsKeyReleased(right)) {
         copyTapArmed_ = false;
         if (tools_.tool() == Tool::Move) tools_.toggleMoveCopy();
+        else if (tools_.tool() == Tool::Rotate) tools_.toggleRotateCopy();
         else tools_.toggleTapeGuides();
         onActivity();
     }

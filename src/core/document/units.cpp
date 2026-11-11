@@ -234,6 +234,35 @@ Expected<double> parseAngle(std::string_view input) {
     return *v * kPi / 180.0;
 }
 
+std::optional<Expected<ArrayCount>> parseArrayCount(std::string_view input) {
+    const std::string low = lower(trim(input));
+    std::string_view s = low;
+    ArrayCount result;
+    if (s.starts_with('/')) {
+        result.divide = true;
+        s.remove_prefix(1);
+    } else if (s.starts_with('*') || s.starts_with('x')) {
+        s.remove_prefix(1);
+    } else if (s.ends_with('*') || s.ends_with('x')) {
+        s.remove_suffix(1);
+    } else {
+        return std::nullopt;
+    }
+    s = trim(s);
+    const auto v = plainNumber(s);
+    if (!v) {
+        // "x" on its own, or letters after it ("xyz"): not array syntax.
+        if (s.empty() || !isDigit(s.front())) return std::nullopt;
+        return Expected<ArrayCount>{Error{"\"" + std::string(trim(input)) + "\" is not a recognized number of copies."}};
+    }
+    if (*v != std::floor(*v) || *v < 1.0 || *v > kMaxArrayCount) {
+        return Expected<ArrayCount>{Error{"The number of copies must be a whole number from 1 to " + std::to_string(kMaxArrayCount) +
+                                          "."}};
+    }
+    result.count = static_cast<int>(*v);
+    return Expected<ArrayCount>{result};
+}
+
 std::string formatAngle(double radians) {
     std::ostringstream out;
     out.imbue(std::locale::classic());

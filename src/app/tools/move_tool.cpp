@@ -96,6 +96,7 @@ void MoveTool::pointerDown(const PointerInput& input) {
     if (ctx_.snapper.active(input)) {
         if (const auto res = ctx_.snapper.infer(input); res && res->kind >= SnapKind::OnEdge) anchor = res->point;
     }
+    lastCopy_.reset(); // a new move ends editing the last copy
     gesture_ = Gesture{pick.objectId, anchor, o->transform.translation, input.screen, true, std::nullopt, std::nullopt, std::move(ids)};
     editor().notify(std::nullopt);
     editor().setPreview(preview(Vec3{0.0}, std::nullopt));
@@ -213,13 +214,14 @@ bool MoveTool::commit(const std::vector<ObjectId>& ids, ObjectId primary, const 
                                                                                            : std::optional<FaceId>{};
         const auto it = std::find(ids.begin(), ids.end(), primary);
         const auto primaryIndex = static_cast<std::size_t>(it == ids.end() ? ids.size() - 1 : it - ids.begin());
+        LastCopy last{ids, primaryIndex, face, {}, 0, {}};
         ok = editor().commit(
             label, [&ids, &offset](const Document& doc) { return duplicateObjects(doc, ids, offset); },
-            [face, primaryIndex](const OpResult& r) {
-                SelectionSet copies = SelectionSet::ofObjects(r.objectIds);
-                if (primaryIndex < r.objectIds.size()) copies.add(Selection{r.objectIds[primaryIndex], face});
-                return copies;
-            });
+            [&last](const OpResult& r) { return last.lastSet(r); });
+        if (ok) {
+            last.settle(editor());
+            lastCopy_ = MoveCopy{std::move(last), offset};
+        }
     } else {
         ok = editor().commit(label, [&ids, &offset](const Document& doc) { return moveObjects(doc, ids, offset); });
     }
@@ -233,8 +235,57 @@ bool MoveTool::commit(const std::vector<ObjectId>& ids, ObjectId primary, const 
     return ok;
 }
 
+std::optional<std::string> MoveTool::editCopy(const Vec3& offset, ArrayCount array) {
+    MoveCopy& last = *lastCopy_;
+    const std::vector<ObjectId> ids = last.copy.originals;
+    const Vec3 step = array.divide ? offset / static_cast<double>(array.count) : offset;
+    if (glm::length(step) < tol::kLengthEpsilon) return std::string("Distance must not be zero.");
+    const LengthUnit unit = editor().document().displayUnit;
+    std::string label;
+    if (array.count == 1) label = "Copy " + formatLength(glm::length(step), unit);
+    else label = "Array " + std::to_string(array.count) + " copies " + formatLength(glm::length(step), unit) + " apart";
+    if (const auto axis = singleAxis(step)) label += std::string(" along ") + axisName(*axis);
+    label += groupSuffix(ids.size());
+    const LastCopy& copy = last.copy;
+    const int count = array.count;
+    if (!editor().amendLast(
+            label, [&ids, &step, count](const Document& doc) { return arrayObjects(doc, ids, step, count); },
+            [&copy](const OpResult& r) { return copy.lastSet(r); })) {
+        return ctx_.lastError("Could not make the copies.");
+    }
+    last.offset = offset;
+    last.copy.array = array;
+    last.copy.settle(editor());
+    axisLock_.reset();
+    return std::nullopt;
+}
+
 std::optional<std::string> MoveTool::submitDistance(std::string_view text) {
     const LengthUnit unit = editor().document().displayUnit;
+    const bool editable = !gesture_ && arrayEditable();
+    if (const auto array = parseArrayCount(text)) {
+        if (!*array) return array->error();
+        if (gesture_) return std::string("Finish the copy first, then type 5x or /5.");
+        if (!editable) return noCopyToArray("Move");
+        return editCopy(lastCopy_->offset, **array);
+    }
+    if (editable) {
+        // A new distance re-spaces the copies, keeping the array: along the
+        // locked axis, else along the copy's direction; or a new vector.
+        Vec3 offset{0.0};
+        if (text.find_first_of(",;") != std::string_view::npos) {
+            const auto list = parseLengthList(text, 3, unit);
+            if (!list) return "Enter one distance, or x, y, z separated by commas (for example 500, 0, 0).";
+            offset = Vec3{(*list)[0], (*list)[1], (*list)[2]};
+        } else {
+            const auto d = parseLength(text, unit);
+            if (!d) return d.error();
+            const Vec3 direction = axisLock_ ? axisVector(*axisLock_) : glm::normalize(lastCopy_->offset);
+            offset = direction * *d;
+        }
+        if (glm::length(offset) < tol::kLengthEpsilon) return std::string("Distance must not be zero.");
+        return editCopy(offset, lastCopy_->copy.array);
+    }
     ObjectId id;
     std::vector<ObjectId> ids;
     if (gesture_) {
@@ -280,6 +331,9 @@ std::string MoveTool::hint() const {
     constexpr const char* copyKey = "Ctrl";
 #endif
     lock += copy_ ? std::string(" Copying (") + copyKey + " to stop)." : std::string(" ") + copyKey + " makes a copy.";
+    if (!gesture_ && arrayEditable()) {
+        return "Move: type 5x for five copies at this spacing, /5 for five spread between, or a new distance." + lock;
+    }
     if (gesture_) {
         return "Move: click the destination, or type a distance and press Enter. X, Y, Z or the arrow keys lock an "
                "axis. Esc cancels." + lock;

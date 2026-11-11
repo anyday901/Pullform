@@ -6,7 +6,7 @@ namespace pf {
 
 std::optional<ObjectId> replacedObject(const Preview& preview) {
     if (const auto* p = std::get_if<PushPullPreview>(&preview)) return p->objectId;
-    if (const auto* r = std::get_if<RotatePreview>(&preview); r && r->result) return r->objectId;
+    if (const auto* r = std::get_if<RotatePreview>(&preview); r && r->result && !r->copy) return r->objectId;
     if (const auto* s = std::get_if<ScalePreview>(&preview); s && s->result) return s->objectId;
     return std::nullopt;
 }
@@ -15,6 +15,7 @@ std::vector<ObjectId> replacedObjects(const Preview& preview) {
     if (const auto* m = std::get_if<MovePreview>(&preview); m && !m->copy) {
         return m->objectIds.empty() ? std::vector<ObjectId>{m->objectId} : m->objectIds;
     }
+    if (const auto* r = std::get_if<RotatePreview>(&preview); r && r->copy) return {};
     if (const auto* r = std::get_if<RotatePreview>(&preview); r && !r->group.empty()) return r->objectIds;
     if (const auto* s = std::get_if<ScalePreview>(&preview); s && !s->group.empty()) return s->objectIds;
     if (const auto id = replacedObject(preview)) return {*id};
@@ -60,6 +61,32 @@ bool Editor::commit(const std::string& label, const Operation& op, const SelectA
     if (undo_.size() > kMaxHistory) undo_.pop_front();
     redo_.clear();
 
+    document_ = std::move(result).value().document;
+    selection_ = nextSelection;
+    hover_ = sanitizeSelection(document_, hover_);
+    hoverElement_.reset();
+    stateId_ = nextStateId_++;
+    message_.reset();
+    touch();
+    return true;
+}
+
+bool Editor::amendLast(const std::string& label, const Operation& op, const SelectAfter& selectAfter) {
+    if (undo_.empty()) return false;
+    Snapshot& base = undo_.back();
+    auto result = op(base.document);
+    if (!result) {
+        notify(Message{Message::Kind::Error, result.error()});
+        return false;
+    }
+    if (auto e = validateDocument(result->document)) {
+        notify(Message{Message::Kind::Error, "Edit rejected: " + *e});
+        return false;
+    }
+    const SelectionSet nextSelection =
+        selectAfter ? sanitizeSelection(result->document, selectAfter(*result)) : sanitizeSelection(result->document, base.selection);
+    base.label = label;
+    redo_.clear();
     document_ = std::move(result).value().document;
     selection_ = nextSelection;
     hover_ = sanitizeSelection(document_, hover_);

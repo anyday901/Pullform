@@ -9,6 +9,13 @@ include breaking changes, but project files will keep a migration path.
 
 ### Added
 
+- **Array copies.** Right after a Move copy, type `5x` (or `x5`, `*5`) and Enter for five
+  copies at the copy's spacing, or `/5` for five spread evenly between the original and
+  the copy; a new distance re-spaces them. Rotate now has a copy mode too (tap Ctrl, or
+  Option on macOS), and the same entries after a Rotate copy make a radial array. The array
+  stays editable, as one undo entry, until the next action (another edit, undo, a selection
+  change or a tool change); the farthest copy is selected. The core gains `arrayObjects`,
+  `radialArrayObjects`, `parseArrayCount` and `Editor::amendLast`.
 - **Freehand tool** (Tools > Freehand, or the toolbar). Press and drag to draw a curve; on
   release it is smoothed (within 3 screen pixels of the stroke) into a polyline of straight
   edges and committed as one undo entry. It draws on the horizontal plane through the press

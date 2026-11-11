@@ -108,6 +108,13 @@ public:
     /// direction is set, the typed angle follows the pointer's direction instead.
     std::optional<std::string> submitRotateAngle(std::string_view angle);
 
+    /// Rotate copy mode (tap Ctrl, or Option on macOS): committing a rotation
+    /// places a turned copy and leaves the original. Lasts until the rotation
+    /// is committed or the tool changes. After the copy, typing "6x" or "/6"
+    /// makes a radial array (see submitRotateAngle).
+    void toggleRotateCopy();
+    [[nodiscard]] bool rotateCopy() const;
+
     /// Exact scale: one uniform factor or "width, depth, height" factors, about
     /// the centre of the object's base. Applies to the active gesture's object or
     /// the selected object.

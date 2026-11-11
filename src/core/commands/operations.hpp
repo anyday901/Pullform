@@ -117,6 +117,15 @@ Expected<OpResult> scaleObjects(const Document& doc, const std::vector<ObjectId>
 /// Copies every object, offset by `offset`. The copies (new IDs, in the order
 /// of `ids`) are in OpResult::objectIds; objectId is the last copy.
 Expected<OpResult> duplicateObjects(const Document& doc, const std::vector<ObjectId>& ids, const Vec3& offset);
+/// Linear array: `count` copies of every object, the i-th set offset by
+/// `step` x i (i = 1..count). The copies are in OpResult::objectIds set by set,
+/// each set in the order of `ids`; objectId is the last copy.
+Expected<OpResult> arrayObjects(const Document& doc, const std::vector<ObjectId>& ids, const Vec3& step, int count);
+/// Radial array: `count` copies of every object, the i-th set turned by
+/// `stepRadians` x i about the world line through `pivot` along `axis`.
+/// OpResult::objectIds as for arrayObjects. A count of 1 is a rotated copy.
+Expected<OpResult> radialArrayObjects(const Document& doc, const std::vector<ObjectId>& ids, const Vec3& pivot, const Vec3& axis,
+                                      double stepRadians, int count);
 /// Removes every object with its dimensions.
 Expected<OpResult> deleteObjects(const Document& doc, const std::vector<ObjectId>& ids);
 

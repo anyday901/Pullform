@@ -156,4 +156,18 @@ Vec3 groupBaseCenter(const Document& doc, const std::vector<ObjectId>& ids) {
 
 std::string groupSuffix(std::size_t count) { return count > 1 ? " (" + std::to_string(count) + " objects)" : std::string(); }
 
+SelectionSet LastCopy::lastSet(const OpResult& r) const {
+    const std::size_t n = originals.size();
+    if (n == 0 || r.objectIds.size() < n) return SelectionSet{};
+    const std::vector<ObjectId> last(r.objectIds.end() - static_cast<std::ptrdiff_t>(n), r.objectIds.end());
+    SelectionSet set = SelectionSet::ofObjects(last);
+    if (primaryIndex < n) set.add(Selection{last[primaryIndex], face});
+    return set;
+}
+
+std::string noCopyToArray(const char* tool) {
+    return std::string("Make a copy with ") + tool +
+           " first (tap Ctrl, or Option on macOS), then type 5x for five copies or /5 for five spread between.";
+}
+
 } // namespace pf

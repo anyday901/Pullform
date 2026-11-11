@@ -270,7 +270,9 @@ std::string Ui::measurementLive(const UiContext& ctx) const {
         return text + "   (" + formatLength(m->offset.x, u, false) + ", " + formatLength(m->offset.y, u, false) + ", " +
                formatLength(m->offset.z, u, false) + ")";
     }
-    if (const auto* r = std::get_if<RotatePreview>(&ctx.editor.preview()); r && r->reference) return formatAngle(r->angle);
+    if (const auto* r = std::get_if<RotatePreview>(&ctx.editor.preview()); r && r->reference) {
+        return (r->copy ? "Copy " : "") + formatAngle(r->angle);
+    }
     if (const auto* a = std::get_if<ArcPreview>(&ctx.editor.preview())) return arcLive(*a, u);
     if (const auto* s = std::get_if<ScalePreview>(&ctx.editor.preview())) {
         return formatLength(s->factor * 100.0, LengthUnit::Meter, false) + "%";

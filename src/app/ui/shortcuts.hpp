@@ -45,7 +45,7 @@ inline constexpr const char* kDimension = "D";
 inline constexpr const char* kEraser = "E";
 inline constexpr const char* kSnap = "G";
 
-inline constexpr std::array<std::pair<const char*, const char*>, 41> kTable = {{
+inline constexpr std::array<std::pair<const char*, const char*>, 42> kTable = {{
     {"Left button", "Use the active tool"},
     {"Middle drag", "Orbit"},
     {"Shift + middle drag", "Pan"},
@@ -68,10 +68,11 @@ inline constexpr std::array<std::pair<const char*, const char*>, 41> kTable = {{
     {"M", "Move tool"},
     {"X / Y / Z or arrows", "Move, Line: lock to an axis (again to release)"},
 #ifdef __APPLE__
-    {"Option (tap)", "Move: place a copy instead (again to stop)"},
+    {"Option (tap)", "Move, Rotate: place a copy instead (again to stop)"},
 #else
-    {"Ctrl (tap)", "Move: place a copy instead (again to stop)"},
+    {"Ctrl (tap)", "Move, Rotate: place a copy instead (again to stop)"},
 #endif
+    {"Type 5x or /5 after a copy", "Move, Rotate: five copies at that spacing, or spread between"},
     {"Q", "Rotate tool"},
     {"S", "Scale tool"},
     {"Arrow keys (Rotate)", "Rotation axis: Right X, Left Y, Up Z"},
