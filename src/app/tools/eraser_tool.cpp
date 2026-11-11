@@ -38,15 +38,21 @@ std::optional<std::pair<double, double>> crossing(const Vec2& p0, const Vec2& p1
 }
 
 std::string countText(std::size_t n, const char* verb) {
-    return std::string(verb) + (n == 1 ? " 1 edge" : " " + std::to_string(n) + " edges");
+    // Appended rather than formatted: std::format is missing from GCC 11, a supported compiler.
+    std::string text(verb);
+    text += ' ';
+    text += std::to_string(n);
+    text += n == 1 ? " edge" : " edges";
+    return text;
 }
 
 } // namespace
 
 EraseMode eraseMode(const PointerInput& input) {
-    if (input.ctrl) return EraseMode::Soften;
-    if (input.shift) return EraseMode::Hide;
-    return EraseMode::Erase;
+    using enum EraseMode;
+    if (input.ctrl) return Soften;
+    if (input.shift) return Hide;
+    return Erase;
 }
 
 std::optional<ElementRef> edgeUnder(const Document& document, const PointerInput& input) {
@@ -54,12 +60,13 @@ std::optional<ElementRef> edgeUnder(const Document& document, const PointerInput
     const ElementRef& hit = input.element->element;
     const auto* object = document.find(hit.object);
     if (!object) return std::nullopt;
-    if (hit.kind == ElementKind::Edge) return hit;
-    if (hit.kind != ElementKind::Vertex) return std::nullopt;
+    using enum ElementKind;
+    if (hit.kind == Edge) return hit;
+    if (hit.kind != Vertex) return std::nullopt;
     // Near a corner the picker prefers the vertex; the Eraser wants one of its edges.
     const auto topo = buildTopology(*object);
-    const auto vertex = topo.indexOf(ElementKind::Vertex, hit.id);
-    if (!vertex) return std::nullopt;
+    const auto vertex = topo.indexOf(Vertex, hit.id);
+    if (!vertex.has_value()) return std::nullopt;
     std::optional<ElementRef> best;
     double bestAngle = std::numeric_limits<double>::infinity();
     for (const std::uint32_t e : topo.vertices[*vertex].edges) {
@@ -68,7 +75,7 @@ std::optional<ElementRef> edgeUnder(const Document& document, const PointerInput
         const double angle = rayAngleToSegment(input.ray, topo.vertices[edge.a].position, topo.vertices[edge.b].position);
         if (angle < bestAngle) {
             bestAngle = angle;
-            best = ElementRef{hit.object, ElementKind::Edge, edge.id};
+            best = ElementRef{hit.object, Edge, edge.id};
         }
     }
     return best;
@@ -93,8 +100,10 @@ std::vector<ElementRef> edgesCrossed(const Document& document, const Vec2& from,
             const Vec3 point = a + (topo.vertices[e.b].position - a) * hit->second;
             const double distance = glm::length(point - eye);
             if (distance <= 0.0) continue;
-            const auto blocker = pickDocument(Ray{eye, (point - eye) / distance}, document);
-            if (blocker && blocker->distance < distance * (1.0 - 1e-3)) continue;
+            if (const auto blocker = pickDocument(Ray{eye, (point - eye) / distance}, document);
+                blocker && blocker->distance < distance * (1.0 - 1e-3)) {
+                continue; // behind a face
+            }
             found.push_back(ElementRef{object->id, ElementKind::Edge, e.id});
         }
     }
