@@ -261,6 +261,9 @@ void App::frame() {
     const Vec2 fbScale{ww > 0 ? double(fbw) / ww : 1.0, wh > 0 ? double(fbh) / wh : 1.0};
     viewport_->setRect({rect.x, rect.y}, {rect.width, rect.height}, fbScale, fbh);
 
+    // Before the viewport: a copy-modifier tap released in the same frame as
+    // the click that finishes a move must apply to that move.
+    if (!popupWasOpen && !ImGui::GetIO().WantTextInput) handleMoveCopyTap();
     handleViewportInput();
     if (!popupWasOpen) handleShortcuts();
     handleActions();
@@ -361,8 +364,6 @@ void App::handleShortcuts() {
     const ImGuiIO& io = ImGui::GetIO();
     // Keyboard shortcuts never fire while a text field has focus or a modal is open.
     if (io.WantTextInput || ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel)) return;
-
-    handleMoveCopyTap();
 
     const auto chord = [](ImGuiKeyChord c) { return ImGui::IsKeyChordPressed(c); };
     if (chord(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z) || chord(ImGuiMod_Ctrl | ImGuiKey_Y)) {
