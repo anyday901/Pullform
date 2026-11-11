@@ -38,7 +38,7 @@ is not affiliated with SketchUp and does not read or write `.skp` files.
 - Width and depth change only with the Scale tool; the Properties panel edits the height.
 
 The same limits are listed in the app's Properties panel. See
-[docs/ROADMAP.md](docs/ROADMAP.md) for what comes next.
+[TODO.md](TODO.md) for what comes next.
 
 ## Prerequisites
 
@@ -189,7 +189,7 @@ are version 2 and need this version of Pullform or newer.
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): modules, document model, rendering,
   history, persistence, units and geometry boundaries.
-- [docs/ROADMAP.md](docs/ROADMAP.md): completed and planned milestones.
+- [TODO.md](TODO.md): the roadmap, as numbered PR-sized items. [docs/ROADMAP.md](docs/ROADMAP.md): completed milestones.
 - [docs/VERIFICATION.md](docs/VERIFICATION.md): what was verified, how, and what was not.
 - [CONTRIBUTING.md](CONTRIBUTING.md) and [CHANGELOG.md](CHANGELOG.md).
 
