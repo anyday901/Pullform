@@ -9,6 +9,15 @@ include breaking changes, but project files will keep a migration path.
 
 ### Added
 
+- **Inference engine.** Besides endpoints, midpoints and axis guides, the pointer now
+  infers On Edge, On Face, Intersection (edge with edge, or with an inference line), Center
+  of a true arc or circle, Parallel and Perpendicular to an edge (magenta guides, with the
+  reference edge highlighted), lines along X, Y and Z from the start point, and lines from a
+  remembered point along an axis. A tooltip beside the pointer names the inference
+  ("Perpendicular to Edge"). Hold Shift to lock the current inference's line or plane; a
+  corner hovered while locked is projected onto it. The tape measure and dimension tools
+  infer from their first point, Move snaps its start and destination, the rectangle tool
+  also snaps to edges, and snapping now works on lines drawn into mesh groups.
 - **Arc tools.** Arc (A): click the start and the end, then move to set the bulge and
   click, or type the chord length and then the bulge. Starting from the open end of a line
   or arc, the bulge snaps to the tangent arc (drawn cyan), and double-clicking the end point

@@ -37,6 +37,8 @@ constexpr glm::vec4 kSnapMidpoint{0.05f, 0.62f, 0.80f, 1.0f};
 constexpr glm::vec4 kSnapCenter{0.10f, 0.65f, 0.20f, 1.0f}; // same green as an endpoint: a point of the curve itself
 constexpr glm::vec4 kSnapOther{0.70f, 0.20f, 0.75f, 1.0f};
 constexpr glm::vec4 kGuideFree{0.45f, 0.45f, 0.50f, 1.0f};
+constexpr glm::vec4 kGuideParallel{0.85f, 0.10f, 0.80f, 1.0f}; // magenta: parallel/perpendicular to an edge
+constexpr glm::vec4 kSnapEdge{0.85f, 0.15f, 0.15f, 1.0f};
 constexpr glm::vec4 kDimension{0.20f, 0.24f, 0.32f, 1.0f};
 constexpr glm::vec4 kMeasure{0.95f, 0.45f, 0.08f, 1.0f};
 constexpr glm::vec4 kTangent{0.0f, 0.75f, 0.85f, 1.0f}; // cyan: an arc tangent to the edge it starts from
@@ -127,22 +129,30 @@ void Viewport::drawSnap(std::vector<LineSegment>& lines, const SnapResult& snap)
     const Vec3 up = glm::cross(right, f);
     const auto pixels = [&](const Vec3& at, double px) { return px * pixelAngle() * glm::length(at - eye); };
 
-    // Inference guides: dashed lines in the color of their axis.
+    // Inference guides: dashed lines in the color of their axis, magenta for
+    // parallel/perpendicular lines; the reference edge itself solid magenta.
     for (const auto& g : snap.guides) {
         const double len = glm::length(g.to - g.from);
         if (len <= 0.0) continue;
+        const glm::vec4 color = g.kind == GuideKind::Parallel || g.kind == GuideKind::Reference ? kGuideParallel : guideColor(g.axis);
+        if (g.kind == GuideKind::Reference) {
+            lines.emplace_back(g.from, g.to, color);
+            continue;
+        }
         const double dash = std::max(pixels((g.from + g.to) * 0.5, 6.0), len / 400.0);
         const Vec3 dir = (g.to - g.from) / len;
         // An integer dash count (at most 200), not a floating-point loop counter.
         const auto count = static_cast<int>(std::ceil(len / (2.0 * dash)));
         for (int i = 0; i < count; ++i) {
             const double s = 2.0 * dash * i;
-            lines.emplace_back(g.from + dir * s, g.from + dir * std::min(s + dash, len), guideColor(g.axis));
+            lines.emplace_back(g.from + dir * s, g.from + dir * std::min(s + dash, len), color);
         }
     }
 
     // Marker at the snapped point, facing the camera: a square on an endpoint,
-    // a triangle on a midpoint, a circle on a center, a diamond for an inference or face point.
+    // a triangle on a midpoint, a circle on a center, a cross on an
+    // intersection, a bar on an edge, a diamond for a line inference or a face
+    // point. A locked inference adds a frame around it.
     const Vec3 p = snap.point;
     const double r = pixels(p, 6.0);
     const auto poly = [&](std::initializer_list<Vec2> corners, const glm::vec4& color) {
@@ -150,17 +160,29 @@ void Viewport::drawSnap(std::vector<LineSegment>& lines, const SnapResult& snap)
         for (const auto& c : corners) pts.push_back(p + right * (c.x * r) + up * (c.y * r));
         for (std::size_t i = 0; i < pts.size(); ++i) lines.emplace_back(pts[i], pts[(i + 1) % pts.size()], color);
     };
+    const auto segment = [&](Vec2 a, Vec2 b, const glm::vec4& color) {
+        lines.emplace_back(p + right * (a.x * r) + up * (a.y * r), p + right * (b.x * r) + up * (b.y * r), color);
+    };
     switch (snap.kind) {
     case SnapKind::Endpoint: poly({{-1, -1}, {1, -1}, {1, 1}, {-1, 1}}, kSnapEndpoint); break;
     case SnapKind::Midpoint: poly({{-1.1, -0.8}, {1.1, -0.8}, {0, 1.1}}, kSnapMidpoint); break;
-    case SnapKind::Center: // a small circle (octagon)
+    case SnapKind::Center:
         poly({{1, 0}, {0.71, 0.71}, {0, 1}, {-0.71, 0.71}, {-1, 0}, {-0.71, -0.71}, {0, -1}, {0.71, -0.71}}, kSnapCenter);
         break;
+    case SnapKind::Intersection:
+        segment({-1.1, -1.1}, {1.1, 1.1}, kSnapOther);
+        segment({-1.1, 1.1}, {1.1, -1.1}, kSnapOther);
+        break;
+    case SnapKind::OnEdge: poly({{-0.7, -0.7}, {0.7, -0.7}, {0.7, 0.7}, {-0.7, 0.7}}, kSnapEdge); break;
+    case SnapKind::Parallel:
+    case SnapKind::Perpendicular: poly({{0, -1.2}, {1.2, 0}, {0, 1.2}, {-1.2, 0}}, kGuideParallel); break;
+    case SnapKind::Axis:
     case SnapKind::Inference:
     case SnapKind::OnFace: poly({{0, -1.2}, {1.2, 0}, {0, 1.2}, {-1.2, 0}}, kSnapOther); break;
     case SnapKind::Grid:
     case SnapKind::None: break;
     }
+    if (snap.locked) poly({{-1.6, -1.6}, {1.6, -1.6}, {1.6, 1.6}, {-1.6, 1.6}}, kGuideParallel);
 }
 
 void Viewport::drawGrid(std::vector<LineSegment>& lines) {

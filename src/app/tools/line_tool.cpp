@@ -62,18 +62,30 @@ void LineTool::toggleAxisLock(MoveAxis axis) {
 }
 
 std::optional<LineTool::Target> LineTool::locate(const PointerInput& input) {
-    auto snap = ctx_.measureSnap(input); // also shows the marker
+    // The inference engine, from the chain's last point: axes, parallel and
+    // perpendicular to edges, edges and intersections (also shows the marker).
+    auto snap = ctx_.measureSnap(input, chain_ ? std::optional(chain_->last) : std::nullopt);
     // A locked axis needs no point under the pointer (it may be looking at the sky).
     if (!snap && !(chain_ && lock_)) return std::nullopt;
     SnapResult res = snap.value_or(SnapResult{});
     Target target{res.point, std::nullopt};
-    const bool onFeature = snap && (res.kind == SnapKind::Endpoint || res.kind == SnapKind::Midpoint);
+    // Anything the engine inferred is exact; only a face, ground or grid point is not.
+    const bool onFeature = snap && res.kind >= SnapKind::Inference;
     if (chain_) {
         const Vec3 last = chain_->last;
         const auto onGrid = [this, &last](MoveAxis a, double t) {
             const double start = glm::dot(last, axisVector(a));
             return ctx_.snap.gridOn() ? snapValue(start + t, ctx_.snap.step) - start : t;
         };
+        if (!lock_ && res.kind == SnapKind::Axis && res.constraint && res.constraint->axis >= 0 && !res.locked) {
+            // Along an axis from the last point the length still follows the grid.
+            const auto a = static_cast<MoveAxis>(res.constraint->axis);
+            const double t = glm::dot(res.point - last, axisVector(a));
+            res.point = last + axisVector(a) * onGrid(a, t);
+            res.featurePoint = res.point;
+            if (!res.guides.empty()) res.guides.front().to = res.point;
+            target.point = res.point;
+        }
         if (lock_) {
             // Locked: the point on the axis nearest the pointer, or the snapped
             // point projected onto it (with a guide from the point).

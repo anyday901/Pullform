@@ -224,7 +224,7 @@ TEST_CASE("Line: the pointer infers the axes through the last point") {
     CHECK(p->end.x == doctest::Approx(3.07));
     CHECK(p->end.y == doctest::Approx(0.0));
     REQUIRE(tools.snapIndicator());
-    CHECK(tools.snapIndicator()->kind == SnapKind::Inference);
+    CHECK(tools.snapIndicator()->kind == SnapKind::Axis); // "On X Axis" from the inference engine
     // Far from every axis: the raw ground point.
     in = downAt(editor, 3.0, 2.0, {300, 160});
     in.pixelAngle = 0.001;

@@ -107,6 +107,16 @@ void Ui::drawLabels(const std::vector<ViewportLabel>& labels) {
     const ImVec2 pad(4.0f * ImGui::GetFontSize() / 15.0f, 2.0f * ImGui::GetFontSize() / 15.0f);
     for (const auto& label : labels) {
         const ImVec2 size = ImGui::CalcTextSize(label.text.c_str());
+        if (label.style == ViewportLabel::Style::Inference) {
+            // The inference tooltip: on the foreground, so it is never under a dimension label.
+            ImDrawList* fg = ImGui::GetForegroundDrawList();
+            const ImVec2 min(static_cast<float>(label.position.x), static_cast<float>(label.position.y));
+            const ImVec2 max(min.x + size.x + 2 * pad.x, min.y + size.y + 2 * pad.y);
+            fg->AddRectFilled(min, max, IM_COL32(255, 255, 225, 245), 2.0f);
+            fg->AddRect(min, max, IM_COL32(90, 90, 90, 220), 2.0f);
+            fg->AddText(ImVec2(min.x + pad.x, min.y + pad.y), IM_COL32(20, 20, 20, 255), label.text.c_str());
+            continue;
+        }
         const ImVec2 min(static_cast<float>(label.position.x) - size.x * 0.5f - pad.x,
                          static_cast<float>(label.position.y) - size.y * 0.5f - pad.y);
         const ImVec2 max(min.x + size.x + 2 * pad.x, min.y + size.y + 2 * pad.y);

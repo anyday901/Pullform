@@ -142,6 +142,10 @@ public:
     /// Points recently snapped to; inference guides align with these.
     [[nodiscard]] const std::vector<Vec3>& inferenceReferences() const { return snapper_.references(); }
 
+    /// The name of the inference shown ("On Edge", "Perpendicular to Edge"),
+    /// for the tooltip beside the pointer; empty when there is none to show.
+    [[nodiscard]] std::string snapTooltip() const;
+
     /// Status bar hint for the current tool and gesture state.
     [[nodiscard]] std::string hint() const;
 

@@ -57,8 +57,14 @@ void MeasureTool::publish(const MeasurePoint& cursor) {
     editor().setPreview(preview);
 }
 
+std::optional<Vec3> MeasureTool::inferFrom() const {
+    // While the second point is being picked, infer along axes and edges from the first.
+    if (start_ && !fixed_) return start_->point;
+    return std::nullopt;
+}
+
 void MeasureTool::pointerMove(const PointerInput& input) {
-    const auto snap = ctx_.measureSnap(input);
+    const auto snap = ctx_.measureSnap(input, inferFrom());
     // Placing the dimension line needs only the ray, so it keeps working when
     // the pointer is above the horizon and hits neither the model nor the ground.
     if (placingLine()) {
@@ -68,14 +74,14 @@ void MeasureTool::pointerMove(const PointerInput& input) {
 }
 
 void MeasureTool::pointerDown(const PointerInput& input) {
-    const auto snap = ctx_.measureSnap(input);
+    const auto snap = ctx_.measureSnap(input, inferFrom());
     pressScreen_ = input.screen;
     pressed_ = true;
     click(input, snap);
 }
 
 void MeasureTool::pointerUp(const PointerInput& input) {
-    const auto snap = ctx_.measureSnap(input);
+    const auto snap = ctx_.measureSnap(input, inferFrom());
     if (!pressed_) return;
     pressed_ = false;
     // Press-drag-release places the next point at the release, like two clicks.

@@ -268,6 +268,23 @@ Shared parts live in `ToolContext` (editor, snap settings, the point snapper, th
 indicator, ground and pointer snapping) and `app/tools/tool_support.*` (axis keys and
 locks, grid steps, numeric-entry trimming, drag threshold, `baseCenter`).
 
+**Inference.** Every tool snaps through the one `PointSnapper` (`app/tools/snapper.*`),
+whose `infer` runs the pure engine in `core/geometry/inference.*` against the
+`SnapIndex` of the document (`core/geometry/snap.*`). In priority order it finds a point
+feature (Endpoint, Midpoint, Center of a mesh curve), an Intersection (two edges, or an
+edge and an inference line), On Edge, then a line inference: from the gesture's start
+point along X/Y/Z (Axis), parallel or perpendicular to a reference edge (the magenta
+guides), or from a remembered point along an axis (From Point); two lines crossing near
+the pointer give their crossing. Otherwise the face under the pointer (On Face), the
+drawing plane or the ground grid. Reference edges are the edges the pointer last visited
+plus every edge through the start point. A result carries the line or plane it lies on
+(`SnapConstraint`); holding Shift locks it until Shift is released, and point features are
+then projected onto it. `snapLabel` names the inference for the tooltip beside the pointer
+and the status bar. A tool passes its start point (`InferOptions::from`), its drawing plane
+and the object being edited; today the tape measure, dimension and Move use the full
+engine, the rectangle tool keeps its ground snap (now with On Edge), and push/pull its
+height snaps.
+
 `app/tools/tool_controller.*` owns the tools and routes events, keys and typed values to the
 current one; its tool-specific entry points (`submitMoveDistance`, `toggleAxisLock`, ...)
 forward to the matching tool. Adding a tool means a new `Tool` value with its `toolName`,
