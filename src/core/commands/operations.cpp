@@ -97,8 +97,10 @@ std::string duplicateName(const std::string& name, ObjectId newId) {
     for (std::string_view prefix : {std::string_view{"Rectangle "}, std::string_view{"Box "}}) {
         if (name.size() <= prefix.size() || name.compare(0, prefix.size(), prefix) != 0) continue;
         const auto rest = std::string_view{name}.substr(prefix.size());
-        if (std::all_of(rest.begin(), rest.end(), [](char c) { return c >= '0' && c <= '9'; })) {
-            return std::string(prefix) + std::to_string(newId.value);
+        if (std::ranges::all_of(rest, [](char c) { return c >= '0' && c <= '9'; })) {
+            std::string renamed{prefix};
+            renamed.append(std::to_string(newId.value));
+            return renamed;
         }
     }
     return name.empty() ? std::string{"Copy"} : name + " copy";
