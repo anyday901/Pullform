@@ -411,7 +411,7 @@ TEST_CASE("inference: the Line tool draws perpendicular to an angled edge with n
     click(tools, snapAt(editor, aim.x, aim.y, {200, 40}));
     // The new edge runs from the end of the angled edge, exactly perpendicular to it.
     const auto& group = *editor.document().objects[0];
-    REQUIRE(group.mesh != nullptr);
+    REQUIRE(group.isMeshGroup());
     bool found = false;
     for (const auto& [id, e] : group.mesh->edges()) {
         const Vec3 a = localToWorld(group, group.mesh->vertex(e.v0)->position);
