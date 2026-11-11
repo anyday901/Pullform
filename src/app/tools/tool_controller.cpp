@@ -1,6 +1,7 @@
 #include "app/tools/tool_controller.hpp"
 
 #include "app/tools/arc_tool.hpp"
+#include "app/tools/line_tool.hpp"
 #include "app/tools/measure_tool.hpp"
 #include "app/tools/move_tool.hpp"
 #include "app/tools/orbit_tool.hpp"
@@ -12,7 +13,6 @@
 #include "core/commands/operations.hpp"
 #include "core/geometry/solid.hpp"
 
-#include <algorithm>
 #include <algorithm>
 #include <cassert>
 
@@ -31,6 +31,8 @@ ToolController::ToolController(Editor& editor) : editor_(editor), snapper_(edito
     pushPull_ = &add<PushPullTool>(Tool::PushPull);
     add<SelectTool>(Tool::Select, *pushPull_);
     rectangle_ = &add<RectangleTool>(Tool::Rectangle);
+    add<RectangleTool>(Tool::RotatedRectangle, RectangleTool::Mode::Rotated);
+    add<LineTool>(Tool::Line);
     move_ = &add<MoveTool>(Tool::Move);
     rotate_ = &add<RotateTool>(Tool::Rotate);
     scale_ = &add<ScaleTool>(Tool::Scale);

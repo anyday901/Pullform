@@ -51,6 +51,7 @@ Expected<OpResult> createRectangle(const Document& doc, const RectanglePlacement
     o.profile.kind = ProfileKind::Rectangle;
     o.profile.boundary = rectangleBoundary(placement.width, placement.depth);
     o.transform.translation = placement.corner;
+    o.transform.rotation = placement.rotation;
     if (auto e = validateObject(o, "rectangle")) return Error{*e};
     OpResult result{doc, o.id, {}};
     result.document.nextId = doc.nextId + 1;
@@ -58,16 +59,48 @@ Expected<OpResult> createRectangle(const Document& doc, const RectanglePlacement
     return result;
 }
 
+std::optional<std::string> checkProfileHeight(double height) {
+    if (std::isfinite(height) && height < 0.0) return checkHeight(-height);
+    return checkHeight(height);
+}
+
+ProfileObject flippedProfile(const ProfileObject& object) {
+    // Turn half a turn about the local X axis (local (x, y) -> (x, -y), normal
+    // reversed), then shift by the depth so the footprint stays where it is:
+    // local (x, y) lands where (x, d - y) was.
+    ProfileObject out = object;
+    if (object.isMeshGroup() || object.profile.boundary.size() != 4) return out;
+    const double depth = object.profile.boundary[3].y;
+    out.transform.translation = localToWorld(object, Vec3{0.0, depth, 0.0});
+    out.transform.rotation = glm::normalize(object.transform.rotation * Quat{0.0, 1.0, 0.0, 0.0});
+    return out;
+}
+
 Expected<OpResult> extrudeProfile(const Document& doc, ObjectId id, double height) {
     const auto* o = doc.find(id);
     if (!o) return Error{"Object " + idString(id) + " no longer exists."};
     if (o->isMeshGroup()) return Error{"Push/pull of drawn faces is not supported yet."};
     if (o->extrusion) return Error{"This object is already extruded. Select its cap to change the height."};
-    if (auto e = checkHeight(height)) return Error{*e};
-    ProfileObject changed = *o;
-    changed.extrusion = Extrusion{height};
+    if (auto e = checkProfileHeight(height)) return Error{*e};
+    ProfileObject changed = height < 0.0 ? flippedProfile(*o) : *o;
+    changed.extrusion = Extrusion{std::abs(height)};
     if (changed.name.rfind("Rectangle ", 0) == 0) changed.name = "Box " + changed.name.substr(10);
-    return replaceObject(doc, std::move(changed));
+    auto replaced = replaceObject(doc, std::move(changed));
+    if (!replaced || height >= 0.0) return replaced;
+    OpResult result = std::move(replaced).value();
+    {
+        // The flip renumbers the corners (corner i is where corner 3 - i was),
+        // so dimensions attached to them keep measuring the same points.
+        for (auto& d : result.document.dimensions) {
+            for (DimensionAnchor* a : {&d.a, &d.b}) {
+                if (a->object != id) continue;
+                for (int& v : a->vertices) {
+                    if (v >= 0 && v < 4) v = 3 - v;
+                }
+            }
+        }
+    }
+    return result;
 }
 
 Expected<OpResult> setExtrusionHeight(const Document& doc, ObjectId id, double height) {
@@ -380,6 +413,24 @@ Expected<OpResult> eraseEdge(const Document& doc, ObjectId id, mesh::EdgeId edge
         return false;
     });
     return replaceObject(partial.document, std::move(changed));
+}
+
+Expected<OpResult> pushPullFace(const Document& doc, ObjectId id, mesh::FaceId face, double distance, mesh::FaceId* pushed) {
+    const auto* o = doc.find(id);
+    if (!o) return Error{"Object " + idString(id) + " no longer exists."};
+    if (!o->isMeshGroup()) return Error{"Only drawn faces are pushed this way; use the height for a rectangle or box."};
+    if (!std::isfinite(distance) || std::abs(distance) < tol::kMinDimension) return Error{"Distance must be at least 0.1 mm."};
+    ProfileObject changed = *o;
+    mesh::Mesh m = *changed.mesh;
+    if (!m.face(face)) return Error{"That face no longer exists."};
+    const auto result = m.pushPull(face, distance);
+    if (!result) {
+        return Error{"Push/pull works on a face standing on its own, or on the end of a prism that keeps a positive "
+                     "length. Other faces are not supported yet."};
+    }
+    if (pushed) *pushed = result->face;
+    changed.mesh = std::make_shared<const mesh::Mesh>(std::move(m));
+    return replaceObject(doc, std::move(changed));
 }
 
 Expected<Vec3> selectionBaseCenter(const Document& doc, const std::vector<ObjectId>& ids) {
