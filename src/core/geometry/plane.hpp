@@ -37,7 +37,8 @@ PlaneBasis groundPlane();
 ///    steepest uphill direction as y (so a wall's y axis is world Z).
 /// The origin is the plane's point nearest the world origin, so grid steps in
 /// plane coordinates line up with the world grid on axis-aligned planes.
-/// Normals within about 1e-9 of a world axis are snapped onto it.
+/// Normals whose other two components are within 1e-12 of zero are
+/// snapped onto that world axis; anything tilted more is kept as it is.
 PlaneBasis planeThrough(const Vec3& point, const Vec3& normal);
 
 /// `plane`'s normal flipped, if needed, so that it faces against `viewDirection`

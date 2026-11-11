@@ -9,13 +9,17 @@ namespace pf {
 
 namespace {
 
-constexpr double kAxisSnap = 1e-9;
+/// Largest off-axis component (of a unit vector) still treated as rounding.
+/// Checked on the transverse components: 1 - |dominant| shrinks with the
+/// square of the tilt, so it would accept far larger tilts.
+constexpr double kAxisSnap = 1e-12;
 
-/// `v` with components within kAxisSnap of -1, 0 or 1 made exact when the
-/// vector is that close to a world axis.
+/// `v` made exactly a world axis when its other two components are rounding noise.
 Vec3 snapToAxis(const Vec3& v) {
     for (int i = 0; i < 3; ++i) {
-        if (std::abs(std::abs(v[i]) - 1.0) < kAxisSnap) {
+        const double j = v[(i + 1) % 3];
+        const double k = v[(i + 2) % 3];
+        if (std::abs(j) <= kAxisSnap && std::abs(k) <= kAxisSnap && std::abs(v[i]) > 0.5) {
             Vec3 out{0.0};
             out[i] = v[i] > 0.0 ? 1.0 : -1.0;
             return out;
