@@ -124,12 +124,12 @@ SnapFeatures snapFeatures(const ProfileObject& object, std::optional<double> hei
         source = &resized;
     }
     if (const auto m = mesh::objectMesh(*source); !m->curves().empty()) {
-        for (const auto& [id, c] : m->curves()) f.centers.push_back(localToWorld(*source, c.center));
+        for (const auto& [id, c] : m->curves()) f.curveCenters.push_back(localToWorld(*source, c.center));
     }
     if (!f.vertices.empty()) {
         Vec3 lo = f.vertices.front();
         Vec3 hi = lo;
-        for (const auto* points : {&f.vertices, &f.centers}) { // an arc's center can lie outside its corners
+        for (const auto* points : {&f.vertices, &f.curveCenters}) { // an arc's center can lie outside its corners
             for (const auto& v : *points) {
                 lo = glm::min(lo, v);
                 hi = glm::max(hi, v);
@@ -184,8 +184,8 @@ std::optional<SnapResult> SnapIndex::nearest(const Ray& ray, double radiusPerDis
         for (std::size_t i = 0; i < f.edges.size(); ++i) {
             search.consider(SnapKind::Midpoint, id, static_cast<int>(i), f.midpoint(i));
         }
-        for (std::size_t i = 0; i < f.centers.size(); ++i) {
-            search.consider(SnapKind::Center, id, static_cast<int>(i), f.centers[i]);
+        for (std::size_t i = 0; i < f.curveCenters.size(); ++i) {
+            search.consider(SnapKind::Center, id, static_cast<int>(i), f.curveCenters[i]);
         }
     }
     if (!search.found) return std::nullopt;
@@ -222,7 +222,7 @@ std::optional<Vec3> resolveSnapFeature(const Document& document, ObjectId id, Sn
     const auto i = static_cast<std::size_t>(feature);
     if (kind == SnapKind::Endpoint && i < f.vertices.size()) return f.vertices[i];
     if (kind == SnapKind::Midpoint && i < f.edges.size()) return f.midpoint(i);
-    if (kind == SnapKind::Center && i < f.centers.size()) return f.centers[i];
+    if (kind == SnapKind::Center && i < f.curveCenters.size()) return f.curveCenters[i];
     return std::nullopt;
 }
 

@@ -9,10 +9,23 @@ include breaking changes, but project files will keep a migration path.
 
 ### Added
 
-- **Circle (C) and Polygon (Shift+C) tools.** Click the center on the ground, then a point
-  on the circle, or type the radius. Type a count such as `48s` (before or while drawing)
+- **Draw on any face and plane.** The Rectangle tool draws on the face under the pointer,
+  including walls and tilted faces, or on the ground; once the first corner is placed the
+  plane stays fixed, so the second corner can be anywhere on screen. Arrow keys lock the
+  plane: Right faces the red axis, Left the green axis, Up is horizontal (each through the
+  point under the pointer), Down holds the plane of the face last hovered; the same key
+  releases it. Typed sizes follow the pointer on that plane.
+- **Rotated Rectangle tool:** click the first corner, the end of the first side (any
+  direction on the plane), then the depth. Type the side's length after the first click and
+  the depth after the second.
+- **Push/pull a rectangle either way:** pushing a flat rectangle backwards (a window drawn
+  on a wall, pushed in) extrudes it behind its face; typed negative distances do the same.
+  A rectangle drawn on a face is still its own object, so it overlaps the wall rather than
+  cutting it (cutting comes with push/pull on any face).
+- **Circle (C) and Polygon (Shift+C) tools.** Click the center on a face or the ground (arrow keys
+  lock a plane, as for Rectangle), then a point on the circle, or type the radius. Type a count such as `48s` (before or while drawing)
   for the number of segments (circle, default 24) or sides (polygon, default 6). Push/Pull
-  extrudes them into cylinders and prisms; a cylinder's sides are smooth, without a line per
+  extrudes them into cylinders and prisms (either way); a cylinder's sides are smooth, without a line per
   segment. Circles and polygons keep their true shape in the model, so their center snaps
   (a green circle marker), also on the top of a cylinder. The properties panel shows the
   radius and segment count. Saved in project files as profile kind `"circle"` or

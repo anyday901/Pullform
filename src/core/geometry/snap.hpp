@@ -17,8 +17,8 @@ enum class SnapKind {
     Grid,      ///< grid increment
     OnFace,    ///< a point on a face under the pointer (no edge or corner nearby)
     Inference, ///< aligned with a reference point along an axis (see SnapGuide)
+    Center,    ///< center of an arc, circle or polygon
     Midpoint,  ///< midpoint of an object edge
-    Center,    ///< center of a circle or polygon (or arc)
     Endpoint,  ///< corner (vertex) of an object
 };
 
@@ -28,12 +28,13 @@ const char* snapKindName(SnapKind kind);
 /// (object, feature index) pair can be resolved back to a point later:
 /// `vertices` are the object's unique corners in the order they first appear
 /// in buildFaces(); `edges` are its unique boundary edges as index pairs into
-/// `vertices`, in the order they first appear in the face loops; `centers` are
-/// the centers of the curves in the object's mesh, in curve id order.
+/// `vertices`, in the order they first appear in the face loops.
 struct SnapFeatures {
     std::vector<Vec3> vertices;
     std::vector<std::pair<int, int>> edges;
-    std::vector<Vec3> centers;
+    /// Centers of the object's true arcs, circles and polygons (mesh curves, in
+    /// curve id order; a circle or polygon profile has them too), world space.
+    std::vector<Vec3> curveCenters;
     Vec3 center{0.0};    ///< center of the vertices' bounding box
     double radius = 0.0; ///< bounding sphere radius around `center`
 
@@ -62,7 +63,7 @@ struct SnapResult {
     /// The object snapped to (Endpoint, Midpoint, OnFace).
     std::optional<ObjectId> objectId;
     /// Endpoint: index into SnapFeatures::vertices. Midpoint: index into
-    /// SnapFeatures::edges. Center: index into SnapFeatures::centers. Otherwise -1.
+    /// SnapFeatures::edges. Center: index into SnapFeatures::curveCenters. Otherwise -1.
     int feature = -1;
     /// The feature's own position before any projection (for example the top
     /// corner of a box whose ground point the rectangle tool uses).

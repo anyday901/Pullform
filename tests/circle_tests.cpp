@@ -6,6 +6,7 @@
 #include "core/document/project_file.hpp"
 #include "core/document/validate.hpp"
 #include "core/geometry/circle.hpp"
+#include "core/geometry/measure.hpp"
 #include "core/geometry/mesh.hpp"
 #include "core/geometry/snap.hpp"
 #include "core/geometry/solid.hpp"
@@ -257,8 +258,8 @@ TEST_CASE("circles and polygons scale uniformly, duplicate and become mesh group
     REQUIRE(group.isMeshGroup());
     CHECK(group.mesh->curves().size() == 2);
     const auto f = snapFeatures(group);
-    REQUIRE(f.centers.size() == 2);
-    CHECK(f.centers[1].z == doctest::Approx(0.4));
+    REQUIRE(f.curveCenters.size() == 2);
+    CHECK(f.curveCenters[1].z == doctest::Approx(0.4));
 
     CHECK_FALSE(createCircle(doc, *circleFromRadius({0, 0, 0}, 1.0, 0.0, 6), ProfileKind::Rectangle));
 }
@@ -289,4 +290,73 @@ TEST_CASE("circles and polygons save and open with their curves") {
     bentCircle.profile.boundary[3].x += 1e-4;
     bentDoc.objects[0] = std::make_shared<const ProfileObject>(bentCircle);
     CHECK_FALSE(parseProject(serializeProject(bentDoc, std::nullopt)));
+}
+
+TEST_CASE("a circle on a wall pushed in 100 mm: a round hole-shaped recess facing the wall") {
+    Editor editor;
+    ToolController tools(editor);
+    const ObjectId wall = test::makeBox(editor, tools, "4000, 200", "3000");
+    const auto atWall = [&editor](double x, double z, Vec2 screen) {
+        PointerInput in;
+        in.ray = Ray{{x, -10.0, z}, {0.0, 1.0, 0.0}};
+        in.pick = pickDocument(in.ray, editor.document());
+        in.screen = screen;
+        return in;
+    };
+    tools.setTool(Tool::Circle);
+    tools.pointerDown(atWall(2.0, 1.5, {100, 100}));
+    tools.pointerUp(atWall(2.0, 1.5, {100, 100}));
+    REQUIRE(tools.active());
+    tools.pointerMove(atWall(2.0, 2.0, {100, 60})); // straight up the wall
+    REQUIRE_FALSE(tools.submit("300").has_value());
+    REQUIRE(editor.document().objects.size() == 2);
+    const ProfileObject& disc = *editor.document().objects[1];
+    CHECK(disc.profile.kind == ProfileKind::Circle);
+    const Vec3 n = profileNormalWorld(disc);
+    CHECK(n.y == doctest::Approx(-1.0));
+    const Bounds b = objectBounds(disc);
+    CHECK(b.min.x == doctest::Approx(1.7));
+    CHECK(b.max.x == doctest::Approx(2.3));
+    CHECK(b.min.z == doctest::Approx(1.2));
+    CHECK(b.max.z == doctest::Approx(1.8));
+    CHECK(std::abs(b.max.y) < 1e-12);
+    // The first corner points where the pointer was: straight up.
+    const auto top = objectVertex(disc, 0);
+    REQUIRE(top);
+    CHECK(top->z == doctest::Approx(1.8));
+
+    // A dimension on corner 5, then push the circle 100 mm into the wall.
+    const Vec3 corner5 = *objectVertex(disc, 5);
+    REQUIRE(editor.commit("Dimension", [&](const Document& d) {
+        return addDimension(d, DimensionAnchor{{}, disc.id, {5}}, DimensionAnchor{{0, -1, 0}, std::nullopt, {}}, Vec3{0, -0.2, 0});
+    }));
+    editor.select(Selection{disc.id, FaceId::profile()});
+    REQUIRE_FALSE(tools.submitPushDistance("-100").has_value());
+    const ProfileObject& recess = *editor.document().find(disc.id);
+    REQUIRE(recess.extrusion);
+    CHECK(recess.extrusion->height == doctest::Approx(0.1));
+    CHECK(profileNormalWorld(recess).y == doctest::Approx(1.0)); // extruded into the wall
+    const Bounds rb = objectBounds(recess);
+    CHECK(rb.min.x == doctest::Approx(1.7));
+    CHECK(rb.max.y == doctest::Approx(0.1));
+    CHECK(checkSolid(buildMesh(recess)).ok());
+    CHECK_FALSE(validateDocument(editor.document()));
+    // The footprint did not move, and the dimension still measures the same point.
+    const auto& dim = editor.document().dimensions.back();
+    const auto end = resolveAnchor(editor.document(), dim.a);
+    REQUIRE(end);
+    CHECK(glm::length(*end - corner5) < 1e-9);
+    CHECK(editor.document().find(wall)->extrusion->height == 3.0);
+
+    // The far circle's center snaps from inside the wall's plane.
+    const auto f = snapFeatures(recess);
+    REQUIRE(f.curveCenters.size() == 2);
+    CHECK(f.curveCenters[0].x == doctest::Approx(2.0));
+    CHECK(f.curveCenters[0].z == doctest::Approx(1.5));
+    CHECK(std::abs(f.curveCenters[0].y) < 1e-12);
+    CHECK(f.curveCenters[1].y == doctest::Approx(0.1));
+
+    const auto loaded = parseProject(serializeProject(editor.document(), std::nullopt));
+    REQUIRE(loaded);
+    CHECK(sameContent(loaded->document, editor.document()));
 }
