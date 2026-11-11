@@ -11,6 +11,7 @@
 #include "core/geometry/snap.hpp"
 #include "core/geometry/solid.hpp"
 
+#include <algorithm>
 #include <numbers>
 
 using namespace pf;
