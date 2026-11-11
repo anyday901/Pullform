@@ -40,7 +40,7 @@ inline constexpr const char* kTape = "T";
 inline constexpr const char* kDimension = "D";
 inline constexpr const char* kSnap = "G";
 
-inline constexpr std::array<std::pair<const char*, const char*>, 31> kTable = {{
+inline constexpr std::array<std::pair<const char*, const char*>, 32> kTable = {{
     {"Left button", "Use the active tool"},
     {"Middle drag", "Orbit"},
     {"Shift + middle drag", "Pan"},
@@ -52,6 +52,7 @@ inline constexpr std::array<std::pair<const char*, const char*>, 31> kTable = {{
     {"Drag right / left", "Select: window (inside) / crossing (touching)"},
     {PF_MOD "A", "Select all"},
     {"R", "Rectangle tool"},
+    {"Arrow keys (Rectangle)", "Lock the drawing plane: Right red, Left green, Up horizontal, Down the hovered face"},
     {"P", "Push/Pull tool"},
     {"M", "Move tool"},
     {"X / Y / Z or arrows", "Move: lock to an axis (again to release)"},

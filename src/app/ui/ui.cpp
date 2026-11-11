@@ -35,10 +35,11 @@ const ImVec4 kMutedColor{0.40f, 0.43f, 0.48f, 1.0f};
 const ImVec4 kAccent{0.16f, 0.45f, 0.85f, 1.0f};
 
 constexpr const char* kLimitsText =
-    "This version supports rectangles drawn on the ground plane and their straight extrusions.\n"
-    "- Push/Pull works on a rectangle or on an extrusion's top cap.\n"
+    "This version supports rectangles drawn on any face or plane and their straight extrusions.\n"
+    "- Push/Pull works on a rectangle (either way) or on an extrusion's top cap.\n"
     "- Side and base faces cannot be pushed yet.\n"
-    "- Heights must be positive: pushing below the base, holes and cutting are not supported.\n"
+    "- A rectangle drawn on a face is its own object: pushing it into a wall overlaps the wall\n"
+    "  rather than cutting it. Holes and cutting are not supported yet.\n"
     "- Touching or overlapping objects stay separate (no merging).\n"
     "- Move, Duplicate, Rotate and Scale work on whole objects; Rotate turns about the X, Y or Z\n"
     "  axis and Scale cannot mirror.\n"
@@ -182,8 +183,8 @@ std::string Ui::measurementLabel(const UiContext& ctx) const { return std::strin
 std::string Ui::measurementLive(const UiContext& ctx) const {
     const LengthUnit u = ctx.editor.document().displayUnit;
     if (const auto* r = std::get_if<RectanglePreview>(&ctx.editor.preview())) {
-        const double w = std::abs(r->end.x - r->start.x), d = std::abs(r->end.y - r->start.y);
-        return formatLength(w, u) + ", " + formatLength(d, u);
+        if (r->outline.size() == 2) return formatLength(r->width, u); // first side of a rotated rectangle
+        return formatLength(r->width, u) + ", " + formatLength(r->depth, u);
     }
     if (const auto* p = std::get_if<PushPullPreview>(&ctx.editor.preview())) {
         return (p->delta >= 0 ? "+" : "") + formatLength(p->delta, u) + "   (total height " + formatLength(p->height, u) + ")";
@@ -280,6 +281,7 @@ void Ui::menuBar(UiContext& ctx) {
         const Tool t = ctx.tools.tool();
         if (ImGui::MenuItem("Select", shortcuts::kSelect, t == Tool::Select)) ctx.tools.setTool(Tool::Select);
         if (ImGui::MenuItem("Rectangle", shortcuts::kRectangle, t == Tool::Rectangle)) ctx.tools.setTool(Tool::Rectangle);
+        if (ImGui::MenuItem("Rotated Rectangle", nullptr, t == Tool::RotatedRectangle)) ctx.tools.setTool(Tool::RotatedRectangle);
         if (ImGui::MenuItem("Push/Pull", shortcuts::kPushPull, t == Tool::PushPull)) ctx.tools.setTool(Tool::PushPull);
         if (ImGui::MenuItem("Move", shortcuts::kMove, t == Tool::Move)) ctx.tools.setTool(Tool::Move);
         if (ImGui::MenuItem("Rotate", shortcuts::kRotate, t == Tool::Rotate)) ctx.tools.setTool(Tool::Rotate);
@@ -309,7 +311,9 @@ void Ui::toolbar(UiContext& ctx, float y, float height, float width) {
     const Tool t = ctx.tools.tool();
     if (toolButton("Select", t == Tool::Select, "Select (Space)\nClick an object or face. Click empty space to clear.")) ctx.tools.setTool(Tool::Select);
     ImGui::SameLine();
-    if (toolButton("Rectangle", t == Tool::Rectangle, "Rectangle (R)\nClick two corners on the ground, or type width, depth.")) ctx.tools.setTool(Tool::Rectangle);
+    if (toolButton("Rectangle", t == Tool::Rectangle, "Rectangle (R)\nClick two corners on a face or the ground, or type width, depth.\nArrow keys lock a plane: Right red, Left green, Up horizontal, Down the hovered face.")) ctx.tools.setTool(Tool::Rectangle);
+    ImGui::SameLine();
+    if (toolButton("Rotated", t == Tool::RotatedRectangle, "Rotated Rectangle\nClick the first corner, the end of the first side, then the depth.\nType the length after the first click and the depth after the second.")) ctx.tools.setTool(Tool::RotatedRectangle);
     ImGui::SameLine();
     if (toolButton("Push/Pull", t == Tool::PushPull, "Push/Pull (P)\nClick a rectangle or a top cap and move up, or type a distance.")) ctx.tools.setTool(Tool::PushPull);
     ImGui::SameLine();

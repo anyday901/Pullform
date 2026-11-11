@@ -29,6 +29,11 @@ struct PickHit {
 /// CPU ray cast against one object's derived mesh.
 std::optional<PickHit> pickObject(const Ray& ray, const ProfileObject& object, const MeshData& mesh);
 
+/// Whether `hit` should replace `best` as the nearest pick. Hits at the same
+/// distance (a rectangle drawn on a wall lies exactly on it) go to the object
+/// with the higher id, which is the one drawn later, on top.
+bool nearerHit(const PickHit& hit, const std::optional<PickHit>& best);
+
 /// CPU ray cast against every object in the document; returns the nearest hit.
 std::optional<PickHit> pickDocument(const Ray& ray, const Document& document);
 

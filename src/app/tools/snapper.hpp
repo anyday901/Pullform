@@ -77,6 +77,11 @@ public:
     std::optional<SnapResult> height(const PointerInput& input, const Vec3& axisPoint, ObjectId exclude);
 
     [[nodiscard]] const std::vector<Vec3>& references() const { return references_; }
+    /// The references, after dropping those of a replaced project.
+    const std::vector<Vec3>& currentReferences() {
+        dropStaleReferences();
+        return references_;
+    }
     void clearReferences() { references_.clear(); }
 
 private:
