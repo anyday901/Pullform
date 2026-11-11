@@ -1,5 +1,6 @@
 #include "app/tools/tool_controller.hpp"
 
+#include "app/tools/freehand_tool.hpp"
 #include "app/tools/measure_tool.hpp"
 #include "app/tools/move_tool.hpp"
 #include "app/tools/orbit_tool.hpp"
@@ -36,6 +37,7 @@ ToolController::ToolController(Editor& editor) : editor_(editor), snapper_(edito
     add<OrbitTool>(Tool::Orbit);
     add<MeasureTool>(Tool::TapeMeasure, MeasureTool::Mode::Tape);
     add<MeasureTool>(Tool::Dimension, MeasureTool::Mode::Dimension);
+    add<FreehandTool>(Tool::Freehand);
     for ([[maybe_unused]] const auto& t : tools_) assert(t && "every Tool value needs a registered tool");
 }
 

@@ -118,10 +118,17 @@ struct SelectBoxPreview {
     std::vector<ObjectId> found;
 };
 
+/// Live freehand stroke: the raw pointer points so far (world space), and
+/// whether releasing now closes the stroke into a loop.
+struct FreehandPreview {
+    std::vector<Vec3> points;
+    bool closes = false;
+};
+
 /// Transient feedback drawn by the viewport. Never part of the document or history.
 using Preview =
     std::variant<std::monostate, RectanglePreview, PushPullPreview, MovePreview, RotatePreview, ScalePreview, MeasurePreview,
-                 SelectBoxPreview>;
+                 SelectBoxPreview, FreehandPreview>;
 
 /// The object a preview draws in place of the document's version (push/pull,
 /// rotate and scale), if any. The viewport hides the original while it is set.

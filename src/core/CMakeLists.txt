@@ -15,6 +15,7 @@ add_library(pullform_core STATIC
   geometry/snap.cpp
   geometry/measure.cpp
   geometry/region_select.cpp
+  geometry/freehand.cpp
   commands/operations.cpp
   commands/selection.cpp
   commands/editor.cpp)

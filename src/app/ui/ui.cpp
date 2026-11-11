@@ -185,6 +185,11 @@ std::string Ui::measurementLive(const UiContext& ctx) const {
         const double w = std::abs(r->end.x - r->start.x), d = std::abs(r->end.y - r->start.y);
         return formatLength(w, u) + ", " + formatLength(d, u);
     }
+    if (const auto* f = std::get_if<FreehandPreview>(&ctx.editor.preview())) {
+        double length = 0.0;
+        for (std::size_t i = 1; i < f->points.size(); ++i) length += glm::length(f->points[i] - f->points[i - 1]);
+        return formatLength(length, u) + (f->closes ? "   (closes the loop)" : "");
+    }
     if (const auto* p = std::get_if<PushPullPreview>(&ctx.editor.preview())) {
         return (p->delta >= 0 ? "+" : "") + formatLength(p->delta, u) + "   (total height " + formatLength(p->height, u) + ")";
     }
@@ -280,6 +285,7 @@ void Ui::menuBar(UiContext& ctx) {
         const Tool t = ctx.tools.tool();
         if (ImGui::MenuItem("Select", shortcuts::kSelect, t == Tool::Select)) ctx.tools.setTool(Tool::Select);
         if (ImGui::MenuItem("Rectangle", shortcuts::kRectangle, t == Tool::Rectangle)) ctx.tools.setTool(Tool::Rectangle);
+        if (ImGui::MenuItem("Freehand", nullptr, t == Tool::Freehand)) ctx.tools.setTool(Tool::Freehand);
         if (ImGui::MenuItem("Push/Pull", shortcuts::kPushPull, t == Tool::PushPull)) ctx.tools.setTool(Tool::PushPull);
         if (ImGui::MenuItem("Move", shortcuts::kMove, t == Tool::Move)) ctx.tools.setTool(Tool::Move);
         if (ImGui::MenuItem("Rotate", shortcuts::kRotate, t == Tool::Rotate)) ctx.tools.setTool(Tool::Rotate);
@@ -310,6 +316,8 @@ void Ui::toolbar(UiContext& ctx, float y, float height, float width) {
     if (toolButton("Select", t == Tool::Select, "Select (Space)\nClick an object or face. Click empty space to clear.")) ctx.tools.setTool(Tool::Select);
     ImGui::SameLine();
     if (toolButton("Rectangle", t == Tool::Rectangle, "Rectangle (R)\nClick two corners on the ground, or type width, depth.")) ctx.tools.setTool(Tool::Rectangle);
+    ImGui::SameLine();
+    if (toolButton("Freehand", t == Tool::Freehand, "Freehand\nPress and drag to draw a smooth curve of edges.\nEnd on the start point to close it into a face.")) ctx.tools.setTool(Tool::Freehand);
     ImGui::SameLine();
     if (toolButton("Push/Pull", t == Tool::PushPull, "Push/Pull (P)\nClick a rectangle or a top cap and move up, or type a distance.")) ctx.tools.setTool(Tool::PushPull);
     ImGui::SameLine();
