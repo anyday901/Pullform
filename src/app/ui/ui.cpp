@@ -35,9 +35,11 @@ const ImVec4 kMutedColor{0.40f, 0.43f, 0.48f, 1.0f};
 const ImVec4 kAccent{0.16f, 0.45f, 0.85f, 1.0f};
 
 constexpr const char* kLimitsText =
-    "This version supports rectangles drawn on the ground plane and their straight extrusions.\n"
-    "- Push/Pull works on a rectangle or on an extrusion's top cap.\n"
-    "- Side and base faces cannot be pushed yet.\n"
+    "This version supports rectangles drawn on the ground plane and their straight extrusions, and edges "
+    "drawn with the Line tool.\n"
+    "- Push/Pull works on a rectangle, an extrusion's top cap, a drawn face standing on its own, and the ends "
+    "of a drawn prism.\n"
+    "- Side and base faces of rectangles and boxes cannot be pushed yet.\n"
     "- Heights must be positive: pushing below the base, holes and cutting are not supported.\n"
     "- Touching or overlapping objects stay separate (no merging).\n"
     "- Move, Duplicate, Rotate and Scale work on whole objects; Rotate turns about the X, Y or Z\n"
