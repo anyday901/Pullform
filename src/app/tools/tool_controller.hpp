@@ -134,7 +134,9 @@ private:
     std::optional<double> snapPushHeight(const PointerInput& input, std::optional<double> raw);
 
     /// Snaps for the tape measure and dimension tools and shows the marker.
-    SnapResult measureSnap(const PointerInput& input);
+    /// Empty when the pointer reaches neither the model nor the ground (an
+    /// unsnapped ground point, with grid snap off, is still a point).
+    std::optional<SnapResult> measureSnap(const PointerInput& input);
 
     void selectDown(const PointerInput& input);
     void rectDown(const PointerInput& input);

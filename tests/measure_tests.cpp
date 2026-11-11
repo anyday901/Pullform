@@ -314,3 +314,36 @@ TEST_CASE("camera projection is the inverse of the pointer ray") {
     CHECK_FALSE(camera.project(camera.position() - camera.forward(), size).has_value()); // behind the eye
     CHECK(camera.worldPerPixel(camera.target(), size) > 0.0);
 }
+
+TEST_CASE("measuring works on the bare ground with grid snap off, and the line can be placed above the horizon") {
+    Editor editor;
+    ToolController tools(editor);
+    tools.snap().enabled = false;
+    tools.setTool(Tool::Dimension);
+    click(tools, at(editor, {0.0, 0.0, 0.0}, {100, 100}));
+    tools.pointerMove(at(editor, {1.234, 0.0, 0.0}, {150, 100}));
+    REQUIRE(measurePreview(editor).end);
+    CHECK(measurePreview(editor).end->x == doctest::Approx(1.234)); // live, unsnapped
+    click(tools, at(editor, {2.0, 0.0, 0.0}, {200, 100}));
+    REQUIRE(measurePreview(editor).fixed);
+
+    // Looking up past the horizon: no model, no ground, but the placement plane is hit.
+    PointerInput sky;
+    sky.ray = Ray{{1.0, -5.0, 1.0}, glm::normalize(Vec3{0.0, 1.0, 0.2})};
+    sky.screen = {150, 20};
+    sky.pixelAngle = kPixelAngle;
+    REQUIRE_FALSE(intersectHorizontalPlane(sky.ray, 0.0).has_value());
+    tools.pointerMove(sky);
+    REQUIRE(measurePreview(editor).offset);
+    const Vec3 moved = *measurePreview(editor).offset;
+    CHECK(moved.x == doctest::Approx(0.0));
+    CHECK(glm::length(moved) > 0.1);
+    click(tools, sky);
+    REQUIRE(editor.document().dimensions.size() == 1);
+    CHECK(glm::length(editor.document().dimensions[0].offset - moved) == doctest::Approx(0.0));
+    CHECK(layoutDimension(editor.document(), editor.document().dimensions[0])->length == doctest::Approx(2.0));
+
+    // A first click into the sky does nothing.
+    click(tools, sky);
+    CHECK_FALSE(tools.active());
+}

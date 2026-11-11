@@ -57,22 +57,22 @@ void MeasureTool::publish(const MeasurePoint& cursor) {
     editor_.setPreview(preview);
 }
 
-void MeasureTool::pointerMove(const PointerInput& input, const SnapResult& snap) {
-    if (snap.kind == SnapKind::None) return; // the pointer reaches neither the model nor the ground
-    const MeasurePoint p = pointAt(snap);
-    if (mode_ == Mode::Dimension && fixed_ && start_ && end_) {
+void MeasureTool::pointerMove(const PointerInput& input, const std::optional<SnapResult>& snap) {
+    // Placing the dimension line needs only the ray, so it keeps working when
+    // the pointer is above the horizon and hits neither the model nor the ground.
+    if (placingLine()) {
         if (const auto o = offsetFromRay(start_->point, end_->point, input.ray)) offset_ = *o;
     }
-    publish(p);
+    publish(snap ? pointAt(*snap) : cursor_);
 }
 
-void MeasureTool::pointerDown(const PointerInput& input, const SnapResult& snap) {
+void MeasureTool::pointerDown(const PointerInput& input, const std::optional<SnapResult>& snap) {
     pressScreen_ = input.screen;
     pressed_ = true;
     click(input, snap);
 }
 
-void MeasureTool::pointerUp(const PointerInput& input, const SnapResult& snap) {
+void MeasureTool::pointerUp(const PointerInput& input, const std::optional<SnapResult>& snap) {
     if (!pressed_) return;
     pressed_ = false;
     // Press-drag-release places the next point at the release, like two clicks.
@@ -80,9 +80,15 @@ void MeasureTool::pointerUp(const PointerInput& input, const SnapResult& snap) {
     if (start_ && !fixed_ && glm::length(input.screen - pressScreen_) > ToolController::kDragThresholdPx) click(input, snap);
 }
 
-void MeasureTool::click(const PointerInput& input, const SnapResult& snap) {
-    if (snap.kind == SnapKind::None) return;
-    const MeasurePoint p = pointAt(snap);
+void MeasureTool::click(const PointerInput& input, const std::optional<SnapResult>& snap) {
+    if (placingLine()) {
+        // Third click places the line; it needs only the ray, not a hit.
+        if (const auto o = offsetFromRay(start_->point, end_->point, input.ray)) offset_ = *o;
+        commitDimension(offset_.value_or(Vec3{0.0}));
+        return;
+    }
+    if (!snap) return; // nothing under the pointer to measure from
+    const MeasurePoint p = pointAt(*snap);
     const LengthUnit u = editor_.document().displayUnit;
     if (!start_ || (mode_ == Mode::Tape && fixed_)) {
         // First point (a click after a finished tape measurement starts over).
@@ -108,10 +114,7 @@ void MeasureTool::click(const PointerInput& input, const SnapResult& snap) {
             editor_.notify(std::nullopt);
         }
         publish(p);
-        return;
     }
-    // Dimension: third click places the line.
-    commitDimension(offset_.value_or(Vec3{0.0}));
 }
 
 bool MeasureTool::commitDimension(const Vec3& offset) {

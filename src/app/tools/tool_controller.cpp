@@ -126,8 +126,14 @@ std::optional<SnapResult> ToolController::snapGround(const PointerInput& input) 
     return res;
 }
 
-SnapResult ToolController::measureSnap(const PointerInput& input) {
+std::optional<SnapResult> ToolController::measureSnap(const PointerInput& input) {
     SnapResult res = snapPointer(input);
+    // snapPointer reports a miss as SnapKind::None, but so is a plain ground
+    // point with grid snap off: only a ray that misses the ground is a miss.
+    if (res.kind == SnapKind::None && !intersectHorizontalPlane(input.ray, 0.0)) {
+        indicator_.reset();
+        return std::nullopt;
+    }
     if (res.kind == SnapKind::None) indicator_.reset();
     else indicator_ = res;
     return res;

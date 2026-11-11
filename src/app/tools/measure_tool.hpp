@@ -42,9 +42,10 @@ public:
     bool cancel();
     [[nodiscard]] bool active() const { return start_.has_value(); }
 
-    void pointerDown(const PointerInput& input, const SnapResult& snap);
-    void pointerMove(const PointerInput& input, const SnapResult& snap);
-    void pointerUp(const PointerInput& input, const SnapResult& snap);
+    /// `snap` is empty when the pointer reaches neither the model nor the ground.
+    void pointerDown(const PointerInput& input, const std::optional<SnapResult>& snap);
+    void pointerMove(const PointerInput& input, const std::optional<SnapResult>& snap);
+    void pointerUp(const PointerInput& input, const std::optional<SnapResult>& snap);
 
     /// Typed value: the dimension line offset while placing a dimension.
     std::optional<std::string> submit(std::string_view text);
@@ -56,7 +57,8 @@ public:
     [[nodiscard]] MeasurePoint pointAt(const SnapResult& snap) const;
 
 private:
-    void click(const PointerInput& input, const SnapResult& snap);
+    void click(const PointerInput& input, const std::optional<SnapResult>& snap);
+    [[nodiscard]] bool placingLine() const { return mode_ == Mode::Dimension && fixed_ && start_ && end_; }
     void publish(const MeasurePoint& cursor);
     bool commitDimension(const Vec3& offset);
 
