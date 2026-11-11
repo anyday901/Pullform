@@ -5,19 +5,21 @@
 namespace pf {
 
 Vec3 axisVector(MoveAxis axis) {
+    using enum MoveAxis;
     switch (axis) {
-    case MoveAxis::X: return {1.0, 0.0, 0.0};
-    case MoveAxis::Y: return {0.0, 1.0, 0.0};
-    case MoveAxis::Z: return {0.0, 0.0, 1.0};
+    case X: return {1.0, 0.0, 0.0};
+    case Y: return {0.0, 1.0, 0.0};
+    case Z: return {0.0, 0.0, 1.0};
     }
     return {1.0, 0.0, 0.0};
 }
 
 const char* axisName(MoveAxis axis) {
+    using enum MoveAxis;
     switch (axis) {
-    case MoveAxis::X: return "X";
-    case MoveAxis::Y: return "Y";
-    case MoveAxis::Z: return "Z";
+    case X: return "X";
+    case Y: return "Y";
+    case Z: return "Z";
     }
     return "X";
 }

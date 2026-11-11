@@ -13,6 +13,17 @@ namespace {
 
 double snapValue(double v, double step) { return std::round(v / step) * step; }
 
+/// The axis a move runs along when exactly one component is non-zero.
+std::optional<MoveAxis> singleAxis(const Vec3& offset) {
+    const bool x = offset.x != 0.0;
+    const bool y = offset.y != 0.0;
+    const bool z = offset.z != 0.0;
+    if (x && !y && !z) return MoveAxis::X;
+    if (y && !x && !z) return MoveAxis::Y;
+    if (z && !x && !y) return MoveAxis::Z;
+    return std::nullopt;
+}
+
 std::string trimmed(std::string_view s) {
     while (!s.empty() && (s.front() == ' ' || s.front() == '\t')) s.remove_prefix(1);
     while (!s.empty() && (s.back() == ' ' || s.back() == '\t')) s.remove_suffix(1);
@@ -360,16 +371,17 @@ std::optional<Vec3> ToolController::moveOffset(const Ray& ray) const {
     const bool snapping = snap_.enabled && snap_.step > 0.0;
     // Snapping places the object's corner (its translation) on the grid, the
     // same points rectangle corners snap to.
-    const auto snapped = [&](double start, double delta) {
-        return snapping ? snapValue(start + delta, snap_.step) - start : delta;
+    const double step = snap_.step;
+    const auto snapped = [snapping, step](double start, double delta) {
+        return snapping ? snapValue(start + delta, step) - start : delta;
     };
     const Vec3& start = move_->startTranslation;
     if (axisLock_) {
         const Vec3 axis = axisVector(*axisLock_);
         const auto t = closestParameterOnAxis(move_->anchor, axis, ray);
-        if (!t) return std::nullopt;
-        const int i = static_cast<int>(*axisLock_);
-        return axis * snapped(start[i], *t);
+        if (!t.has_value()) return std::nullopt;
+        // `axis` is a unit world axis, so the dot product is exactly that component.
+        return axis * snapped(glm::dot(start, axis), *t);
     }
     // Free move: slide in the horizontal plane through the picked point.
     const auto p = intersectHorizontalPlane(ray, move_->anchor.z);
@@ -430,10 +442,8 @@ void ToolController::moveFinish() {
 bool ToolController::commitMove(ObjectId id, const Vec3& offset) {
     const LengthUnit unit = editor_.document().displayUnit;
     std::string label = "Move " + formatLength(glm::length(offset), unit);
-    // Name the axis when the move is along exactly one of them.
-    const int nonZero = (offset.x != 0.0) + (offset.y != 0.0) + (offset.z != 0.0);
-    if (nonZero == 1) label += offset.x != 0.0 ? " along X" : offset.y != 0.0 ? " along Y" : " along Z";
-    const bool ok = editor_.commit(label, [&](const Document& doc) { return moveObject(doc, id, offset); });
+    if (const auto axis = singleAxis(offset)) label += std::string(" along ") + axisName(*axis);
+    const bool ok = editor_.commit(label, [id, &offset](const Document& doc) { return moveObject(doc, id, offset); });
     if (ok) {
         move_.reset();
         axisLock_.reset();

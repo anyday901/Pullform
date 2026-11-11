@@ -71,8 +71,8 @@ std::optional<std::string> checkMove(const ProfileObject& object, const Vec3& of
     if (!std::isfinite(offset.x) || !std::isfinite(offset.y) || !std::isfinite(offset.z)) {
         return "Move distance must be a finite number.";
     }
-    const Vec3 t = object.transform.translation + offset;
-    if (std::abs(t.x) > tol::kMaxCoordinate || std::abs(t.y) > tol::kMaxCoordinate || std::abs(t.z) > tol::kMaxCoordinate) {
+    if (const Vec3 t = object.transform.translation + offset;
+        std::abs(t.x) > tol::kMaxCoordinate || std::abs(t.y) > tol::kMaxCoordinate || std::abs(t.z) > tol::kMaxCoordinate) {
         return "The move would place the object outside the supported range of +/-10 km.";
     }
     return std::nullopt;

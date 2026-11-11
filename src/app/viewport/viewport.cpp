@@ -28,6 +28,15 @@ constexpr glm::vec4 kErrorEdge{0.85f, 0.10f, 0.08f, 1.0f};
 
 glm::vec4 dim(glm::vec4 c, float a) { return {c.r, c.g, c.b, a}; }
 
+glm::vec4 axisColor(MoveAxis axis) {
+    switch (axis) {
+    case MoveAxis::X: return kAxisX;
+    case MoveAxis::Y: return kAxisY;
+    case MoveAxis::Z: return kAxisZ;
+    }
+    return kAxisX;
+}
+
 } // namespace
 
 Viewport::Viewport(Renderer& renderer) : renderer_(renderer), meshes_(renderer) {}
@@ -199,12 +208,14 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
             moved.transform.translation += movePreview->offset;
             const MeshData mesh = buildMesh(moved);
             previewHandle_ = renderer_.createMesh(mesh);
-            renderer_.drawMesh(previewHandle_, valid ? (mesh.closed ? kSolidFill : kSheetFill) : kErrorFill);
+            glm::vec4 fill = mesh.closed ? kSolidFill : kSheetFill;
+            if (!valid) fill = kErrorFill;
+            renderer_.drawMesh(previewHandle_, fill);
             appendEdges(lines, mesh, valid ? kSelectedEdge : kErrorEdge);
             // Guide from the picked point to where it is now, in the locked axis colour.
             glm::vec4 guide = kPreviewEdge;
             if (movePreview->axis) {
-                guide = *movePreview->axis == MoveAxis::X ? kAxisX : *movePreview->axis == MoveAxis::Y ? kAxisY : kAxisZ;
+                guide = axisColor(*movePreview->axis);
                 // Extend the locked axis through the start point so the constraint is visible.
                 const Vec3 dir = axisVector(*movePreview->axis);
                 const double reach = std::max(camera_.distance(), 1.0);
