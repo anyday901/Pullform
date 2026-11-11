@@ -7,6 +7,8 @@
 
 #include <glm/geometric.hpp>
 
+#include <algorithm>
+
 namespace pf {
 
 bool MoveTool::key(ToolKey key) {
@@ -53,10 +55,34 @@ void MoveTool::pointerDown(const PointerInput& input) {
     const auto& pick = *input.pick;
     const auto* o = editor().document().find(pick.objectId);
     if (!o) return;
-    editor().select(Selection{pick.objectId, pick.faceId});
-    gesture_ = Gesture{pick.objectId, pick.point, o->transform.translation, input.screen, true, std::nullopt};
+    // Clicking one of several selected objects moves them all; any other
+    // object becomes the selection on its own.
+    std::vector<ObjectId> ids = transformGroup(editor(), pick.objectId);
+    if (ids.size() > 1) {
+        SelectionSet keep = editor().selectionSet();
+        keep.add(Selection{pick.objectId, pick.faceId}); // primary, others kept
+        editor().setSelection(keep);
+    } else {
+        editor().select(Selection{pick.objectId, pick.faceId});
+    }
+    gesture_ = Gesture{pick.objectId, pick.point, o->transform.translation, input.screen, true, std::nullopt, std::move(ids)};
     editor().notify(std::nullopt);
-    editor().setPreview(MovePreview{pick.objectId, pick.point, Vec3{0.0}, axisLock_, std::nullopt, copy_});
+    editor().setPreview(preview(Vec3{0.0}, std::nullopt));
+}
+
+MovePreview MoveTool::preview(const Vec3& offset, std::optional<std::string> error) const {
+    MovePreview p{gesture_->objectId, gesture_->anchor, offset, axisLock_, std::move(error), copy_, {}};
+    if (gesture_->ids.size() > 1) p.objectIds = gesture_->ids;
+    return p;
+}
+
+std::optional<std::string> MoveTool::checkGroup(const std::vector<ObjectId>& ids, const Vec3& offset) const {
+    for (const ObjectId id : ids) {
+        const auto* o = editor().document().find(id);
+        if (!o) return std::string("The object no longer exists.");
+        if (auto e = checkMove(*o, offset)) return e;
+    }
+    return std::nullopt;
 }
 
 void MoveTool::pointerUp(const PointerInput& input) {
@@ -96,8 +122,7 @@ std::optional<Vec3> MoveTool::offsetFor(const Ray& ray) const {
 void MoveTool::updatePreview(const Ray& ray) {
     if (!gesture_) return;
     gesture_->lastRay = ray;
-    const auto* o = editor().document().find(gesture_->objectId);
-    if (!o) return;
+    if (!editor().document().find(gesture_->objectId)) return;
     auto offset = offsetFor(ray);
     if (!offset) {
         // The ray cannot be resolved under the current constraint (parallel to
@@ -112,7 +137,7 @@ void MoveTool::updatePreview(const Ray& ray) {
             offset = Vec3{last.x, last.y, 0.0};
         }
     }
-    editor().setPreview(MovePreview{gesture_->objectId, gesture_->anchor, *offset, axisLock_, checkMove(*o, *offset), copy_});
+    editor().setPreview(preview(*offset, checkGroup(gesture_->ids, *offset)));
 }
 
 void MoveTool::pointerMove(const PointerInput& input) {
@@ -139,28 +164,32 @@ void MoveTool::finish() {
         editor().notify(Message{Message::Kind::Error, *preview->error});
         return;
     }
-    commit(gesture_->objectId, offset);
+    commit(gesture_->ids, gesture_->objectId, offset);
 }
 
-bool MoveTool::commit(ObjectId id, const Vec3& offset) {
+bool MoveTool::commit(const std::vector<ObjectId>& ids, ObjectId primary, const Vec3& offset) {
     const LengthUnit unit = editor().document().displayUnit;
     const bool copy = copy_;
     std::string label = (copy ? "Copy " : "Move ") + formatLength(glm::length(offset), unit);
     if (const auto axis = singleAxis(offset)) label += std::string(" along ") + axisName(*axis);
+    label += groupSuffix(ids.size());
     bool ok = false;
     if (copy) {
-        // The copy takes over the selection (with the same face) so it can be
-        // moved or copied again right away.
-        const auto face = editor().selection() && editor().selection()->objectId == id ? editor().selection()->face
-                                                                                      : std::optional<FaceId>{};
+        // The copies take over the selection (the picked object's copy with the
+        // same face) so they can be moved or copied again right away.
+        const auto face = editor().selection() && editor().selection()->objectId == primary ? editor().selection()->face
+                                                                                           : std::optional<FaceId>{};
+        const auto it = std::find(ids.begin(), ids.end(), primary);
+        const auto primaryIndex = static_cast<std::size_t>(it == ids.end() ? ids.size() - 1 : it - ids.begin());
         ok = editor().commit(
-            label, [id, &offset](const Document& doc) { return duplicateObject(doc, id, offset); },
-            [face](const OpResult& r) -> std::optional<Selection> {
-                if (!r.objectId) return std::nullopt;
-                return Selection{*r.objectId, face};
+            label, [&ids, &offset](const Document& doc) { return duplicateObjects(doc, ids, offset); },
+            [face, primaryIndex](const OpResult& r) {
+                SelectionSet copies = SelectionSet::ofObjects(r.objectIds);
+                if (primaryIndex < r.objectIds.size()) copies.add(Selection{r.objectIds[primaryIndex], face});
+                return copies;
             });
     } else {
-        ok = editor().commit(label, [id, &offset](const Document& doc) { return moveObject(doc, id, offset); });
+        ok = editor().commit(label, [&ids, &offset](const Document& doc) { return moveObjects(doc, ids, offset); });
     }
     if (ok) {
         gesture_.reset();
@@ -174,13 +203,16 @@ bool MoveTool::commit(ObjectId id, const Vec3& offset) {
 std::optional<std::string> MoveTool::submitDistance(std::string_view text) {
     const LengthUnit unit = editor().document().displayUnit;
     ObjectId id;
+    std::vector<ObjectId> ids;
     if (gesture_) {
         id = gesture_->objectId;
+        ids = gesture_->ids;
     } else {
         const auto& sel = editor().selection();
         const auto* o = sel ? editor().document().find(sel->objectId) : nullptr;
         if (!o) return std::string("Select an object to move first.");
         id = o->id;
+        ids = transformGroup(editor(), id);
     }
     Vec3 offset{0.0};
     if (text.find_first_of(",;") != std::string_view::npos) {
@@ -202,10 +234,8 @@ std::optional<std::string> MoveTool::submitDistance(std::string_view text) {
         offset = direction * *d;
     }
     if (glm::length(offset) < tol::kLengthEpsilon) return std::string("Distance must not be zero.");
-    const auto* o = editor().document().find(id);
-    if (!o) return std::string("The object no longer exists.");
-    if (auto e = checkMove(*o, offset)) return e;
-    if (!commit(id, offset)) return ctx_.lastError("Move failed.");
+    if (auto e = checkGroup(ids, offset)) return e;
+    if (!commit(ids, id, offset)) return ctx_.lastError("Move failed.");
     return std::nullopt;
 }
 

@@ -61,6 +61,8 @@ private:
     bool save(Pending then = Pending::None);
     bool saveAs(Pending then = Pending::None);
     bool writeTo(const std::filesystem::path& path);
+    /// Pointer input for a window position, with the modifier keys held.
+    PointerInput pointerInput(const Vec2& mouse);
     void deleteSelection();
     void selectAllObjects();
     void duplicateSelection();

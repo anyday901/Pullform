@@ -30,8 +30,6 @@ public:
     void setRect(const Vec2& origin, const Vec2& size, const Vec2& framebufferScale, int framebufferHeight);
     [[nodiscard]] bool contains(const Vec2& windowPos) const;
     [[nodiscard]] Vec2 size() const { return size_; }
-    /// Top-left corner of the viewport in window coordinates.
-    [[nodiscard]] Vec2 origin() const { return origin_; }
     [[nodiscard]] double aspect() const { return size_.y > 0 ? size_.x / size_.y : 1.0; }
     /// Converts a window position to viewport-local pixels.
     [[nodiscard]] Vec2 toLocal(const Vec2& windowPos) const { return windowPos - origin_; }

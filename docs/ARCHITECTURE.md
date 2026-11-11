@@ -155,6 +155,29 @@ same interface.
 - **Dirty state:** every committed state has an ID; the document is "unsaved" when the
   current state ID differs from the last saved one, so undoing back to the saved state is
   clean again.
+- **Multi-selection** (`core/commands/selection.*`): a `SelectionSet` holds the selected
+  objects in the order they were added, plus a *primary* entry (the object last clicked and
+  the face under the pointer). `Editor::selection()` returns the primary, so single-object
+  code (push/pull, the properties panel's height field) is unchanged; `selectionSet()` and
+  `selectedObjects()` give the whole set. Click rules are pure functions: `applyClick`
+  (plain click replaces, Shift toggles, Ctrl/Cmd adds, empty space clears unless a modifier
+  is held) and `applyRegion` (the same for a box). Snapshots store the whole set, so undo
+  and redo bring back a multi-selection. Selection changes are never history.
+- **Window and crossing selection** (`core/geometry/region_select.*`): the Select tool's box
+  drag projects each object's real corners and edges through `PointerInput::project` (the
+  camera, filled by the viewport). Left to right is a *window*: every corner inside the
+  rectangle (a corner behind the eye never counts). Right to left is a *crossing*: also an
+  edge that meets the rectangle, or a rectangle that lies inside one of the object's faces
+  on screen. While dragging, a `SelectBoxPreview` carries the rectangle and the objects the
+  release would select; the UI draws it (solid blue window, dashed green crossing).
+- **Operations on a selection:** `moveObjects`, `rotateObjects`, `scaleObjects`,
+  `duplicateObjects` and `deleteObjects` run the single-object operation on each object
+  and fail as a whole, so a selection changes in one commit and one undo entry. Grabbing
+  one of several selected objects with Move, Rotate or Scale acts on all of them
+  (`transformGroup`); grabbing an unselected object acts on it alone. Several objects
+  rotate and scale about the base centre of their combined bounding box
+  (`selectionBaseCenter`); scaling a group also moves each object's base centre away from
+  that point by the same factors, so a uniform factor scales the group rigidly.
 - Camera navigation, hover, tool changes and snap settings are not model history.
 - **New/Open** replace the project and clear history.
 

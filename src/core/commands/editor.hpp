@@ -109,7 +109,8 @@ struct ScalePreview {
 };
 
 /// Live window (left to right) or crossing (right to left) selection
-/// rectangle, in viewport pixels, with the objects it would select.
+/// rectangle, in the pointer's screen coordinates (PointerInput::screen), with
+/// the objects that will be selected when it is released.
 struct SelectBoxPreview {
     Vec2 start{0.0};
     Vec2 end{0.0};

@@ -103,6 +103,12 @@ PointerInput Viewport::pointerAt(const Vec2& windowPos, const Document& document
     in.ray = camera_.rayThrough(toLocal(windowPos), size_);
     in.pick = meshes_.pick(in.ray);
     in.pixelAngle = pixelAngle();
+    // A copy of the camera, so the projector stays valid for the whole event.
+    in.project = [camera = camera_, size = size_, origin = origin_](const Vec3& p) -> std::optional<Vec2> {
+        const auto local = camera.project(p, size);
+        if (!local) return std::nullopt;
+        return *local + origin;
+    };
     return in;
 }
 

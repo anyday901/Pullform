@@ -290,7 +290,7 @@ void App::frame() {
     updateTitle();
     // Labels after input, so they match this frame's preview and document.
     ui_.drawLabels(viewport_->labels(editor_));
-    ui_.drawSelectBox(editor_, viewport_->origin());
+    ui_.drawSelectBox(editor_);
 
     ImGui::Render();
     glViewport(0, 0, fbw, fbh);
@@ -322,7 +322,7 @@ void App::handleViewportInput() {
                 drag_ = DragMode::Orbit;
             } else {
                 drag_ = DragMode::Tool;
-                tools_.pointerDown(viewport_->pointerAt(mouse, editor_.document()));
+                tools_.pointerDown(pointerInput(mouse));
             }
         } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Middle)) {
             dragButton_ = ImGuiMouseButton_Middle;
@@ -337,16 +337,16 @@ void App::handleViewportInput() {
         switch (drag_) {
         case DragMode::Orbit: viewport_->camera().orbit(delta); onActivity(); break;
         case DragMode::Pan: viewport_->camera().pan(delta, viewport_->size()); onActivity(); break;
-        case DragMode::Tool: tools_.pointerMove(viewport_->pointerAt(mouse, editor_.document())); break;
+        case DragMode::Tool: tools_.pointerMove(pointerInput(mouse)); break;
         case DragMode::None:
-            if (hovering) tools_.pointerMove(viewport_->pointerAt(mouse, editor_.document()));
+            if (hovering) tools_.pointerMove(pointerInput(mouse));
             break;
         }
     }
     if (drag_ == DragMode::None && !hovering && !tools_.active()) editor_.setHover(std::nullopt);
 
     if (drag_ != DragMode::None && !ImGui::IsMouseDown(dragButton_)) {
-        if (drag_ == DragMode::Tool) tools_.pointerUp(viewport_->pointerAt(mouse, editor_.document()));
+        if (drag_ == DragMode::Tool) tools_.pointerUp(pointerInput(mouse));
         drag_ = DragMode::None;
         dragButton_ = -1;
     }
@@ -563,6 +563,14 @@ bool App::writeTo(const std::filesystem::path& path) {
     editor_.markSaved();
     editor_.notify(Message{Message::Kind::Info, "Saved " + pathToUtf8(path.filename())});
     return true;
+}
+
+PointerInput App::pointerInput(const Vec2& mouse) {
+    PointerInput in = viewport_->pointerAt(mouse, editor_.document());
+    const ImGuiIO& io = ImGui::GetIO();
+    in.shift = io.KeyShift;
+    in.ctrl = io.KeyCtrl;
+    return in;
 }
 
 void App::deleteSelection() {

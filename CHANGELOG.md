@@ -9,6 +9,14 @@ include breaking changes, but project files will keep a migration path.
 
 ### Added
 
+- **Multi-selection.** With the Select tool, Shift-click adds or removes an object,
+  Ctrl-click (Cmd on macOS) adds one, clicking empty space clears, and Ctrl+A / Cmd+A
+  (Edit > Select all) selects everything. Drag a box left to right to select objects
+  entirely inside it (window), or right to left to also select objects it touches
+  (crossing); Shift and Ctrl work with boxes too, and Esc cancels a box. Move, Rotate,
+  Scale, Duplicate and Delete act on the whole selection as one undo entry: grab any
+  selected object to move, copy, turn or resize the group. Undo and redo restore the
+  selection. The properties panel shows the group's overall size.
 - **Duplicate** (Edit > Duplicate, Ctrl+D / Cmd+D, or the Duplicate buttons): copies the
   selected object with a new stable ID and places it beside the original along +X. The copy
   becomes the selection, so repeating it builds a row. Editing either object leaves the

@@ -6,6 +6,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace pf {
 
@@ -38,5 +39,16 @@ bool isDrag(const Vec2& press, const Vec2& release);
 
 /// World-space centre of an object's base (the default rotation and the scale centre).
 Vec3 baseCenter(const ProfileObject& object);
+
+/// The objects a Move, Rotate or Scale of `primary` acts on: the whole
+/// selection when `primary` is one of several selected objects, else just it.
+std::vector<ObjectId> transformGroup(const Editor& editor, ObjectId primary);
+
+/// Default centre for rotating or scaling `ids`: the object's base centre for
+/// one, the base centre of the group's bounding box for several.
+Vec3 groupBaseCenter(const Document& doc, const std::vector<ObjectId>& ids);
+
+/// " (3 objects)" for a group, empty for one object: appended to undo labels.
+std::string groupSuffix(std::size_t count);
 
 } // namespace pf

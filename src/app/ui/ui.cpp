@@ -97,11 +97,11 @@ void Ui::drawLabels(const std::vector<ViewportLabel>& labels) {
     }
 }
 
-void Ui::drawSelectBox(const Editor& editor, const Vec2& origin) {
+void Ui::drawSelectBox(const Editor& editor) {
     const auto* box = std::get_if<SelectBoxPreview>(&editor.preview());
     if (!box) return;
-    const Vec2 lo = glm::min(box->start, box->end) + origin;
-    const Vec2 hi = glm::max(box->start, box->end) + origin;
+    const Vec2 lo = glm::min(box->start, box->end);
+    const Vec2 hi = glm::max(box->start, box->end);
     const ImVec2 min(static_cast<float>(lo.x), static_cast<float>(lo.y));
     const ImVec2 max(static_cast<float>(hi.x), static_cast<float>(hi.y));
     ImDrawList* dl = ImGui::GetForegroundDrawList();

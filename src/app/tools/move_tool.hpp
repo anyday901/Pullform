@@ -2,10 +2,13 @@
 
 #include "app/tools/tool.hpp"
 
+#include <vector>
+
 namespace pf {
 
 /// Move: click an object and move it (click-move-click or press-drag-release),
-/// or type a distance or "x, y, z". X, Y, Z or the arrow keys lock an axis;
+/// or type a distance or "x, y, z". Clicking one of several selected objects
+/// moves (or copies) the whole selection. X, Y, Z or the arrow keys lock an axis;
 /// copy mode places a duplicate instead. One undo entry per move.
 class MoveTool final : public ToolBase {
 public:
@@ -50,13 +53,18 @@ private:
         Vec2 pressScreen{0.0};
         bool pressed = false;
         std::optional<Ray> lastRay; ///< re-evaluates the preview when the axis lock changes
+        std::vector<ObjectId> ids;  ///< every object that moves (objectId and the rest of a multi-selection)
     };
 
     void finish();
     void updatePreview(const Ray& ray);
     [[nodiscard]] std::optional<Vec3> offsetFor(const Ray& ray) const;
-    /// Every move (mouse or typed) commits here: one undo entry.
-    bool commit(ObjectId id, const Vec3& offset);
+    [[nodiscard]] MovePreview preview(const Vec3& offset, std::optional<std::string> error) const;
+    /// First reason the offset cannot be applied to every moving object.
+    [[nodiscard]] std::optional<std::string> checkGroup(const std::vector<ObjectId>& ids, const Vec3& offset) const;
+    /// Every move (mouse or typed) commits here: one undo entry for all of
+    /// `ids`. `primary` is the object the gesture picked (its copy keeps the face).
+    bool commit(const std::vector<ObjectId>& ids, ObjectId primary, const Vec3& offset);
 
     std::optional<Gesture> gesture_;
     std::optional<MoveAxis> axisLock_;

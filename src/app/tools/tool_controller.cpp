@@ -11,6 +11,7 @@
 #include "core/commands/operations.hpp"
 #include "core/geometry/solid.hpp"
 
+#include <algorithm>
 #include <cassert>
 
 namespace pf {
@@ -128,23 +129,37 @@ std::optional<std::string> ToolController::submitMeasure(std::string_view text) 
 std::optional<std::string> ToolController::duplicateSelection() {
     const auto selection = editor_.selection();
     if (!selection) return std::string{"Select an object to duplicate."};
-    const auto* o = editor_.document().find(selection->objectId);
-    if (!o) return std::string{"The selected object no longer exists."};
+    const std::vector<ObjectId> ids = editor_.selectedObjects();
+    Bounds bounds;
+    for (const ObjectId id : ids) {
+        const auto* o = editor_.document().find(id);
+        if (!o) return std::string{"The selected object no longer exists."};
+        bounds.extend(objectBounds(*o));
+    }
     cancel();
-    const Vec3 offset{objectBounds(*o).size().x, 0.0, 0.0};
+    // Beside the original (or the whole group), one width over along +X.
+    const Vec3 offset{bounds.size().x, 0.0, 0.0};
     const auto face = selection->face;
-    const ObjectId id = selection->objectId;
+    const ObjectId primary = selection->objectId;
+    const auto it = std::find(ids.begin(), ids.end(), primary);
+    const auto primaryIndex = static_cast<std::size_t>(it == ids.end() ? ids.size() - 1 : it - ids.begin());
+    const std::string label =
+        ids.size() == 1 ? "Duplicate " + idString(primary) : "Duplicate " + std::to_string(ids.size()) + " objects";
     if (const bool ok = editor_.commit(
-            "Duplicate " + idString(id), [id, offset](const Document& d) { return duplicateObject(d, id, offset); },
-            [face](const OpResult& r) -> std::optional<Selection> {
-                if (!r.objectId) return std::nullopt;
-                return Selection{*r.objectId, face};
+            label, [&ids, offset](const Document& d) { return duplicateObjects(d, ids, offset); },
+            [face, primaryIndex](const OpResult& r) {
+                SelectionSet copies = SelectionSet::ofObjects(r.objectIds);
+                if (primaryIndex < r.objectIds.size()) copies.add(Selection{r.objectIds[primaryIndex], face});
+                return copies;
             });
         !ok) {
         return ctx_.lastError("Could not duplicate the object.");
     }
-    if (const auto* copy = editor_.selection() ? editor_.document().find(editor_.selection()->objectId) : nullptr)
+    if (ids.size() > 1) {
+        editor_.notify(Message{Message::Kind::Info, "Duplicated " + std::to_string(ids.size()) + " objects."});
+    } else if (const auto* copy = editor_.selection() ? editor_.document().find(editor_.selection()->objectId) : nullptr) {
         editor_.notify(Message{Message::Kind::Info, "Duplicated as " + copy->name + "."});
+    }
     return std::nullopt;
 }
 

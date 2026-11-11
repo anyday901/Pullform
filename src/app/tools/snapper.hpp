@@ -2,6 +2,7 @@
 
 #include "core/commands/editor.hpp"
 #include "core/geometry/pick.hpp"
+#include "core/geometry/region_select.hpp"
 #include "core/geometry/snap.hpp"
 
 #include <cstddef>
@@ -22,6 +23,11 @@ struct PointerInput {
     /// it from the camera; 0 turns endpoint, midpoint and inference snapping
     /// off for this event (grid snap still applies).
     double pixelAngle = 0.0;
+    bool shift = false; ///< Shift held (Select: add or remove the clicked object)
+    bool ctrl = false;  ///< Ctrl (Cmd on macOS) held (Select: add the clicked object)
+    /// Projects a world point to the same screen coordinates as `screen`, for
+    /// window and crossing selection. Empty in most tests (no projection).
+    ScreenProjector project;
 };
 
 struct SnapSettings {

@@ -1,5 +1,6 @@
 #include "app/tools/tool_support.hpp"
 
+#include "core/commands/operations.hpp"
 #include "core/geometry/pick.hpp"
 #include "core/geometry/solid.hpp"
 
@@ -125,5 +126,20 @@ const ProfileObject* ToolContext::transformTarget(const PointerInput& input) {
     }
     return nullptr;
 }
+
+std::vector<ObjectId> transformGroup(const Editor& editor, ObjectId primary) {
+    if (editor.selectedObjects().size() > 1 && editor.isSelected(primary)) return editor.selectedObjects();
+    return {primary};
+}
+
+Vec3 groupBaseCenter(const Document& doc, const std::vector<ObjectId>& ids) {
+    if (ids.size() == 1) {
+        if (const auto* o = doc.find(ids.front())) return baseCenter(*o);
+    }
+    const auto centre = selectionBaseCenter(doc, ids);
+    return centre ? *centre : Vec3{0.0};
+}
+
+std::string groupSuffix(std::size_t count) { return count > 1 ? " (" + std::to_string(count) + " objects)" : std::string(); }
 
 } // namespace pf

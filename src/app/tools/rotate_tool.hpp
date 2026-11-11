@@ -3,12 +3,14 @@
 #include "app/tools/tool.hpp"
 
 #include <numbers>
+#include <vector>
 
 namespace pf {
 
 /// Rotate: pick the object, click the centre, click a reference direction,
 /// then move to turn and click (or type an angle). The arrow keys pick the
-/// world axis. Commits one "Rotate" entry.
+/// world axis. With several objects selected, the whole selection turns about
+/// the same centre. Commits one "Rotate" entry.
 class RotateTool final : public ToolBase {
 public:
     static constexpr double kSnapRadians = std::numbers::pi / 12.0; ///< 15 degrees with grid snap on
@@ -42,9 +44,11 @@ private:
         Vec3 pivot{0.0};
         Vec3 axis{0.0, 0.0, 1.0};
         std::optional<Vec3> reference;
+        std::vector<ObjectId> ids; ///< every object that turns (objectId and the rest of a multi-selection)
     };
 
-    bool commit(ObjectId id, const Vec3& pivot, const Vec3& axis, double angle);
+    /// One undo entry for all of `ids`.
+    bool commit(const std::vector<ObjectId>& ids, const Vec3& pivot, const Vec3& axis, double angle);
 
     std::optional<Gesture> gesture_;
     MoveAxis axis_ = MoveAxis::Z; ///< world axis Rotate turns about

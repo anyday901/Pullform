@@ -40,8 +40,8 @@ public:
     void drawLabels(const std::vector<ViewportLabel>& labels);
     /// Draws the window/crossing selection rectangle while one is dragged:
     /// solid blue for window (left to right), dashed green for crossing.
-    /// `origin` is the viewport's top-left corner in window coordinates.
-    void drawSelectBox(const Editor& editor, const Vec2& origin);
+    /// The box is in window coordinates (as PointerInput::screen).
+    void drawSelectBox(const Editor& editor);
 
     /// Actions requested since the last call.
     std::vector<UiAction> takeActions();

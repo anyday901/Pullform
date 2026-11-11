@@ -2,11 +2,14 @@
 
 #include "app/tools/tool.hpp"
 
+#include <vector>
+
 namespace pf {
 
 /// Scale: pick the object, click a grip point, move away from or toward the
 /// base centre and click (or type a factor or "width, depth, height" factors).
-/// Commits one "Scale" entry.
+/// With several objects selected, the whole selection scales about the base
+/// centre of its bounding box. Commits one "Scale" entry.
 class ScaleTool final : public ToolBase {
 public:
     static constexpr double kSnapStep = 0.1; ///< factor steps with grid snap on
@@ -32,9 +35,11 @@ private:
         Vec3 pivot{0.0};
         Vec3 normal{0.0, 0.0, 1.0};
         Vec3 start{0.0};
+        std::vector<ObjectId> ids; ///< every object that scales (objectId and the rest of a multi-selection)
     };
 
-    bool commit(ObjectId id, const Vec3& factors);
+    /// One undo entry for all of `ids`, scaled about `pivot`.
+    bool commit(const std::vector<ObjectId>& ids, const Vec3& pivot, const Vec3& factors);
 
     std::optional<Gesture> gesture_;
 };

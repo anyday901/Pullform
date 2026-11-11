@@ -51,7 +51,7 @@ void RotateTool::pointerDown(const PointerInput& input) {
         if (input.pick) pivot = input.pick->point;
         else pivot = ctx_.groundPoint(input);
         if (!pivot) return;
-        gesture_ = Gesture{o->id, *pivot, axisVector(axis_), std::nullopt};
+        gesture_ = Gesture{o->id, *pivot, axisVector(axis_), std::nullopt, transformGroup(editor(), o->id)};
         editor().setPreview(rotatePreview(o->id, *pivot, gesture_->axis));
         editor().notify(std::nullopt);
         return;
@@ -79,7 +79,7 @@ void RotateTool::pointerDown(const PointerInput& input) {
         editor().notify(Message{Message::Kind::Error, *preview->error});
         return;
     }
-    commit(gesture_->objectId, gesture_->pivot, gesture_->axis, preview->angle);
+    commit(gesture_->ids, gesture_->pivot, gesture_->axis, preview->angle);
 }
 
 void RotateTool::pointerMove(const PointerInput& input) {
@@ -90,14 +90,18 @@ void RotateTool::pointerMove(const PointerInput& input) {
     const auto p = intersectPlane(input.ray, gesture_->pivot, gesture_->axis);
     if (!p) return;
     RotatePreview preview = rotatePreview(gesture_->objectId, gesture_->pivot, gesture_->axis, gesture_->reference, *p - gesture_->pivot);
+    if (gesture_->ids.size() > 1) preview.objectIds = gesture_->ids;
     if (gesture_->reference && glm::length(*preview.current) > 1e-9) {
         const Vec3 a = *gesture_->reference;
         const Vec3 b = *preview.current;
         double angle = std::atan2(glm::dot(glm::cross(a, b), gesture_->axis), glm::dot(a, b));
         if (ctx_.snap.enabled) angle = snapValue(angle, kSnapRadians);
         preview.angle = angle;
-        if (auto result = rotateObject(editor().document(), gesture_->objectId, gesture_->pivot, gesture_->axis, angle); result) {
+        if (auto result = rotateObjects(editor().document(), gesture_->ids, gesture_->pivot, gesture_->axis, angle); result) {
             if (const auto* o = result->document.find(gesture_->objectId)) preview.result = *o;
+            if (gesture_->ids.size() > 1) {
+                for (const ObjectId id : gesture_->ids) preview.group.push_back(*result->document.find(id));
+            }
         } else {
             preview.error = result.error();
         }
@@ -105,11 +109,14 @@ void RotateTool::pointerMove(const PointerInput& input) {
     editor().setPreview(std::move(preview));
 }
 
-bool RotateTool::commit(ObjectId id, const Vec3& pivot, const Vec3& axis, double angle) {
+bool RotateTool::commit(const std::vector<ObjectId>& ids, const Vec3& pivot, const Vec3& axis, double angle) {
+    // One object keeps the selection without a face (a turned face is no
+    // longer the one that was clicked); a group keeps the whole selection.
+    const SelectionSet after = ids.size() == 1 ? SelectionSet{Selection{ids.front(), std::nullopt}} : editor().selectionSet();
     const bool ok = editor().commit(
-        "Rotate " + formatAngle(angle),
-        [id, &pivot, &axis, angle](const Document& doc) { return rotateObject(doc, id, pivot, axis, angle); },
-        [id](const OpResult&) -> std::optional<Selection> { return Selection{id, std::nullopt}; });
+        "Rotate " + formatAngle(angle) + groupSuffix(ids.size()),
+        [&ids, &pivot, &axis, angle](const Document& doc) { return rotateObjects(doc, ids, pivot, axis, angle); },
+        [&after](const OpResult&) { return after; });
     if (ok) {
         gesture_.reset();
         editor().cancelPreview();
@@ -121,11 +128,11 @@ std::optional<std::string> RotateTool::submitAngle(std::string_view text) {
     const auto parsed = parseAngle(text);
     if (!parsed) return parsed.error();
     double angle = *parsed;
-    ObjectId id;
+    std::vector<ObjectId> ids;
     Vec3 pivot{0.0};
     Vec3 axis = axisVector(axis_);
     if (gesture_) {
-        id = gesture_->objectId;
+        ids = gesture_->ids;
         pivot = gesture_->pivot;
         axis = gesture_->axis;
         // Typed values follow the direction the pointer is turning.
@@ -134,11 +141,11 @@ std::optional<std::string> RotateTool::submitAngle(std::string_view text) {
         const auto& sel = editor().selection();
         const auto* o = sel ? editor().document().find(sel->objectId) : nullptr;
         if (!o) return std::string("Select an object to rotate first.");
-        id = o->id;
-        pivot = baseCenter(*o);
+        ids = transformGroup(editor(), o->id);
+        pivot = groupBaseCenter(editor().document(), ids);
     }
     if (std::abs(angle) < 1e-12) return std::string("Angle must not be zero.");
-    if (!commit(id, pivot, axis, angle)) return ctx_.lastError("Could not rotate the object.");
+    if (!commit(ids, pivot, axis, angle)) return ctx_.lastError("Could not rotate the object.");
     return std::nullopt;
 }
 

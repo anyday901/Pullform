@@ -251,3 +251,228 @@ TEST_CASE("operations on a selection: rotate, scale, duplicate and delete as one
         CHECK_FALSE(moveObjects(editor.document(), {a, a}, Vec3{1, 0, 0}));
     }
 }
+
+// ---- Tool gestures ---------------------------------------------------------
+
+namespace {
+
+/// A straight-down pointer at (x, y) meters, with the top-down projector and
+/// screen position, so the Select tool can drag window and crossing boxes.
+PointerInput at(const Editor& editor, double x, double y, bool shift = false, bool ctrl = false) {
+    PointerInput in = test::downAt(editor, x, y, *topDown({x, y, 0}));
+    in.project = topDown;
+    in.shift = shift;
+    in.ctrl = ctrl;
+    return in;
+}
+
+void click(ToolController& tools, const PointerInput& in) {
+    tools.pointerDown(in);
+    tools.pointerUp(in);
+}
+
+/// Press at `from`, move to `to` and release: a box drag in the Select tool.
+void drag(ToolController& tools, const PointerInput& from, const PointerInput& to) {
+    tools.pointerDown(from);
+    tools.pointerMove(to);
+    tools.pointerUp(to);
+}
+
+struct ThreeBoxes {
+    Editor editor;
+    ToolController tools{editor};
+    ObjectId a, b, c, far;
+    ThreeBoxes() {
+        a = addBox(editor, 0, 0);
+        b = addBox(editor, 2, 0);
+        c = addBox(editor, 4, 0);
+        far = addBox(editor, 0, 5);
+        tools.setTool(Tool::Select);
+        editor.select(std::nullopt);
+    }
+};
+
+} // namespace
+
+TEST_CASE("select tool: click, Shift, Ctrl and empty space") {
+    ThreeBoxes s;
+    auto& [editor, tools, a, b, c, far] = s;
+    click(tools, at(editor, 0.5, 0.5));
+    CHECK(editor.selectedObjects() == std::vector<ObjectId>{a});
+    CHECK(editor.selection()->face == FaceId::cap()); // the primary still targets the clicked face
+
+    click(tools, at(editor, 2.5, 0.5, true)); // Shift adds
+    click(tools, at(editor, 4.5, 0.5, false, true)); // Ctrl adds
+    CHECK(editor.selectedObjects() == std::vector<ObjectId>{a, b, c});
+    click(tools, at(editor, 2.5, 0.5, true)); // Shift removes
+    CHECK(editor.selectedObjects() == std::vector<ObjectId>{a, c});
+    click(tools, at(editor, 4.5, 0.5, false, true)); // Ctrl never removes
+    CHECK(editor.selectedObjects() == std::vector<ObjectId>{a, c});
+
+    click(tools, at(editor, 1.5, 3.0, true)); // Shift on empty space keeps the selection
+    CHECK(editor.selectedObjects().size() == 2);
+    click(tools, at(editor, 1.5, 3.0)); // plain click on empty space clears
+    CHECK(editor.selectionSet().empty());
+    CHECK(editor.undoDepth() == 8); // selection is never history (4 boxes x draw + extrude)
+}
+
+TEST_CASE("select tool: window and crossing boxes") {
+    ThreeBoxes s;
+    auto& [editor, tools, a, b, c, far] = s;
+
+    SUBCASE("left to right selects objects entirely inside, with a live preview") {
+        tools.pointerDown(at(editor, -0.5, 1.5));
+        tools.pointerMove(at(editor, 4.5, -0.5)); // c only half inside
+        CHECK(tools.active());
+        const auto* box = std::get_if<SelectBoxPreview>(&editor.preview());
+        REQUIRE(box);
+        CHECK(box->mode == RegionMode::Window);
+        CHECK(box->found == std::vector<ObjectId>{a, b});
+        tools.pointerUp(at(editor, 4.5, -0.5));
+        CHECK(editor.selectedObjects() == std::vector<ObjectId>{a, b});
+        CHECK(std::holds_alternative<std::monostate>(editor.preview()));
+        CHECK_FALSE(tools.active());
+    }
+    SUBCASE("right to left also selects objects the box touches") {
+        drag(tools, at(editor, 4.5, 1.5), at(editor, 1.5, -0.5));
+        CHECK(editor.selectedObjects() == std::vector<ObjectId>{b, c});
+    }
+    SUBCASE("a drag that starts on an object is still a box") {
+        drag(tools, at(editor, 2.5, 0.5), at(editor, 0.8, 0.2)); // crossing from inside b reaches a
+        CHECK(editor.selectedObjects() == std::vector<ObjectId>{a, b});
+    }
+    SUBCASE("Shift toggles and Ctrl adds the boxed objects") {
+        click(tools, at(editor, 0.5, 0.5));
+        drag(tools, at(editor, 1.5, 1.5, false, true), at(editor, 3.5, -0.5, false, true));
+        CHECK(editor.selectedObjects() == std::vector<ObjectId>{a, b});
+        drag(tools, at(editor, -0.5, 1.5, true), at(editor, 5.5, -0.5, true));
+        CHECK(editor.selectedObjects() == std::vector<ObjectId>{c}); // a and b toggled off, c on
+    }
+    SUBCASE("Escape during a box keeps the previous selection") {
+        click(tools, at(editor, 0.5, 5.5));
+        tools.pointerDown(at(editor, -0.5, 1.5));
+        tools.pointerMove(at(editor, 5.5, -0.5));
+        CHECK(tools.cancel());
+        CHECK(editor.selectedObjects() == std::vector<ObjectId>{far});
+        CHECK(std::holds_alternative<std::monostate>(editor.preview()));
+    }
+    SUBCASE("a box over empty space clears") {
+        click(tools, at(editor, 0.5, 0.5));
+        drag(tools, at(editor, 1.2, 3.0), at(editor, 1.8, 4.0));
+        CHECK(editor.selectionSet().empty());
+    }
+}
+
+TEST_CASE("acceptance (tools): window-select three boxes, drag them 1 m, one undo entry") {
+    ThreeBoxes s;
+    auto& [editor, tools, a, b, c, far] = s;
+    drag(tools, at(editor, -0.5, 1.5), at(editor, 5.5, -0.5));
+    REQUIRE(editor.selectedObjects() == std::vector<ObjectId>{a, b, c});
+
+    tools.setTool(Tool::Move);
+    const auto depth = editor.undoDepth();
+    tools.pointerDown(at(editor, 2.5, 0.5)); // grab b: the whole selection moves
+    tools.pointerMove(at(editor, 3.0, 0.5));
+    const auto* preview = std::get_if<MovePreview>(&editor.preview());
+    REQUIRE(preview);
+    CHECK(preview->objectIds == std::vector<ObjectId>{a, b, c});
+    CHECK(replacedObjects(editor.preview()) == std::vector<ObjectId>{a, b, c});
+    tools.pointerUp(at(editor, 3.5, 0.5));
+
+    CHECK(editor.undoDepth() == depth + 1);
+    CHECK(editor.undoLabel() == "Move 1000 mm along X (3 objects)");
+    CHECK(editor.document().find(a)->transform.translation.x == doctest::Approx(1.0));
+    CHECK(editor.document().find(b)->transform.translation.x == doctest::Approx(3.0));
+    CHECK(editor.document().find(c)->transform.translation.x == doctest::Approx(5.0));
+    CHECK(editor.document().find(far)->transform.translation.x == doctest::Approx(0.0));
+    CHECK(editor.selectedObjects() == std::vector<ObjectId>{a, b, c});
+
+    REQUIRE(editor.undo());
+    CHECK(editor.document().find(a)->transform.translation.x == doctest::Approx(0.0));
+    CHECK(editor.document().find(b)->transform.translation.x == doctest::Approx(2.0));
+    CHECK(editor.document().find(c)->transform.translation.x == doctest::Approx(4.0));
+}
+
+TEST_CASE("move tool: typed distance and copy act on the selection; an unselected object moves alone") {
+    ThreeBoxes s;
+    auto& [editor, tools, a, b, c, far] = s;
+    editor.setSelection(SelectionSet::ofObjects({a, b}));
+    tools.setTool(Tool::Move);
+
+    SUBCASE("typed x, y, z with nothing grabbed") {
+        REQUIRE_FALSE(tools.submitMoveDistance("0, 1000, 0").has_value());
+        CHECK(editor.document().find(a)->transform.translation.y == doctest::Approx(1.0));
+        CHECK(editor.document().find(b)->transform.translation.y == doctest::Approx(1.0));
+        CHECK(editor.document().find(c)->transform.translation.y == doctest::Approx(0.0));
+    }
+    SUBCASE("copy mode duplicates the whole selection in one entry and selects the copies") {
+        const auto count = editor.document().objects.size();
+        const auto depth = editor.undoDepth();
+        tools.toggleMoveCopy();
+        tools.toggleAxisLock(MoveAxis::Y);
+        tools.pointerDown(at(editor, 0.5, 0.5));
+        REQUIRE_FALSE(tools.submitMoveDistance("2000").has_value());
+        CHECK(editor.document().objects.size() == count + 2);
+        CHECK(editor.undoDepth() == depth + 1);
+        const auto copies = editor.selectedObjects();
+        REQUIRE(copies.size() == 2);
+        CHECK(editor.document().find(copies[0])->transform.translation.y == doctest::Approx(2.0));
+        CHECK(editor.document().find(a)->transform.translation.y == doctest::Approx(0.0));
+        CHECK(editor.selection()->objectId == copies[0]); // the grabbed object's copy is primary
+    }
+    SUBCASE("grabbing an object outside the selection moves only it") {
+        tools.toggleAxisLock(MoveAxis::X);
+        tools.pointerDown(at(editor, 4.5, 0.5));
+        REQUIRE_FALSE(tools.submitMoveDistance("1000").has_value());
+        CHECK(editor.document().find(c)->transform.translation.x == doctest::Approx(5.0));
+        CHECK(editor.document().find(a)->transform.translation.x == doctest::Approx(0.0));
+        CHECK(editor.selectedObjects() == std::vector<ObjectId>{c});
+    }
+}
+
+TEST_CASE("rotate, scale and duplicate act on the whole selection as one undo entry") {
+    ThreeBoxes s;
+    auto& [editor, tools, a, b, c, far] = s;
+    editor.setSelection(SelectionSet::ofObjects({a, b}));
+    const auto depth = editor.undoDepth();
+
+    SUBCASE("typed rotation turns the group about its base centre") {
+        tools.setTool(Tool::Rotate);
+        REQUIRE_FALSE(tools.submitRotateAngle("180").has_value());
+        CHECK(editor.undoDepth() == depth + 1);
+        CHECK(objectBounds(*editor.document().find(a)).min.x == doctest::Approx(2.0));
+        CHECK(objectBounds(*editor.document().find(b)).min.x == doctest::Approx(0.0).epsilon(1e-9));
+        CHECK(editor.selectedObjects() == std::vector<ObjectId>{a, b});
+    }
+    SUBCASE("rotate gesture previews every object") {
+        tools.setTool(Tool::Rotate);
+        tools.pointerDown(at(editor, 0.5, 0.5));   // centre on a's cap
+        tools.pointerDown(at(editor, 1.5, 0.5));   // reference along +X
+        tools.pointerMove(at(editor, 0.5, 1.5));   // a quarter turn
+        const auto* p = std::get_if<RotatePreview>(&editor.preview());
+        REQUIRE(p);
+        CHECK(p->group.size() == 2);
+        CHECK(replacedObjects(editor.preview()) == std::vector<ObjectId>{a, b});
+        tools.pointerDown(at(editor, 0.5, 1.5));
+        CHECK(editor.undoDepth() == depth + 1);
+        CHECK(editor.undoLabel().find("(2 objects)") != std::string::npos);
+    }
+    SUBCASE("typed scale grows the group about its base centre") {
+        tools.setTool(Tool::Scale);
+        REQUIRE_FALSE(tools.submitScaleFactors("2").has_value());
+        CHECK(editor.undoDepth() == depth + 1);
+        CHECK(objectBounds(*editor.document().find(a)).min.x == doctest::Approx(-1.5));
+        CHECK(objectBounds(*editor.document().find(b)).max.x == doctest::Approx(4.5));
+        CHECK(objectBounds(*editor.document().find(c)).min.x == doctest::Approx(4.0)); // not selected
+    }
+    SUBCASE("duplicate copies the group beside itself") {
+        const auto count = editor.document().objects.size();
+        REQUIRE_FALSE(tools.duplicateSelection().has_value());
+        CHECK(editor.undoDepth() == depth + 1);
+        CHECK(editor.document().objects.size() == count + 2);
+        const auto copies = editor.selectedObjects();
+        REQUIRE(copies.size() == 2);
+        CHECK(editor.document().find(copies[0])->transform.translation.x == doctest::Approx(3.0)); // group is 3 m wide
+        CHECK(editor.document().find(copies[1])->transform.translation.x == doctest::Approx(5.0));
+    }
+}
