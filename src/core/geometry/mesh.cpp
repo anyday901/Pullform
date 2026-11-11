@@ -930,65 +930,209 @@ void Mesh::translate(const Vec3& offset) {
     for (auto& [id, c] : curves_) c.center += offset;
 }
 
-std::optional<PushPullResult> Mesh::pushPull(FaceId id, double distance) {
-    const auto it = faces_.find(id.value);
-    if (it == faces_.end() || !std::isfinite(distance) || std::abs(distance) < tol::kMinDimension) return std::nullopt;
-    const Face face = it->second;
-    const Vec3 n = face.normal;
-    const Vec3 offset = n * distance;
+namespace {
 
-    std::vector<VertexId> ring; // every vertex of the face, once
-    std::vector<EdgeId> own;    // every edge of the face
-    for (const Loop& loop : face.loops) {
-        for (const VertexId v : loopVertices(loop)) {
-            if (std::ranges::find(ring, v) == ring.end()) ring.push_back(v);
-        }
-        for (const EdgeUse& use : loop) own.push_back(use.edge);
-    }
-    const bool free = std::ranges::all_of(own, [this](EdgeId e) { return facesOfEdge(e).size() == 1; }) &&
-                      std::ranges::all_of(ring, [this, &own](VertexId v) {
-                          return std::ranges::all_of(edgesOfVertex(v), [&own](EdgeId e) { return std::ranges::find(own, e) != own.end(); });
-                      });
-
-    if (!free) {
-        // Stretch: the face is the end of a prism. Every edge of the face is
-        // shared with a wall, every other edge at its vertices runs along the
-        // normal and every other face there contains the normal, so moving the
-        // face keeps all of them planar. Anything else attached is refused.
-        if (!std::ranges::all_of(own, [this](EdgeId e) { return facesOfEdge(e).size() >= 2; })) return std::nullopt;
-        for (const VertexId v : ring) {
-            const Vec3 p = vertices_.at(v.value).position;
-            for (const EdgeId e : edgesOfVertex(v)) {
-                if (std::ranges::find(own, e) != own.end()) continue;
-                const Edge& edge = edges_.at(e.value);
-                const VertexId w = edge.v0 == v ? edge.v1 : edge.v0;
-                const Vec3 along = vertices_.at(w.value).position - p;
-                const double s = glm::dot(along, n);
-                if (glm::length(along - n * s) > tol::kPlanarity) return std::nullopt; // not along the normal
-                // The wall keeps its direction and a usable length.
-                if (s * (s - distance) <= 0.0 || std::abs(s - distance) < tol::kMinDimension) return std::nullopt;
+/// Removes repeats (a, a) and back-and-forth spurs (a, b, a) from a closed
+/// vertex sequence, then splits it wherever it visits a vertex twice.
+std::vector<std::vector<VertexId>> cleanSequence(std::vector<VertexId> seq) {
+    bool changed = true;
+    while (changed && seq.size() >= 3) {
+        changed = false;
+        const std::size_t n = seq.size();
+        for (std::size_t i = 0; i < n; ++i) {
+            const std::size_t j = (i + 1) % n;
+            if (seq[i] == seq[j]) {
+                seq.erase(seq.begin() + static_cast<std::ptrdiff_t>(j));
+                changed = true;
+                break;
+            }
+            const std::size_t k = (i + 2) % n;
+            if (seq[i] == seq[k]) {
+                // a, b, a: drop b and the second a.
+                const std::size_t hi = std::max(j, k);
+                const std::size_t lo = std::min(j, k);
+                seq.erase(seq.begin() + static_cast<std::ptrdiff_t>(hi));
+                seq.erase(seq.begin() + static_cast<std::ptrdiff_t>(lo));
+                changed = true;
+                break;
             }
         }
-        for (const auto& [fid, other] : faces_) {
-            if (fid == id.value) continue;
-            const auto vs = [&] {
-                std::vector<VertexId> all;
-                for (const Loop& l : other.loops) {
-                    const auto lv = loopVertices(l);
-                    all.insert(all.end(), lv.begin(), lv.end());
-                }
-                return all;
-            }();
-            const bool touches = std::ranges::any_of(vs, [&ring](VertexId v) { return std::ranges::find(ring, v) != ring.end(); });
-            if (touches && std::abs(glm::dot(other.normal, n)) > tol::kCoplanarNormal) return std::nullopt;
-        }
-        for (const VertexId v : ring) vertices_.at(v.value).position += offset;
-        return PushPullResult{id, {}, true};
     }
+    std::vector<std::vector<VertexId>> out;
+    if (seq.size() < 3) return out;
+    for (std::size_t i = 0; i < seq.size(); ++i) {
+        for (std::size_t j = i + 1; j < seq.size(); ++j) {
+            if (seq[i] != seq[j]) continue;
+            const std::vector<VertexId> inner(seq.begin() + static_cast<std::ptrdiff_t>(i), seq.begin() + static_cast<std::ptrdiff_t>(j));
+            std::vector<VertexId> rest(seq.begin(), seq.begin() + static_cast<std::ptrdiff_t>(i));
+            rest.insert(rest.end(), seq.begin() + static_cast<std::ptrdiff_t>(j), seq.end());
+            for (auto& piece : cleanSequence(inner)) out.push_back(std::move(piece));
+            for (auto& piece : cleanSequence(rest)) out.push_back(std::move(piece));
+            return out;
+        }
+    }
+    out.push_back(std::move(seq));
+    return out;
+}
 
-    // Extrude a free face: a cap at the offset, one side face per loop edge,
-    // and the original face stays as the base, turned to face away.
-    PushPullResult result{id, {}, false};
+/// Every edge some face loop uses.
+std::set<std::uint32_t> usedEdges(const Mesh& m) {
+    std::set<std::uint32_t> used;
+    for (const auto& [fid, f] : m.faces()) {
+        for (const Loop& loop : f.loops) {
+            for (const EdgeUse& u : loop) used.insert(u.edge.value);
+        }
+    }
+    return used;
+}
+
+/// A face containing direction `n` (its plane is parallel to it).
+bool containsDirection(const Face& f, const Vec3& n) { return std::abs(glm::dot(f.normal, n)) <= 1e-9; }
+
+} // namespace
+
+bool faceContains(const Mesh& m, FaceId face, const Vec3& p) {
+    const Face* f = m.face(face);
+    return f && classify(m, *f, p) != Where::Outside;
+}
+
+bool Mesh::rebuildLoop(FaceId gid, std::size_t li, const std::vector<VertexId>& seq, std::vector<FaceId>& created) {
+    const Face g = faces_.at(gid.value);
+    std::vector<std::vector<VertexId>> outers;
+    std::vector<Loop> holes;
+    if (li != 0) outers.push_back(loopVertices(g.loops[0]));
+    for (std::size_t l = 1; l < g.loops.size(); ++l) {
+        if (l != li) holes.push_back(g.loops[l]);
+    }
+    for (auto& piece : cleanSequence(seq)) {
+        std::vector<Vec3> pts;
+        for (const VertexId v : piece) pts.push_back(vertices_.at(v.value).position);
+        const double area = signedArea(pts, g.normal);
+        if (std::abs(area) < tol::kMinArea * 0.5) continue;
+        if (area > 0.0) {
+            outers.push_back(std::move(piece));
+        } else {
+            Loop loop = makeLoop(piece);
+            if (loop.empty()) return false;
+            holes.push_back(std::move(loop));
+        }
+    }
+    faces_.erase(gid.value);
+    if (outers.empty()) return true; // the face collapsed (a wall pushed back to nothing)
+    std::vector<FaceId> ids;
+    for (std::size_t i = 0; i < outers.size(); ++i) {
+        Loop loop = makeLoop(outers[i]);
+        if (loop.empty()) return false;
+        const FaceId fid = i == 0 ? gid : FaceId{nextFace_};
+        insertFace(fid, Face{{std::move(loop)}, g.normal});
+        ids.push_back(fid);
+        if (i > 0) created.push_back(fid);
+    }
+    const PlaneAxes axes = axesFor(g.normal);
+    for (const Loop& hole : holes) {
+        bool placed = false;
+        for (const FaceId fid : ids) {
+            Face& f = faces_.at(fid.value);
+            const Vec3 o = loopPositions(f.loops[0]).front();
+            std::vector<Vec2> poly;
+            for (const Vec3& p : loopPositions(f.loops[0])) poly.push_back(project(axes, o, p));
+            if (!insidePolygon(project(axes, o, loopPositions(hole).front()), poly)) continue;
+            f.loops.push_back(hole);
+            placed = true;
+            break;
+        }
+        if (!placed) return false;
+    }
+    return true;
+}
+
+void Mesh::healVertex(VertexId v) {
+    if (!vertices_.contains(v.value)) return;
+    const auto es = edgesOfVertex(v);
+    if (es.size() != 2) return;
+    const Edge e1 = edges_.at(es[0].value);
+    const Edge e2 = edges_.at(es[1].value);
+    if (e1.curve || e2.curve) return;
+    const VertexId p = e1.v0 == v ? e1.v1 : e1.v0;
+    const VertexId q = e2.v0 == v ? e2.v1 : e2.v0;
+    if (p == q || findEdge(p, q)) return;
+    const Vec3 at = vertices_.at(v.value).position;
+    const Vec3 d1 = glm::normalize(vertices_.at(p.value).position - at);
+    const Vec3 d2 = glm::normalize(vertices_.at(q.value).position - at);
+    if (glm::length(glm::cross(d1, d2)) > 1e-9 || glm::dot(d1, d2) > 0.0) return;
+    struct Change {
+        std::uint32_t face;
+        std::size_t loop;
+        std::vector<VertexId> vertices;
+    };
+    std::vector<Change> changes;
+    for (const auto& [fid, f] : faces_) {
+        for (std::size_t l = 0; l < f.loops.size(); ++l) {
+            auto vs = loopVertices(f.loops[l]);
+            const auto pos = std::ranges::find(vs, v);
+            if (pos == vs.end()) continue;
+            vs.erase(pos);
+            changes.push_back({fid, l, std::move(vs)});
+        }
+    }
+    edges_.at(es[0].value) = Edge{p, q, std::nullopt, e1.soft && e2.soft, e1.smooth && e2.smooth};
+    edges_.erase(es[1].value);
+    vertices_.erase(v.value);
+    for (const auto& c : changes) faces_.at(c.face).loops[c.loop] = makeLoop(c.vertices);
+}
+
+void Mesh::copyCurves(const std::vector<EdgeId>& from, const std::map<std::uint32_t, VertexId>& top, const Vec3& offset) {
+    const std::set<EdgeId> own(from.begin(), from.end());
+    std::vector<std::pair<CurveId, Curve>> added;
+    for (const auto& [cid, c] : curves_) {
+        if (c.edges.empty() || !std::ranges::all_of(c.edges, [&own](EdgeId e) { return own.contains(e); })) continue;
+        Curve copy = c;
+        copy.center += offset;
+        copy.edges.clear();
+        bool ok = true;
+        for (const EdgeId e : c.edges) {
+            const Edge& edge = edges_.at(e.value);
+            const auto t = findEdge(top.at(edge.v0.value), top.at(edge.v1.value));
+            if (!t || edges_.at(t->value).curve) {
+                ok = false;
+                break;
+            }
+            copy.edges.push_back(*t);
+        }
+        if (!ok) continue;
+        const CurveId id{nextCurve_};
+        insertCurve(id, copy);
+        for (const EdgeId e : copy.edges) edges_.at(e.value).curve = id;
+        if (c.kind == CurveKind::Polygon) continue;
+        // A cylinder reads as one surface: soften the side edges between two segments.
+        std::map<std::uint32_t, int> uses;
+        for (const EdgeId e : c.edges) {
+            ++uses[edges_.at(e.value).v0.value];
+            ++uses[edges_.at(e.value).v1.value];
+        }
+        for (const auto& [v, count] : uses) {
+            if (count < 2) continue;
+            if (const auto side = findEdge(VertexId{v}, top.at(v))) {
+                edges_.at(side->value).soft = true;
+                edges_.at(side->value).smooth = true;
+            }
+        }
+    }
+}
+
+std::optional<PushPullResult> Mesh::extrudeFree(FaceId id, double distance) {
+    // A cap at the offset, one side face per loop edge, and the original face
+    // stays as the base, turned to face away.
+    const Face face = faces_.at(id.value);
+    const Vec3 n = face.normal;
+    const Vec3 offset = n * distance;
+    std::vector<VertexId> ring;
+    std::vector<EdgeId> own;
+    for (const Loop& loop : face.loops) {
+        for (const VertexId v : loopVertices(loop)) ring.push_back(v);
+        for (const EdgeUse& use : loop) own.push_back(use.edge);
+    }
+    PushPullResult result{id, {}, false, false};
     std::map<std::uint32_t, VertexId> top;
     for (const VertexId v : ring) top[v.value] = appendVertex(vertices_.at(v.value).position + offset);
     for (const VertexId v : ring) appendEdge(v, top.at(v.value));
@@ -1023,6 +1167,386 @@ std::optional<PushPullResult> Mesh::pushPull(FaceId id, double distance) {
         for (Loop& loop : base.loops) loop = reversedLoop(loop);
         base.normal = -n;
     }
+    copyCurves(own, top, offset);
+    return result;
+}
+
+Mesh::Stretch Mesh::stretchPrism(FaceId id, double distance) {
+    // The face is the end of a prism: every other edge at its vertices runs
+    // along the normal and every other face there contains it, so moving the
+    // face keeps all of them planar, and the walls keep a usable length.
+    const Face face = faces_.at(id.value);
+    const Vec3 n = face.normal;
+    std::vector<VertexId> ring;
+    std::vector<EdgeId> own;
+    for (const Loop& loop : face.loops) {
+        for (const VertexId v : loopVertices(loop)) ring.push_back(v);
+        for (const EdgeUse& use : loop) own.push_back(use.edge);
+    }
+    bool tooShort = false;
+    for (const VertexId v : ring) {
+        const Vec3 p = vertices_.at(v.value).position;
+        const auto at = edgesOfVertex(v);
+        if (at.size() != 3) return Stretch::NotPrism; // two of the face's edges and one wall edge
+        for (const EdgeId e : at) {
+            if (std::ranges::find(own, e) != own.end()) continue;
+            const Edge& edge = edges_.at(e.value);
+            const VertexId w = edge.v0 == v ? edge.v1 : edge.v0;
+            const Vec3 along = vertices_.at(w.value).position - p;
+            const double s = glm::dot(along, n);
+            if (glm::length(along - n * s) > tol::kPlanarity) return Stretch::NotPrism;
+            // A wall pushed back to exactly nothing (a recess pulled flush) is
+            // left to the general case, which removes it.
+            if (std::abs(s - distance) <= tol::kWeldDistance) return Stretch::NotPrism;
+            if (s * (s - distance) <= 0.0 || std::abs(s - distance) < tol::kMinDimension) tooShort = true;
+        }
+    }
+    for (const auto& [fid, other] : faces_) {
+        if (fid == id.value) continue;
+        const bool touches = std::ranges::any_of(other.loops, [&](const Loop& l) {
+            return std::ranges::any_of(loopVertices(l), [&ring](VertexId v) { return std::ranges::find(ring, v) != ring.end(); });
+        });
+        if (touches && !containsDirection(other, n)) return Stretch::NotPrism;
+    }
+    if (tooShort) return Stretch::TooShort;
+    for (const VertexId v : ring) vertices_.at(v.value).position += n * distance;
+    for (auto& [cid, c] : curves_) {
+        if (!c.edges.empty() && std::ranges::all_of(c.edges, [&own](EdgeId e) { return std::ranges::find(own, e) != own.end(); })) {
+            c.center += n * distance;
+        }
+    }
+    return Stretch::Done;
+}
+
+std::optional<PushPullResult> Mesh::pushPull(FaceId id, double distance, bool newFace, std::string* why) {
+    std::string reason;
+    const auto refuse = [&](std::string text) -> std::optional<PushPullResult> {
+        if (why) *why = std::move(text);
+        return std::nullopt;
+    };
+    const auto it = faces_.find(id.value);
+    if (it == faces_.end()) return refuse("That face no longer exists.");
+    if (!std::isfinite(distance) || std::abs(distance) < tol::kMinDimension) return refuse("Distance must be at least 0.1 mm.");
+    const Face& face = it->second;
+
+    std::vector<VertexId> ring;
+    std::vector<EdgeId> own;
+    for (const Loop& loop : face.loops) {
+        for (const VertexId v : loopVertices(loop)) ring.push_back(v);
+        for (const EdgeUse& use : loop) own.push_back(use.edge);
+    }
+    const bool free = std::ranges::all_of(own, [this](EdgeId e) { return facesOfEdge(e).size() == 1; }) &&
+                      std::ranges::all_of(ring, [this, &own](VertexId v) {
+                          return std::ranges::all_of(edgesOfVertex(v), [&own](EdgeId e) { return std::ranges::find(own, e) != own.end(); });
+                      });
+    if (free) {
+        const Mesh before = *this;
+        auto r = extrudeFree(id, distance);
+        if (!r || validateMesh(*this, "mesh")) {
+            *this = before;
+            return refuse("Push/pull cannot make valid faces from this face.");
+        }
+        return r;
+    }
+    const Mesh before = *this;
+    auto r = pushPullGeneral(id, distance, newFace, reason);
+    if (r) {
+        if (faces_.empty()) {
+            r.reset();
+            reason = "Push/pull this far would leave no faces. Push or pull less.";
+        } else if (const auto bad = validateMesh(*this, "mesh")) {
+            r.reset();
+            reason = "Push/pull cannot make valid faces here (the result would not be a clean surface). Try a smaller distance.";
+        }
+    }
+    if (!r) {
+        *this = before;
+        return refuse(reason);
+    }
+    // New and reshaped faces take the normal their outer loop gives, as a
+    // file read computes it, so a saved model reads back identical.
+    for (auto& [fid, f] : faces_) {
+        const Face* old = before.face(FaceId{fid});
+        if (old && old->loops == f.loops) continue;
+        const Vec3 normal = loopNormal(loopPositions(f.loops[0]));
+        if (glm::length(normal) > 0.0) f.normal = normal;
+    }
+    return r;
+}
+
+bool Mesh::land(FaceId id, const Vec3& n, PushPullResult& result, std::string& why) {
+    // Landing on a coplanar face: cut through it, or fill its hole again.
+    const auto capVertices = [&] {
+        const auto vs = loopVertices(faces_.at(id.value).loops[0]);
+        return std::set<VertexId>(vs.begin(), vs.end());
+    }();
+    const Vec3 capPoint = loopPositions(faces_.at(id.value).loops[0]).front();
+    for (const auto& [hidValue, hRef] : faces_) {
+        if (hidValue == id.value || 1.0 - std::abs(glm::dot(hRef.normal, n)) > tol::kCoplanarNormal) continue;
+        if (!onPlane(*this, hRef, capPoint)) continue;
+        if (std::ranges::find(result.createdFaces, FaceId{hidValue}) != result.createdFaces.end()) continue;
+        const FaceId hid{hidValue};
+        const Face h = hRef;
+        const Face capFace = faces_.at(id.value);
+        const auto loopSet = [this](const Loop& l) {
+            const auto vs = loopVertices(l);
+            return std::set<VertexId>(vs.begin(), vs.end());
+        };
+        if (glm::dot(h.normal, n) > 0.0) {
+            // The same way: a face pushed back into the hole it came from fills it.
+            if (capFace.loops.size() != 1) continue;
+            for (std::size_t l = 1; l < h.loops.size(); ++l) {
+                if (loopSet(h.loops[l]) != capVertices) continue;
+                Face filled = h;
+                filled.loops.erase(filled.loops.begin() + static_cast<std::ptrdiff_t>(l));
+                faces_.at(hidValue) = filled;
+                faces_.erase(id.value);
+                result.face = hid;
+                break;
+            }
+            if (result.face == hid) break;
+            continue;
+        }
+        // Facing the other way: an opening through the solid.
+        if (capFace.loops.size() != 1) continue;
+        if (h.loops.size() == 1 && loopSet(h.loops[0]) == capVertices) {
+            faces_.erase(hidValue);
+            faces_.erase(id.value);
+            result.face = FaceId{0};
+            result.cut = true;
+            break;
+        }
+        const auto sample = interiorPoint(*this, capFace);
+        if (!sample || classify(*this, h, *sample) != Where::Inside) continue;
+        const Loop& capLoop = capFace.loops[0];
+        const auto capSeq = loopVertices(capLoop);
+        std::optional<std::size_t> shared;
+        for (std::size_t i = 0; i < h.loops[0].size() && !shared; ++i) {
+            if (std::ranges::any_of(capLoop, [&](const EdgeUse& u) { return u.edge == h.loops[0][i].edge; })) shared = i;
+        }
+        if (!shared) {
+            // Strictly inside: the cap's outline becomes a hole in it.
+            if (!std::ranges::all_of(capSeq, [&](VertexId v) { return classify(*this, h, vertices_.at(v.value).position) == Where::Inside; })) {
+                continue;
+            }
+            faces_.at(hidValue).loops.push_back(capLoop);
+            faces_.erase(id.value);
+            result.face = FaceId{0};
+            result.cut = true;
+            break;
+        }
+        // Touching its outline: splice the cap's outline into it.
+        std::vector<VertexId> seq = loopVertices(h.loops[0]);
+        const VertexId p = seq[*shared];
+        const VertexId q = seq[(*shared + 1) % seq.size()];
+        const auto k = static_cast<std::size_t>(std::ranges::find(capSeq, p) - capSeq.begin());
+        std::vector<VertexId> path;
+        for (std::size_t s = 1; s < capSeq.size(); ++s) {
+            const VertexId v = capSeq[(k + s) % capSeq.size()];
+            if (v == q) break;
+            path.push_back(v);
+        }
+        seq.insert(seq.begin() + static_cast<std::ptrdiff_t>(*shared) + 1, path.begin(), path.end());
+        faces_.erase(id.value);
+        if (!rebuildLoop(hid, 0, seq, result.createdFaces)) {
+            why = "Push/pull could not cut the opening.";
+            return false;
+        }
+        result.face = FaceId{0};
+        result.cut = true;
+        break;
+    }
+
+    return true;
+}
+
+std::optional<PushPullResult> Mesh::pushPullGeneral(FaceId id, double distance, bool newFace, std::string& why) {
+    const Face face = faces_.at(id.value);
+    const Vec3 n = face.normal;
+    const Vec3 offset = n * distance;
+    const double ahead = distance > 0.0 ? 1.0 : -1.0;
+
+    std::vector<VertexId> ring;
+    std::vector<EdgeId> own;
+    for (const Loop& loop : face.loops) {
+        for (const VertexId v : loopVertices(loop)) ring.push_back(v);
+        for (const EdgeUse& use : loop) own.push_back(use.edge);
+    }
+
+    if (std::ranges::all_of(own, [&](EdgeId e) { return facesOfEdge(e).size() == 1; })) {
+        why = "This face touches other geometry only at a corner or along a loose line. Push/pull works on a face on "
+              "its own or one that shares edges with other faces.";
+        return std::nullopt;
+    }
+
+    // Each edge either stretches the one face beside it that contains the
+    // push direction, or gets a new side face.
+    std::map<std::uint32_t, FaceId> stretch;
+    for (const EdgeId e : own) {
+        std::vector<FaceId> users = facesOfEdge(e);
+        std::erase(users, id);
+        if (users.size() != 1 || !containsDirection(faces_.at(users[0].value), n)) continue;
+        if (!newFace) {
+            stretch[e.value] = users[0];
+            continue;
+        }
+        // Ctrl: a new side face would lie on top of a wall the face moves into.
+        const Edge& edge = edges_.at(e.value);
+        const Vec3 base = vertices_.at(edge.v0.value).position;
+        for (const Loop& l : faces_.at(users[0].value).loops) {
+            for (const Vec3& p : loopPositions(l)) {
+                if (glm::dot(p - base, n) * ahead > tol::kWeldDistance) {
+                    why = "Ctrl makes a new face in front of this one, but the walls beside it are in the way. Pull it "
+                          "the other way, or push without Ctrl.";
+                    return std::nullopt;
+                }
+            }
+        }
+    }
+    // The face must not pass through other faces on its way (landing on one is fine).
+    {
+        std::vector<Vec3> probes;
+        for (const VertexId v : ring) probes.push_back(vertices_.at(v.value).position);
+        if (const auto c = interiorPoint(*this, face)) probes.push_back(*c);
+        const double eps = tol::kWeldDistance / std::abs(distance);
+        for (const auto& [hid, h] : faces_) {
+            if (hid == id.value) continue;
+            const double denom = glm::dot(offset, h.normal);
+            if (std::abs(denom) <= 1e-9 * std::abs(distance)) continue;
+            const Vec3 o = loopPositions(h.loops[0]).front();
+            for (const Vec3& p : probes) {
+                const double t = glm::dot(o - p, h.normal) / denom;
+                if (t <= eps || t >= 1.0 - eps) continue;
+                if (classify(*this, h, p + offset * t) == Where::Inside) {
+                    why = "Push/pull would pass through another face. Stop at that face to cut an opening through it.";
+                    return std::nullopt;
+                }
+            }
+        }
+    }
+
+    if (!newFace && stretch.size() == own.size()) {
+        switch (stretchPrism(id, distance)) {
+        case Stretch::Done: {
+            PushPullResult moved{id, {}, true, false};
+            if (!land(id, n, moved, why)) return std::nullopt;
+            if (moved.cut) {
+                // The opening's rim: edges and corners no face uses any more go.
+                const std::set<std::uint32_t> used = usedEdges(*this);
+                for (const EdgeId e : own) {
+                    if (!used.contains(e.value)) edges_.erase(e.value);
+                }
+            }
+            return moved;
+        }
+        case Stretch::TooShort:
+            why = "The walls of this face would get shorter than 0.1 mm or turn inside out. Push or pull less.";
+            return std::nullopt;
+        case Stretch::NotPrism: break;
+        }
+    }
+
+    PushPullResult result{id, {}, false, false};
+    const std::set<std::uint32_t> usedBefore = usedEdges(*this);
+    std::set<std::uint32_t> made; // edges this push/pull adds
+    const auto link = [&](VertexId a, VertexId b) {
+        if (const auto e = findEdge(a, b)) return *e;
+        const EdgeId e = appendEdge(a, b);
+        made.insert(e.value);
+        return e;
+    };
+
+    std::map<std::uint32_t, VertexId> top;
+    for (const VertexId v : ring) top[v.value] = weldVertex(vertices_.at(v.value).position + offset);
+    for (const Loop& loop : face.loops) {
+        for (const EdgeUse& use : loop) {
+            const VertexId a = useStart(use);
+            const VertexId b = useEnd(use);
+            link(a, top.at(a.value));
+            link(top.at(a.value), top.at(b.value));
+        }
+    }
+
+    // The pushed face moves to the cap position and keeps its id.
+    faces_.erase(id.value);
+    Face cap{{}, n};
+    for (const Loop& loop : face.loops) {
+        std::vector<VertexId> vs;
+        for (const VertexId v : loopVertices(loop)) vs.push_back(top.at(v.value));
+        Loop l = makeLoop(vs);
+        if (l.empty()) {
+            why = "Push/pull could not build the moved face.";
+            return std::nullopt;
+        }
+        cap.loops.push_back(std::move(l));
+    }
+    insertFace(id, cap);
+
+    // Stretching walls: x -> x' -> y' -> y takes the place of the edge x -> y.
+    for (const auto& [eid, first] : stretch) {
+        (void)first;
+        const auto users = facesOfEdge(EdgeId{eid});
+        std::optional<FaceId> wall;
+        for (const FaceId u : users) {
+            if (u != id) wall = u;
+        }
+        if (!wall) continue;
+        const Face& g = faces_.at(wall->value);
+        for (std::size_t l = 0; l < g.loops.size(); ++l) {
+            const auto pos = std::ranges::find_if(g.loops[l], [eid](const EdgeUse& u) { return u.edge.value == eid; });
+            if (pos == g.loops[l].end()) continue;
+            const auto i = static_cast<std::size_t>(pos - g.loops[l].begin());
+            std::vector<VertexId> seq = loopVertices(g.loops[l]);
+            const VertexId x = seq[i];
+            const VertexId y = seq[(i + 1) % seq.size()];
+            link(x, top.at(x.value));
+            link(y, top.at(y.value));
+            seq.insert(seq.begin() + static_cast<std::ptrdiff_t>(i) + 1, {top.at(x.value), top.at(y.value)});
+            if (!rebuildLoop(*wall, l, seq, result.createdFaces)) {
+                why = "Push/pull could not stretch the faces beside this one.";
+                return std::nullopt;
+            }
+            break;
+        }
+    }
+
+    // New side faces, facing out of the solid: away from the face's outline
+    // when pulled out, into the opening when pushed in.
+    for (const Loop& loop : face.loops) {
+        for (const EdgeUse& use : loop) {
+            if (stretch.contains(use.edge.value)) continue;
+            const VertexId a = useStart(use);
+            const VertexId b = useEnd(use);
+            link(b, top.at(b.value));
+            const Vec3 side = glm::normalize(glm::cross(vertices_.at(b.value).position - vertices_.at(a.value).position, n)) * ahead;
+            const auto q = appendFace({{a, b, top.at(b.value), top.at(a.value)}}, side);
+            if (!q) {
+                why = "Push/pull could not build a side face.";
+                return std::nullopt;
+            }
+            result.createdFaces.push_back(*q);
+        }
+    }
+    copyCurves(own, top, offset);
+
+    if (!land(id, n, result, why)) return std::nullopt;
+
+    // Edges no face uses any more go (loose lines drawn earlier stay), then
+    // vertices left alone, and straight runs split by a leftover vertex join.
+    const std::set<std::uint32_t> usedAfter = usedEdges(*this);
+    for (auto e = edges_.begin(); e != edges_.end();) {
+        if (!usedAfter.contains(e->first) && (usedBefore.contains(e->first) || made.contains(e->first))) e = edges_.erase(e);
+        else ++e;
+    }
+    std::vector<VertexId> check = ring;
+    for (const auto& [v, t] : top) check.push_back(t);
+    for (const VertexId v : check) {
+        if (vertices_.contains(v.value) && edgesOfVertex(v).empty()) vertices_.erase(v.value);
+    }
+    for (const VertexId v : check) healVertex(v);
+    pruneCurves();
+    std::erase_if(result.createdFaces, [this](FaceId f) { return !faces_.contains(f.value); });
+    if (result.face.value != 0 && !faces_.contains(result.face.value)) result.face = FaceId{0};
     return result;
 }
 

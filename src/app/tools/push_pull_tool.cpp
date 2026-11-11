@@ -12,22 +12,37 @@
 
 namespace pf {
 
-std::optional<std::string> PushPullTool::pushableReason(const FaceId& face) {
-    using enum FaceKind;
-    switch (face.kind) {
-    case Profile:
-    case Cap: return std::nullopt;
-    case Base:
-        return std::string("Push/pull of the base face is not supported yet. Pick the top cap to change the height.");
-    case Side:
-        return "Push/pull of side faces (" + faceLabel(face) + ") is not supported yet. Pick the top cap to change the height.";
-    case Mesh: return std::nullopt; // drawn faces: the operation says when one cannot be pushed
+std::optional<std::string> PushPullTool::pushableReason(const FaceId& /*face*/) {
+    return std::nullopt; // every planar face; the operation says when a push/pull cannot be made
+}
+
+namespace {
+
+/// Whether a face is pushed through the mesh (drawn faces, a box's sides and
+/// base, and any face with Ctrl) rather than by changing a profile's height.
+bool meshPush(const ProfileObject& o, FaceKind face, bool newFace) {
+    if (face == FaceKind::Mesh) return true;
+    if (face == FaceKind::Side || face == FaceKind::Base) return true;
+    return newFace && face == FaceKind::Cap && o.extrusion.has_value();
+}
+
+} // namespace
+
+void PushPullTool::toggleNewFace() {
+    newFace_ = !newFace_;
+    if (gesture_ && gesture_->face == FaceKind::Mesh) {
+        if (const auto* p = std::get_if<PushPullPreview>(&editor().preview())) setPreview(p->delta);
     }
-    return std::nullopt;
 }
 
 void PushPullTool::pointerDown(const PointerInput& input) {
     if (gesture_) {
+        const auto* preview = std::get_if<PushPullPreview>(&editor().preview());
+        if (input.clicks == 2 && lastDistance_ && (!preview || std::abs(preview->delta) < 1e-12)) {
+            // Double-click: the same distance as the last push/pull.
+            repeatLast();
+            return;
+        }
         finish(); // second click of click-move-click
         return;
     }
@@ -37,27 +52,43 @@ void PushPullTool::pointerDown(const PointerInput& input) {
     }
     const auto& pick = *input.pick;
     editor().select(Selection{pick.objectId, pick.faceId});
-    if (auto reason = pushableReason(pick.faceId)) {
-        editor().notify(Message{Message::Kind::Error, *reason});
-        return;
-    }
     const auto* o = editor().document().find(pick.objectId);
     if (!o) return;
     gesture_ = Gesture{pick.objectId, pick.faceId.kind, pick.point, o->extrusion ? o->extrusion->height : 0.0,
                        profileToWorld(*o, Vec2{0.0}, 0.0).z, input.screen, true};
-    if (pick.faceId.kind == FaceKind::Mesh) {
-        const auto* f = o->mesh ? o->mesh->face(mesh::FaceId{static_cast<std::uint32_t>(pick.faceId.side)}) : nullptr;
+    gesture_->newFace = newFace_ || input.ctrl;
+    if (meshPush(*o, pick.faceId.kind, gesture_->newFace)) {
+        const mesh::FaceId meshFace = mesh::faceIdFor(pick.faceId);
+        const auto m = mesh::objectMesh(*o);
+        const auto* f = m->face(meshFace);
         if (!f) {
             gesture_.reset();
             return;
         }
-        gesture_->meshFace = static_cast<std::uint32_t>(pick.faceId.side);
+        gesture_->face = FaceKind::Mesh;
+        gesture_->meshFace = meshFace.value;
         gesture_->normal = glm::normalize(rotationMatrix(o->transform) * f->normal);
         gesture_->startHeight = 0.0;
         gesture_->baseZ = pick.point.z;
     }
     editor().notify(std::nullopt);
     setPreview(0.0);
+}
+
+void PushPullTool::repeatLast() {
+    if (!gesture_ || !lastDistance_) return;
+    const double d = *lastDistance_;
+    if (gesture_->face == FaceKind::Mesh) {
+        commitMeshFace(gesture_->objectId, gesture_->meshFace, d, gesture_->newFace);
+        return;
+    }
+    const double height = gesture_->startHeight + d;
+    const auto error = gesture_->face == FaceKind::Profile ? checkProfileHeight(height) : checkHeight(height);
+    if (error) {
+        editor().notify(Message{Message::Kind::Error, *error});
+        return;
+    }
+    commitHeight(gesture_->objectId, gesture_->face, height);
 }
 
 void PushPullTool::pointerUp(const PointerInput& input) {
@@ -73,7 +104,7 @@ void PushPullTool::setPreview(double delta) {
         const Document& doc = editor().document();
         if (std::abs(delta) < tol::kMinDimension) {
             if (const auto* o = doc.find(gesture_->objectId)) p.result = *o; // nothing pushed yet
-        } else if (auto r = pushPullFace(doc, gesture_->objectId, mesh::FaceId{gesture_->meshFace}, delta)) {
+        } else if (auto r = pushPullFace(doc, gesture_->objectId, mesh::FaceId{gesture_->meshFace}, delta, nullptr, gesture_->newFace)) {
             p.result = *r->document.find(gesture_->objectId);
         } else {
             p.error = r.error();
@@ -168,20 +199,26 @@ void PushPullTool::finish() {
         return;
     }
     if (gesture_->face == FaceKind::Mesh) {
-        commitMeshFace(gesture_->objectId, gesture_->meshFace, preview->delta);
+        commitMeshFace(gesture_->objectId, gesture_->meshFace, preview->delta, gesture_->newFace);
         return;
     }
     commitHeight(gesture_->objectId, gesture_->face, preview->height);
 }
 
-bool PushPullTool::commitMeshFace(ObjectId id, std::uint32_t face, double distance) {
+bool PushPullTool::commitMeshFace(ObjectId id, std::uint32_t face, double distance, bool newFace) {
     const LengthUnit unit = editor().document().displayUnit;
     mesh::FaceId pushed{face};
     const bool ok = editor().commit(
         "Push/pull " + formatLength(distance, unit),
-        [id, face, distance, &pushed](const Document& doc) { return pushPullFace(doc, id, mesh::FaceId{face}, distance, &pushed); },
-        [id, &pushed](const OpResult&) -> std::optional<Selection> { return Selection{id, FaceId::meshFace(pushed.value)}; });
+        [id, face, distance, newFace, &pushed](const Document& doc) {
+            return pushPullFace(doc, id, mesh::FaceId{face}, distance, &pushed, newFace);
+        },
+        [id, &pushed](const OpResult&) -> std::optional<Selection> {
+            if (pushed.value == 0) return Selection{id, std::nullopt}; // cut through: the face is gone
+            return Selection{id, FaceId::meshFace(pushed.value)};
+        });
     if (ok) {
+        lastDistance_ = distance;
         gesture_.reset();
         ctx_.indicator.reset();
         editor().cancelPreview();
@@ -191,6 +228,8 @@ bool PushPullTool::commitMeshFace(ObjectId id, std::uint32_t face, double distan
 
 bool PushPullTool::commitHeight(ObjectId id, FaceKind face, double height) {
     const LengthUnit unit = editor().document().displayUnit;
+    const auto* current = editor().document().find(id);
+    const double before = current && current->extrusion ? current->extrusion->height : 0.0;
     const std::string label = (face == FaceKind::Profile ? "Push/pull to " : "Set height to ") + formatLength(height, unit);
     const bool ok = editor().commit(
         label,
@@ -199,6 +238,7 @@ bool PushPullTool::commitHeight(ObjectId id, FaceKind face, double height) {
         },
         [id](const OpResult&) -> std::optional<Selection> { return Selection{id, FaceId::cap()}; });
     if (ok) {
+        lastDistance_ = height - before;
         gesture_.reset();
         ctx_.indicator.reset();
         editor().cancelPreview();
@@ -214,13 +254,19 @@ std::optional<std::string> PushPullTool::submitDistance(std::string_view text) {
     double start = 0.0;
     if (gesture_ && gesture_->face == FaceKind::Mesh) {
         if (std::abs(*parsed) < tol::kMinDimension) return std::string("Distance must be at least 0.1 mm.");
-        if (!commitMeshFace(gesture_->objectId, gesture_->meshFace, *parsed)) return ctx_.lastError("Push/pull failed.");
+        if (!commitMeshFace(gesture_->objectId, gesture_->meshFace, *parsed, gesture_->newFace)) return ctx_.lastError("Push/pull failed.");
         return std::nullopt;
     }
-    if (const auto& sel = editor().selection(); !gesture_ && sel && sel->face && sel->face->kind == FaceKind::Mesh) {
-        if (std::abs(*parsed) < tol::kMinDimension) return std::string("Distance must be at least 0.1 mm.");
-        if (!commitMeshFace(sel->objectId, static_cast<std::uint32_t>(sel->face->side), *parsed)) return ctx_.lastError("Push/pull failed.");
-        return std::nullopt;
+    if (const auto& sel = editor().selection(); !gesture_ && sel && sel->face) {
+        // A selected face pushed through the mesh: a drawn face, a box's side or base, or Ctrl.
+        const auto* o = editor().document().find(sel->objectId);
+        if (o && meshPush(*o, sel->face->kind, newFace_)) {
+            if (std::abs(*parsed) < tol::kMinDimension) return std::string("Distance must be at least 0.1 mm.");
+            if (!commitMeshFace(sel->objectId, mesh::faceIdFor(*sel->face).value, *parsed, newFace_)) {
+                return ctx_.lastError("Push/pull failed.");
+            }
+            return std::nullopt;
+        }
     }
     if (gesture_) {
         id = gesture_->objectId;
@@ -255,9 +301,19 @@ std::optional<std::string> PushPullTool::setTotalHeight(ObjectId id, std::string
 }
 
 std::string PushPullTool::hint() const {
-    if (gesture_) return "Push/Pull: move to set the height and click, or type a distance and press Enter. Esc cancels.";
-    return "Push/Pull: click a rectangle, circle or polygon (it moves either way), an extrusion's top cap or a drawn "
-           "face, then move. Side and base faces of boxes are not supported yet.";
+#ifdef __APPLE__
+    constexpr const char* key = "Option";
+#else
+    constexpr const char* key = "Ctrl";
+#endif
+    const std::string mode = newFace_ ? std::string(" New starting face (") + key + " to stop)."
+                                      : std::string(" ") + key + " makes a new starting face.";
+    if (gesture_) {
+        return "Push/Pull: move to set the distance and click, or type a distance and press Enter. Double-click repeats the "
+               "last distance. Esc cancels." + mode;
+    }
+    return "Push/Pull: click any face (a box's top, side or base, a face drawn on a wall, a rectangle) and move. Push a face "
+           "drawn on a wall all the way through to cut an opening." + mode;
 }
 
 } // namespace pf

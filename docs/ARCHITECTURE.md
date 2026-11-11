@@ -502,8 +502,12 @@ resolved pick, screen position), so tests drive it with synthetic events and no 
 
 ## Geometry boundaries (what this design does not do yet)
 
-The edge/face mesh exists in the core, but push/pull on a drawn group works only on a
-face standing on its own or the end of a prism, there are no booleans, and no healing of
-collinear edges left after an erase. Arcs are drawn by the Arc tools; a curve record gives
+The edge/face mesh exists in the core. Push/pull works on any planar face
+(`mesh::Mesh::pushPull`): a free face is extruded; otherwise each edge either stretches the
+one neighbouring face that contains the push direction or gets a new side face, the face
+lands on coplanar faces to cut an opening or fill a hole, and collinear edges left at the
+old outline are joined. It does not intersect the moved face with geometry it passes
+(that is refused) or with faces it lands on only partly. There are no booleans, and no
+healing of collinear edges left after an erase. Arcs are drawn by the Arc tools; a curve record gives
 centre snapping but is not yet used for selecting a whole curve. Dimension anchors still name corners by index
 (vertex id - 1) rather than by vertex id. See docs/GEOMETRY.md and the roadmap.

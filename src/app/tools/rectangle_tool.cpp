@@ -53,7 +53,7 @@ void RectangleTool::begin(const PointerInput& input) {
         editor().notify(Message{Message::Kind::Error, *e + " Pick a first corner closer to the model."});
         return;
     }
-    plane_.begin(hit->plane, hit->point);
+    plane_.begin(hit->plane, hit->point, hit->object);
     gesture_ = Gesture{hit->point, input.screen, true, std::nullopt, hit->point};
     update(hit->point);
     editor().notify(std::nullopt);
@@ -153,12 +153,26 @@ void RectangleTool::finish(const PointerInput& input) {
 }
 
 bool RectangleTool::commit(const RectanglePlacement& placement) {
-    const bool ok = editor().commit(
-        "Draw rectangle", [&placement](const Document& doc) { return createRectangle(doc, placement); },
-        [](const OpResult& res) -> std::optional<Selection> {
-            if (!res.objectId) return std::nullopt;
-            return Selection{*res.objectId, FaceId::profile()};
-        });
+    bool ok = false;
+    if (const auto target = plane_.target()) {
+        // Drawn on a face: the rectangle goes into that object's edges and
+        // faces, so push/pull makes a recess or an opening in it.
+        mesh::FaceId face{0};
+        ok = editor().commit(
+            "Draw rectangle", [&](const Document& doc) { return drawRectangleOn(doc, *target, placement, &face); },
+            [&](const OpResult& res) -> std::optional<Selection> {
+                if (res.objectId && *res.objectId != *target) return Selection{*res.objectId, FaceId::profile()}; // a shape of its own
+                if (face.value == 0) return Selection{*target, std::nullopt};
+                return Selection{*target, FaceId::meshFace(face.value)};
+            });
+    } else {
+        ok = editor().commit(
+            "Draw rectangle", [&placement](const Document& doc) { return createRectangle(doc, placement); },
+            [](const OpResult& res) -> std::optional<Selection> {
+                if (!res.objectId) return std::nullopt;
+                return Selection{*res.objectId, FaceId::profile()};
+            });
+    }
     if (ok) {
         gesture_.reset();
         plane_.end();

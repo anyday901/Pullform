@@ -24,7 +24,7 @@ void CircleTool::begin(const PointerInput& input) {
         editor().notify(Message{Message::Kind::Error, "Center: " + *e + " Pick a center closer to the model."});
         return;
     }
-    plane_.begin(hit->plane, hit->point);
+    plane_.begin(hit->plane, hit->point, hit->object);
     gesture_ = Gesture{hit->point, hit->point, input.screen, true};
     publish();
     editor().notify(std::nullopt);
@@ -83,13 +83,26 @@ void CircleTool::finish(const PointerInput& input) {
 
 bool CircleTool::commit(const CirclePlacement& placement) {
     const ProfileKind kind = kind_;
-    const bool ok = editor().commit(
-        kind == ProfileKind::Circle ? "Draw circle" : "Draw polygon",
-        [&placement, kind](const Document& doc) { return createCircle(doc, placement, kind); },
-        [](const OpResult& res) -> std::optional<Selection> {
-            if (!res.objectId) return std::nullopt;
-            return Selection{*res.objectId, FaceId::profile()};
-        });
+    const char* label = kind == ProfileKind::Circle ? "Draw circle" : "Draw polygon";
+    bool ok = false;
+    if (const auto target = plane_.target()) {
+        // Drawn on a face: into that object's edges and faces (see RectangleTool).
+        mesh::FaceId face{0};
+        ok = editor().commit(
+            label, [&](const Document& doc) { return drawCircleOn(doc, *target, placement, kind, &face); },
+            [&](const OpResult& res) -> std::optional<Selection> {
+                if (res.objectId && *res.objectId != *target) return Selection{*res.objectId, FaceId::profile()}; // a shape of its own
+                if (face.value == 0) return Selection{*target, std::nullopt};
+                return Selection{*target, FaceId::meshFace(face.value)};
+            });
+    } else {
+        ok = editor().commit(
+            label, [&placement, kind](const Document& doc) { return createCircle(doc, placement, kind); },
+            [](const OpResult& res) -> std::optional<Selection> {
+                if (!res.objectId) return std::nullopt;
+                return Selection{*res.objectId, FaceId::profile()};
+            });
+    }
     if (ok) {
         gesture_.reset();
         plane_.end();

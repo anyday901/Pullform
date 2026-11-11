@@ -107,9 +107,10 @@ struct EraseEdgeResult {
 
 /// What one pushPull call did.
 struct PushPullResult {
-    FaceId face;                      ///< the pushed face where it ended up (the cap of an extrusion)
-    std::vector<FaceId> createdFaces; ///< new side faces and the cap
+    FaceId face;                      ///< the pushed face where it ended up (the cap of an extrusion); 0 when it cut through
+    std::vector<FaceId> createdFaces; ///< new side faces (and the cap of a free face's extrusion)
     bool stretched = false;           ///< the face moved and its walls stretched (no new faces)
+    bool cut = false;                 ///< the face reached a face facing the other way and cut an opening through it
 };
 
 class Mesh {
@@ -186,15 +187,24 @@ public:
     /// that used the edge is removed. Vertices left without edges are removed.
     std::optional<EraseEdgeResult> eraseEdge(EdgeId id);
 
-    /// Pushes or pulls a face by `distance` along its normal (negative goes
-    /// back). Two cases are supported for now:
+    /// Pushes or pulls any face by `distance` along its normal (negative goes
+    /// back), as follows:
     ///  - a free face (no edge or vertex shared with other geometry) is
     ///    extruded: a cap at the offset, one side face per loop edge (holes make
     ///    inner walls), and the face stays as the base, turned to face away;
-    ///  - the end face of a prism (every other edge at its vertices runs along
-    ///    the normal) moves, and its walls stretch, while they keep a length.
-    /// Returns nothing, with the mesh unchanged, in any other case.
-    std::optional<PushPullResult> pushPull(FaceId id, double distance);
+    ///  - otherwise the face itself moves (it keeps its id). Each of its edges
+    ///    either stretches the one other face on it, when that face contains
+    ///    the push direction (a wall of a prism grows or shrinks), or gets a
+    ///    new side face (a recess pushed into a wall, a boss pulled out of it).
+    ///    When every edge stretches and the walls run along the normal, the
+    ///    vertices just move (ids kept). A face that lands on a coplanar face
+    ///    looking the other way cuts an opening through it; one that lands in
+    ///    a hole of a face looking the same way fills it again.
+    /// With `newFace` (Ctrl), no wall stretches: every edge gets a side face,
+    /// so the old outline stays as edges and a new starting face is made.
+    /// Returns nothing, with the mesh unchanged and `why` set, when the result
+    /// would pass through other faces or would not be valid.
+    std::optional<PushPullResult> pushPull(FaceId id, double distance, bool newFace = false, std::string* why = nullptr);
 
     /// Removes a face only (its edges stay).
     bool eraseFace(FaceId id);
@@ -217,6 +227,24 @@ private:
     std::optional<std::vector<EdgeUse>> traceLeft(const EdgeUse& start, const Vec3& normal, const Vec3& origin,
                                                   const std::vector<EdgeId>& allowed) const;
     Loop makeLoop(const std::vector<VertexId>& vertices) const;
+    std::optional<PushPullResult> extrudeFree(FaceId id, double distance);
+    enum class Stretch { Done, TooShort, NotPrism };
+    Stretch stretchPrism(FaceId id, double distance);
+    std::optional<PushPullResult> pushPullGeneral(FaceId id, double distance, bool newFace, std::string& why);
+    /// Replaces loop `loop` of face `face` by the closed vertex sequence `sequence`,
+    /// dropping spurs and splitting it where it visits a vertex twice (extra
+    /// faces go to `created`; a sequence that collapses removes the face).
+    bool rebuildLoop(FaceId face, std::size_t loop, const std::vector<VertexId>& sequence, std::vector<FaceId>& created);
+    /// Joins the two collinear straight edges at a vertex that has only those two.
+    void healVertex(VertexId v);
+    /// After a push/pull moved face `id` (normal `n`): a face it landed on
+    /// looking the other way gets an opening, one looking the same way whose
+    /// hole it fills is mended.
+    bool land(FaceId id, const Vec3& n, PushPullResult& result, std::string& why);
+    /// Copies each curve whose edges all lie on `from` to the matching edges
+    /// between the `top` vertices, moved by `offset`; side edges between two
+    /// edges of a circle or arc become soft and smooth.
+    void copyCurves(const std::vector<EdgeId>& from, const std::map<std::uint32_t, VertexId>& top, const Vec3& offset);
 
     std::map<std::uint32_t, Vertex> vertices_;
     std::map<std::uint32_t, Edge> edges_;
@@ -236,6 +264,9 @@ using MeshPtr = std::shared_ptr<const Mesh>;
 /// kPlanarity, outer loop counter-clockwise with positive area, holes clockwise
 /// and inside the outer loop; curves referring to live edges. `path` prefixes messages.
 std::optional<std::string> validateMesh(const Mesh& mesh, std::string_view path);
+
+/// Whether point `p` lies on face `face` (inside it or on its boundary).
+bool faceContains(const Mesh& mesh, FaceId face, const Vec3& p);
 
 /// Signed area of a planar loop about `normal` (positive when counter-clockwise).
 double signedArea(const std::vector<Vec3>& loop, const Vec3& normal);
