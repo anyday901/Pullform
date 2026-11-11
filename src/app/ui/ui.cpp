@@ -68,8 +68,10 @@ std::string rotationLabel(const Transform& t) {
 }
 #ifdef __APPLE__
 #define PF_COPY_KEY "Option"
+#define PF_SOFTEN_KEY "Cmd"
 #else
 #define PF_COPY_KEY "Ctrl"
+#define PF_SOFTEN_KEY "Ctrl"
 #endif
 
 void tooltip(const char* text) {
@@ -332,11 +334,15 @@ void Ui::menuBar(UiContext& ctx) {
             action(UiAction::SelectAll);
         }
         if (ImGui::MenuItem("Clear selection", "Esc", false, ctx.editor.selection().has_value())) ctx.editor.select(std::nullopt);
+        ImGui::Separator();
+        if (ImGui::MenuItem("Delete Guides", nullptr, false, !ctx.editor.document().guides.empty())) action(UiAction::DeleteGuides);
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("View")) {
         if (ImGui::MenuItem("Fit to model", shortcuts::kFit)) action(UiAction::FitView);
         if (ImGui::MenuItem("Reset view")) action(UiAction::ResetView);
+        ImGui::Separator();
+        ImGui::MenuItem("Guides", nullptr, &ctx.tools.snap().guides); // hidden guides do not snap either
         if (ctx.profileEdges) {
             ImGui::Separator();
             ImGui::MenuItem("Profile edges", nullptr, ctx.profileEdges); // thick outline edges
@@ -365,6 +371,8 @@ void Ui::menuBar(UiContext& ctx) {
         if (ImGui::MenuItem("Orbit", shortcuts::kOrbit, t == Tool::Orbit)) ctx.tools.setTool(Tool::Orbit);
         if (ImGui::MenuItem("Tape Measure", shortcuts::kTape, t == Tool::TapeMeasure)) ctx.tools.setTool(Tool::TapeMeasure);
         if (ImGui::MenuItem("Dimension", shortcuts::kDimension, t == Tool::Dimension)) ctx.tools.setTool(Tool::Dimension);
+        if (ImGui::MenuItem("Eraser", shortcuts::kEraser, t == Tool::Eraser)) ctx.tools.setTool(Tool::Eraser);
+        if (ImGui::MenuItem("Protractor", nullptr, t == Tool::Protractor)) ctx.tools.setTool(Tool::Protractor);
         ImGui::Separator();
         ImGui::MenuItem("Grid snap", shortcuts::kSnap, &ctx.tools.snap().enabled);
         ImGui::MenuItem("Point snap", nullptr, &ctx.tools.snap().points);
@@ -415,9 +423,12 @@ void Ui::toolbar(UiContext& ctx, float y, float height, float width) {
     ImGui::SameLine();
     if (toolButton("Orbit", t == Tool::Orbit, "Orbit (O)\nLeft-drag to orbit. Middle-drag always orbits; right-drag pans.")) ctx.tools.setTool(Tool::Orbit);
     ImGui::SameLine();
-    if (toolButton("Tape", t == Tool::TapeMeasure, "Tape Measure (T)\nClick two points to measure the distance between them.")) ctx.tools.setTool(Tool::TapeMeasure);
+    if (toolButton("Tape", t == Tool::TapeMeasure, "Tape Measure (T)\nClick two points to measure the distance between them.\nFrom an edge it adds a parallel guide; from a point, a guide point.\n" PF_COPY_KEY " (tap) turns guides on or off.")) ctx.tools.setTool(Tool::TapeMeasure);
     ImGui::SameLine();
     if (toolButton("Dimension", t == Tool::Dimension, "Dimension (D)\nClick two points, then click to place the dimension line.")) ctx.tools.setTool(Tool::Dimension);
+    ImGui::SameLine();
+    if (toolButton("Eraser", t == Tool::Eraser, "Eraser (E)\nClick or drag over edges to erase them; coplanar faces merge.\nShift hides the edges instead, " PF_SOFTEN_KEY " softens them.")) ctx.tools.setTool(Tool::Eraser);
+    if (toolButton("Protractor", t == Tool::Protractor, "Protractor\nClick the centre, then the baseline, then the angle (or type degrees)\nto add an angled guide line. Arrow keys lock the plane.")) ctx.tools.setTool(Tool::Protractor);
     ImGui::SameLine(0, 18);
     if (ImGui::Button("Fit")) action(UiAction::FitView);
     tooltip("Fit view to model (F)");

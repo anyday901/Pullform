@@ -67,6 +67,12 @@ private:
     void drawSnap(std::vector<LineSegment>& lines, const SnapResult& snap) const;
     void appendDimension(std::vector<LineSegment>& lines, const Vec3& a, const Vec3& b, const Vec3& offset,
                          const glm::vec4& color) const;
+    /// A guide line (dashed, out to the far distance) or a guide point (a small cross).
+    void appendGuide(std::vector<LineSegment>& lines, const Guide& guide, const glm::vec4& color) const;
+    /// A protractor circle in the plane with unit `normal`, with 15-degree
+    /// ticks, starting along `spoke` (its length is the radius).
+    void appendProtractor(std::vector<LineSegment>& lines, const Vec3& center, const Vec3& normal,
+                          const std::optional<Vec3>& spoke, const glm::vec4& color) const;
     void drawFaceOverlay(const CachedMesh& cached, const FaceId& face, const glm::vec4& color);
     /// Hovered and selected vertices, edges and faces (Select tool).
     void drawElements(const Editor& editor, const std::vector<ObjectId>& previewed, std::vector<LineSegment>& onTop);

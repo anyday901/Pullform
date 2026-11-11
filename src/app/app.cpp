@@ -469,6 +469,7 @@ void App::handleShortcuts() {
     if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) tools_.key(ToolKey::Z);
     if (ImGui::IsKeyPressed(ImGuiKey_T, false)) tools_.setTool(Tool::TapeMeasure);
     if (ImGui::IsKeyPressed(ImGuiKey_D, false)) tools_.setTool(Tool::Dimension);
+    if (ImGui::IsKeyPressed(ImGuiKey_E, false)) tools_.setTool(Tool::Eraser);
     if (ImGui::IsKeyPressed(ImGuiKey_F, false)) fitView();
     if (ImGui::IsKeyPressed(ImGuiKey_G, false)) tools_.snap().enabled = !tools_.snap().enabled;
     // Backspace also erases typed values: right after the last character is
@@ -493,6 +494,9 @@ void App::handleActions() {
         case UiAction::SelectAll: selectAllObjects(); break;
         case UiAction::FitView: fitView(); break;
         case UiAction::ResetView: viewport_->camera().reset(); onActivity(); break;
+        case UiAction::DeleteGuides:
+            if (auto e = tools_.deleteGuides()) editor_.notify(Message{Message::Kind::Error, *e});
+            break;
         }
     }
 }
@@ -629,7 +633,8 @@ void App::handleMoveCopyTap() {
     constexpr ImGuiKey left = ImGuiKey_LeftCtrl;
     constexpr ImGuiKey right = ImGuiKey_RightCtrl;
 #endif
-    if (tools_.tool() != Tool::Move) {
+    // The same tap toggles the tape measure's guide creation.
+    if (tools_.tool() != Tool::Move && tools_.tool() != Tool::TapeMeasure) {
         copyTapArmed_ = false;
         return;
     }
@@ -645,7 +650,8 @@ void App::handleMoveCopyTap() {
     }
     if (ImGui::IsKeyReleased(left) || ImGui::IsKeyReleased(right)) {
         copyTapArmed_ = false;
-        tools_.toggleMoveCopy();
+        if (tools_.tool() == Tool::Move) tools_.toggleMoveCopy();
+        else tools_.toggleTapeGuides();
         onActivity();
     }
 }

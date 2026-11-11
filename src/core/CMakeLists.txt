@@ -17,6 +17,7 @@ add_library(pullform_core STATIC
   geometry/element_pick.cpp
   geometry/snap.cpp
   geometry/inference.cpp
+  geometry/guide_snap.cpp
   geometry/measure.cpp
   geometry/region_select.cpp
   geometry/freehand.cpp

@@ -68,6 +68,21 @@ struct MeasurePreview {
     bool fixed = false;        ///< both points placed (tape: finished; dimension: placing the line)
     std::optional<Vec3> offset; ///< dimension line offset while placing it
     Vec3 cursor{0.0};          ///< snapped pointer point
+    /// Tape measure: the guide a click (or a typed distance) would add here,
+    /// drawn like a real guide. Empty when guide creation is off or nothing
+    /// would be added (the pointer is on the start line, or on a point already).
+    std::optional<Guide> guide;
+};
+
+/// Protractor: an angled guide line through `center`, in the plane with unit
+/// normal `normal`, measured from the `reference` direction.
+struct ProtractorPreview {
+    Vec3 center{0.0};
+    Vec3 normal{0.0, 0.0, 1.0};
+    std::optional<Vec3> reference; ///< baseline direction (from the centre), once clicked
+    std::optional<Vec3> current;   ///< pointer direction in the plane (from the centre)
+    double angle = 0.0;            ///< radians from the reference, counter-clockwise about the normal
+    std::optional<Guide> guide;    ///< the guide line a click would add
 };
 
 /// A world axis that a gesture is locked to (Move: the direction of travel).
@@ -169,10 +184,16 @@ struct FreehandPreview {
     bool closes = false;
 };
 
+/// The Eraser's stroke in progress: the edges its release will erase (or hide,
+/// or soften), drawn highlighted.
+struct ErasePreview {
+    std::vector<ElementRef> edges;
+};
+
 /// Transient feedback drawn by the viewport. Never part of the document or history.
 using Preview =
     std::variant<std::monostate, RectanglePreview, CirclePreview, LinePreview, PushPullPreview, MovePreview, RotatePreview, ScalePreview,
-                 MeasurePreview, SelectBoxPreview, ArcPreview, FreehandPreview>;
+                 MeasurePreview, SelectBoxPreview, ArcPreview, ProtractorPreview, ErasePreview, FreehandPreview>;
 
 /// The object a preview draws in place of the document's version (push/pull,
 /// rotate and scale), if any. The viewport hides the original while it is set.

@@ -153,15 +153,42 @@ struct Dimension {
     friend bool operator==(const Dimension&, const Dimension&) = default;
 };
 
+/// Stable construction guide identifier, from the same allocator as objects
+/// and dimensions (Document::nextId). Serialized as "guide-<n>".
+struct GuideId {
+    std::uint64_t value = 0;
+    friend auto operator<=>(const GuideId&, const GuideId&) = default;
+};
+
+std::string idString(GuideId id);
+std::optional<GuideId> parseGuideId(std::string_view text);
+
+/// A construction guide: an infinite line or a single point in world space.
+/// Guides are drawn dashed and snapped to, but are not geometry: they never
+/// make edges or faces and belong to no object.
+struct Guide {
+    enum class Kind { Line, Point };
+    GuideId id;
+    Kind kind = Kind::Line;
+    Vec3 point{0.0};               ///< a point on the line, or the guide point
+    Vec3 direction{1.0, 0.0, 0.0}; ///< unit direction of a line; unused for a point
+    friend bool operator==(const Guide&, const Guide&) = default;
+
+    static Guide line(const Vec3& through, const Vec3& unitDirection) { return {GuideId{}, Kind::Line, through, unitDirection}; }
+    static Guide at(const Vec3& p) { return {GuideId{}, Kind::Point, p, Vec3{1.0, 0.0, 0.0}}; }
+};
+
 struct Document {
     LengthUnit displayUnit = LengthUnit::Millimeter; ///< display and unitless input; storage is meters
-    std::uint64_t nextId = 1;                        ///< allocator for stable object and dimension IDs, saved in files
+    std::uint64_t nextId = 1;                        ///< allocator for stable object, dimension and guide IDs, saved in files
     std::vector<ObjectPtr> objects;
     std::vector<Dimension> dimensions;               ///< annotations; small values, copied per snapshot
+    std::vector<Guide> guides;                       ///< construction guides; small values, copied per snapshot
 
     [[nodiscard]] const ProfileObject* find(ObjectId id) const;
     [[nodiscard]] std::ptrdiff_t indexOf(ObjectId id) const;
     [[nodiscard]] const Dimension* findDimension(DimensionId id) const;
+    [[nodiscard]] const Guide* findGuide(GuideId id) const;
 };
 
 /// Deep comparison (object contents, not pointer identity).

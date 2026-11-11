@@ -3,6 +3,7 @@
 #include "core/document/tolerance.hpp"
 #include "core/geometry/mesh.hpp"
 #include "core/geometry/solid.hpp"
+#include "core/geometry/guide_snap.hpp"
 
 #include <glm/geometric.hpp>
 
@@ -115,6 +116,7 @@ std::optional<SnapResult> PointSnapper::infer(const PointerInput& input, const I
         q.references = references_;
         q.referenceEdges = referenceEdges_;
         q.lock = lock_;
+        if (settings_.guides) q.guides = editor_.document().guides;
         res = inferPoint(index_, q);
         if (res && !res->locked) remember(*res);
     }
@@ -148,9 +150,33 @@ std::optional<SnapResult> PointSnapper::point(const PointerInput& input, std::op
     // the excluded object (the one being edited, drawn as a preview).
     std::optional<double> occluder;
     if (input.pick && !(exclude && input.pick->objectId == *exclude)) occluder = input.pick->distance;
-    auto hit = index_.nearest(input.ray, input.pixelAngle * settings_.radiusPx, occluder, exclude);
+    const double radius = input.pixelAngle * settings_.radiusPx;
+    auto hit = index_.nearest(input.ray, radius, occluder, exclude);
+    const auto& guides = editor_.document().guides;
+    if (settings_.guides && !guides.empty()) {
+        // Guide points and crossings compete with corners and midpoints.
+        if (auto g = nearestGuidePoint(guides, index_, input.ray, radius, occluder, exclude)) {
+            const auto score = hit ? snapScore(input.ray, *hit) : std::nullopt;
+            if (!score || g->score < *score) hit = std::move(g->snap);
+        }
+    }
     if (hit) remember(hit->featurePoint);
     return hit;
+}
+
+std::optional<SnapResult> PointSnapper::onGuide(const PointerInput& input, const Vec3& planePoint, const Vec3& normal) {
+    if (!active(input) || !settings_.guides) return std::nullopt;
+    std::vector<Guide> inPlane;
+    for (const auto& g : editor_.document().guides) {
+        if (g.kind == Guide::Kind::Line && std::abs(glm::dot(g.direction, normal)) <= 1e-9 &&
+            std::abs(glm::dot(g.point - planePoint, normal)) <= tol::kWeldDistance) {
+            inPlane.push_back(g);
+        }
+    }
+    if (inPlane.empty()) return std::nullopt;
+    std::optional<double> occluder;
+    if (input.pick) occluder = input.pick->distance;
+    return nearestOnGuide(inPlane, input.ray, input.pixelAngle * settings_.radiusPx, occluder);
 }
 
 std::optional<SnapResult> PointSnapper::ground(const PointerInput& input, std::optional<Vec3> skip, std::optional<ObjectId> exclude) {
@@ -162,6 +188,8 @@ std::optional<SnapResult> PointSnapper::ground(const PointerInput& input, std::o
         if (input.pick && exclude && input.pick->objectId == *exclude) occluder.reset();
         hit = index_.nearestEdge(input.ray, input.pixelAngle * settings_.radiusPx, occluder, exclude);
         if (hit && hit->edge) rememberEdge(*hit->edge);
+        // Then a point on a guide line.
+        if (!hit && settings_.guides) hit = nearestOnGuide(editor_.document().guides, input.ray, input.pixelAngle * settings_.radiusPx, occluder);
     }
     if (hit) {
         // Rectangles are drawn on the ground: use the point straight below.

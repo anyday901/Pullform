@@ -2,13 +2,16 @@
 
 #include "app/tools/tool_controller.hpp"
 #include "core/commands/editor.hpp"
+#include "core/geometry/element_pick.hpp"
 #include "core/geometry/pick.hpp"
+#include "core/geometry/topology.hpp"
 
 #include <glm/geometric.hpp>
 
 #include <doctest/doctest.h>
 
 #include <cmath>
+#include <vector>
 
 namespace pf::test {
 
@@ -28,6 +31,21 @@ inline PointerInput levelAt(double x, double y, double z, Vec2 screen) {
     PointerInput in;
     in.ray = Ray{{x + 20.0, y + 0.5, z}, glm::normalize(Vec3{-20.0, -0.5, 0.0})};
     in.screen = screen;
+    return in;
+}
+
+/// A pointer looking from `eye` through `at`, with the face pick and the
+/// element pick resolved against the document as the viewport does it.
+inline PointerInput lookAtElements(const Editor& editor, const Vec3& eye, const Vec3& at, double pixelAngle) {
+    PointerInput in;
+    in.ray = Ray{eye, glm::normalize(at - eye)};
+    in.pick = pickDocument(in.ray, editor.document());
+    in.pixelAngle = pixelAngle;
+    std::vector<ElementTopology> topos;
+    for (const auto& o : editor.document().objects) topos.push_back(buildTopology(*o));
+    std::vector<PickTarget> targets;
+    for (std::size_t i = 0; i < topos.size(); ++i) targets.push_back({editor.document().objects[i]->id, &topos[i]});
+    in.element = pickElement(in.ray, targets, ElementPickOptions{pixelAngle});
     return in;
 }
 

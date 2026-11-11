@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/document/document.hpp"
+#include "core/document/element_ref.hpp"
 #include "core/document/result.hpp"
 #include "core/geometry/arc.hpp"
 #include "core/geometry/circle.hpp"
@@ -87,6 +88,14 @@ Expected<OpResult> deleteObject(const Document& doc, ObjectId id);
 Expected<OpResult> addDimension(const Document& doc, const DimensionAnchor& a, const DimensionAnchor& b, const Vec3& offset);
 /// Removes a dimension.
 Expected<OpResult> deleteDimension(const Document& doc, DimensionId id);
+/// Adds a construction guide (a line or a point), allocating a new stable ID
+/// from nextId; the new guide is the last in Document::guides. A line's
+/// direction is normalized; a zero direction or a point outside the model
+/// range is rejected.
+Expected<OpResult> addGuide(const Document& doc, const Guide& guide);
+/// Removes every guide (Edit > Delete Guides). Fails when there are none, so
+/// a no-op never becomes an undo entry.
+Expected<OpResult> deleteGuides(const Document& doc);
 // Operations on several objects (a multi-selection). Each runs the
 // single-object operation on every object in turn and fails as a whole if any
 // one fails, so a selection always changes in one commit and one undo entry.
@@ -134,6 +143,17 @@ Expected<OpResult> drawPolyline(const Document& doc, std::optional<ObjectId> tar
 /// that used it are removed. A rectangle or box is converted to a mesh group
 /// first. A group left with nothing is deleted.
 Expected<OpResult> eraseEdge(const Document& doc, ObjectId id, mesh::EdgeId edge);
+/// Erases several edges of one group in one step (see eraseEdge). Edges that
+/// are already gone are skipped; it fails only when none of them exists.
+Expected<OpResult> eraseEdges(const Document& doc, ObjectId id, const std::vector<mesh::EdgeId>& edges);
+/// Erases edges of any number of groups in one step (the Eraser's stroke).
+/// Entries that are not edges are ignored. OpResult::objectIds lists the
+/// groups touched (a group left with nothing is deleted).
+Expected<OpResult> eraseEdges(const Document& doc, const std::vector<ElementRef>& edges);
+/// Sets the soft and smooth flags of edges (the Eraser's Shift: hide, soft
+/// only; Ctrl: soften, soft and smooth). Soft edges are not drawn or picked;
+/// faces keep using them. A rectangle or box is converted to a mesh group first.
+Expected<OpResult> setEdgesSoft(const Document& doc, const std::vector<ElementRef>& edges, bool soft, bool smooth);
 
 /// Draws an arc (world space) as `segments` edges plus a curve record, into a
 /// group's mesh like drawEdge: ends weld, a closed planar loop makes a face.

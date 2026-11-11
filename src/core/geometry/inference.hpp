@@ -14,7 +14,8 @@
 // directly.
 //
 // In priority order it finds:
-//  1. Endpoint, Midpoint, Center: a point feature near the pointer.
+//  1. Endpoint, Midpoint, Center, Guide Point: a point feature near the
+//     pointer (and the crossings of construction guide lines).
 //  2. Intersection: two edges, or an edge and an inference line, crossing
 //     near the pointer.
 //  3. On Edge: the point of an edge nearest the pointer.
@@ -46,6 +47,10 @@ struct InferenceQuery {
     std::span<const Vec3> references;    ///< remembered points (From Point lines along each axis)
     std::span<const SnapEdge> referenceEdges; ///< remembered edges (parallel/perpendicular references)
     std::optional<SnapConstraint> lock;  ///< Shift-locked constraint
+    /// Construction guides: guide points and their crossings snap like
+    /// corners, guide lines are inference lines (On Guide) that cross edges
+    /// and the other lines. Empty when guides are hidden.
+    std::span<const Guide> guides;
 };
 
 /// The strongest inference near the pointer, or nothing (the caller then uses
