@@ -349,8 +349,9 @@ proportional for arcs) and a `Curve` record that keeps the exact definition.
 - Pushing/pulling a face bounded by a curve produces soft/smooth side edges and a curve
   record on the new cap loop.
 
-Phase 1 does not need an Arc or Circle tool, but the curve record is in the version 3
-schema from the start so that adding it later needs no format change.
+The curve record was in the version 3 schema from the start, so the Arc tools (Phase 2)
+needed no format change: `Mesh::addCurve` draws an arc's segments with `addEdge` and then
+records the curve over the chain of edges they became.
 
 ## Precision and tolerance merging
 

@@ -2,7 +2,10 @@
 
 #include "core/document/document.hpp"
 #include "core/document/result.hpp"
+#include "core/geometry/mesh.hpp"
 
+#include <optional>
+#include <string>
 #include <vector>
 
 // Exact arcs for the Arc tools (two-point with bulge, three-point, pie and
@@ -71,6 +74,15 @@ Expected<ArcGeometry> arcFromCenter(const Vec3& center, const Vec3& startPoint, 
 /// in the plane through `start` with normal `planeNormal`. Rejects an end on
 /// the tangent line (that would be a straight line).
 Expected<ArcGeometry> tangentArc(const Vec3& start, const Vec3& tangent, const Vec3& end, const Vec3& planeNormal);
+
+/// The arc a mesh curve record describes (same frame, local to its mesh).
+ArcGeometry arcOfCurve(const mesh::Curve& curve);
+
+/// Direction of travel arriving at `vertex` along the one edge it has (the
+/// open end of a line or arc chain), for tangent arcs: from the edge's other
+/// end toward the vertex, or for an arc segment the arc's exact tangent there.
+/// In the mesh's local space. Nothing when the vertex has no edge or several.
+std::optional<Vec3> openEndTangent(const mesh::Mesh& mesh, mesh::VertexId vertex);
 
 /// Signed angle (radians, in (-pi, pi]) from `from` to `to` about `normal`.
 double signedAngle(const Vec3& from, const Vec3& to, const Vec3& normal);

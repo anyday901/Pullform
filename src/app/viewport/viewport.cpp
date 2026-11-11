@@ -37,6 +37,7 @@ constexpr glm::vec4 kSnapOther{0.70f, 0.20f, 0.75f, 1.0f};
 constexpr glm::vec4 kGuideFree{0.45f, 0.45f, 0.50f, 1.0f};
 constexpr glm::vec4 kDimension{0.20f, 0.24f, 0.32f, 1.0f};
 constexpr glm::vec4 kMeasure{0.95f, 0.45f, 0.08f, 1.0f};
+constexpr glm::vec4 kTangent{0.0f, 0.75f, 0.85f, 1.0f}; // cyan: an arc tangent to the edge it starts from
 
 glm::vec4 dim(glm::vec4 c, float a) { return {c.r, c.g, c.b, a}; }
 
@@ -517,6 +518,11 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
         lines.push_back({rot->pivot - n * radius * 0.25, rot->pivot + n * radius * 0.25, color});
         if (rot->reference) lines.push_back({rot->pivot, rot->pivot + *rot->reference, kPreviewEdge});
         if (rot->current) lines.push_back({rot->pivot, rot->pivot + *rot->current, rot->error ? kErrorEdge : kPreviewEdge});
+    } else if (const auto* arc = std::get_if<ArcPreview>(&editor.preview())) {
+        glm::vec4 color = arc->tangent ? kTangent : kPreviewEdge;
+        if (arc->error) color = kErrorEdge;
+        for (const auto& [a, b] : arc->guides) lines.push_back({a, b, dim(kPreviewEdge, 0.35f)});
+        for (std::size_t i = 0; i + 1 < arc->points.size(); ++i) lines.push_back({arc->points[i], arc->points[i + 1], color});
     } else if (const auto* sc = std::get_if<ScalePreview>(&editor.preview())) {
         drawTransformGroup(sc->group, sc->objectIds, sc->result, sc->error.has_value(), sc->objectId, doc, lines);
         if (sc->start) lines.push_back({sc->pivot, *sc->start, dim(kPreviewEdge, 0.5f)});

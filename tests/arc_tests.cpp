@@ -240,3 +240,226 @@ TEST_CASE("rounded rectangle from lines and tangent arcs is one face") {
 }
 
 } // namespace pf
+
+// ---- The Arc tools, driven with synthetic pointer events -------------------------
+
+namespace pf {
+
+namespace {
+
+using test::downAt;
+
+PointerInput at(const Editor& editor, double x, double y, int clicks = 1, double pixelAngle = 0.0) {
+    PointerInput in = downAt(editor, x, y, {x * 100.0, y * 100.0});
+    in.clicks = clicks;
+    in.pixelAngle = pixelAngle;
+    return in;
+}
+
+void click(ToolController& tools, const Editor& editor, double x, double y, int clicks = 1, double pixelAngle = 0.0) {
+    tools.pointerMove(at(editor, x, y, 1, pixelAngle));
+    tools.pointerDown(at(editor, x, y, clicks, pixelAngle));
+    tools.pointerUp(at(editor, x, y, clicks, pixelAngle));
+}
+
+void line(Editor& editor, const Vec3& a, const Vec3& b) {
+    REQUIRE(editor.commit("Draw line", [&](const Document& d) { return drawEdge(d, std::nullopt, a, b); }));
+}
+
+const mesh::Mesh& onlyMesh(const Editor& editor) {
+    REQUIRE(editor.document().objects.size() == 1);
+    REQUIRE(editor.document().objects[0]->isMeshGroup());
+    return *editor.document().objects[0]->mesh;
+}
+
+} // namespace
+
+TEST_CASE("Arc tool: start, end, bulge") {
+    Editor editor;
+    ToolController tools(editor);
+    tools.setTool(Tool::Arc);
+    CHECK(toolName(Tool::Arc) == "Arc");
+    click(tools, editor, 0, 0);
+    CHECK(tools.active());
+    click(tools, editor, 2, 0);
+    tools.pointerMove(at(editor, 1, 0.5));
+    const auto* pv = std::get_if<ArcPreview>(&editor.preview());
+    REQUIRE(pv);
+    CHECK(pv->value == ArcPreview::Value::Bulge);
+    CHECK(test::near(pv->amount, 0.5, 1e-9));
+    CHECK(editor.undoDepth() == 0); // moving only previews
+    click(tools, editor, 1, 1);
+    CHECK_FALSE(tools.active());
+    CHECK(editor.undoDepth() == 1);
+    CHECK(editor.undoLabel() == "Draw arc");
+    const auto& m = onlyMesh(editor);
+    REQUIRE(m.curves().size() == 1);
+    CHECK(m.curves().begin()->second.segments == 12); // a half circle by default
+    CHECK(test::near(m.curves().begin()->second.radius, 1.0));
+    CHECK(std::holds_alternative<std::monostate>(editor.preview()));
+}
+
+TEST_CASE("Arc tool: typed length, bulge and segment count") {
+    Editor editor;
+    ToolController tools(editor);
+    tools.setTool(Tool::Arc);
+    CHECK_FALSE(tools.submit("8s")); // before the first point: applies to the next arcs
+    click(tools, editor, 0, 0);
+    tools.pointerMove(at(editor, 1, 0));
+    CHECK_FALSE(tools.submit("3000")); // millimetres: the end is 3 m along the pointer's direction
+    tools.pointerMove(at(editor, 1.5, -0.4)); // right of the chord
+    CHECK_FALSE(tools.submit("500"));
+    CHECK_FALSE(tools.active());
+    const auto& m = onlyMesh(editor);
+    REQUIRE(m.curves().size() == 1);
+    const auto& c = m.curves().begin()->second;
+    CHECK(c.segments == 8);
+    const ArcGeometry arc = arcOfCurve(c);
+    const auto& o = *editor.document().objects[0];
+    CHECK(nearVec(localToWorld(o, arcEndPoint(arc)), {3, 0, 0}, 1e-9));
+    CHECK(nearVec(localToWorld(o, arcMidPoint(arc)), {1.5, -0.5, 0}, 1e-9));
+
+    CHECK(tools.submit("1s"));    // too few
+    CHECK(tools.submit("abc"));   // not a length before the first point either
+}
+
+TEST_CASE("Arc tool: tangent arc from a line end (cyan inference and double-click)") {
+    Editor editor;
+    ToolController tools(editor);
+    line(editor, {0, 0, 0}, {1, 0, 0});
+    tools.setTool(Tool::Arc);
+
+    // Moving near the tangent bulge snaps to it.
+    click(tools, editor, 1, 0);
+    CHECK(tools.active());
+    click(tools, editor, 2, 1);
+    tools.pointerMove(at(editor, 1.7, 0.3, 1, 0.0005));
+    const auto* pv = std::get_if<ArcPreview>(&editor.preview());
+    REQUIRE(pv);
+    CHECK(pv->tangent);
+    click(tools, editor, 1.7, 0.3, 1, 0.0005);
+    {
+        const auto& m = onlyMesh(editor); // the arc joined the line's group
+        REQUIRE(m.curves().size() == 1);
+        const ArcGeometry arc = arcOfCurve(m.curves().begin()->second);
+        CHECK(nearVec(arcStartTangent(arc), {1, 0, 0}, 1e-9));
+        CHECK(test::near(arc.radius, 1.0, 1e-9));
+    }
+    REQUIRE(editor.undo());
+
+    // Double-clicking the end point takes the tangent arc right away.
+    click(tools, editor, 1, 0);
+    click(tools, editor, 2, 1);
+    tools.pointerDown(at(editor, 2, 1, 2));
+    tools.pointerUp(at(editor, 2, 1, 2));
+    CHECK_FALSE(tools.active());
+    const auto& m = onlyMesh(editor);
+    REQUIRE(m.curves().size() == 1);
+    CHECK(nearVec(arcStartTangent(arcOfCurve(m.curves().begin()->second)), {1, 0, 0}, 1e-9));
+}
+
+TEST_CASE("Arc tool: half circle inference") {
+    Editor editor;
+    ToolController tools(editor);
+    tools.setTool(Tool::Arc);
+    click(tools, editor, 0, 0);
+    click(tools, editor, 2, 0);
+    tools.pointerMove(at(editor, 1, 0.9, 1, 0.0005));
+    const auto* pv = std::get_if<ArcPreview>(&editor.preview());
+    REQUIRE(pv);
+    CHECK(pv->halfCircle);
+    CHECK(test::near(pv->radius, 1.0, 1e-9));
+}
+
+TEST_CASE("3 Point Arc tool") {
+    Editor editor;
+    ToolController tools(editor);
+    tools.setTool(Tool::ThreePointArc);
+    click(tools, editor, 1, 0);
+    click(tools, editor, 0, 1);
+    click(tools, editor, -1, 0);
+    const auto& m = onlyMesh(editor);
+    REQUIRE(m.curves().size() == 1);
+    const auto& c = m.curves().begin()->second;
+    CHECK(test::near(c.radius, 1.0, 1e-9));
+    CHECK(test::near(std::abs(c.sweep), kPi, 1e-9));
+    CHECK(m.faces().empty());
+}
+
+TEST_CASE("Pie tool: centre, radius, angle; the pie is a face") {
+    Editor editor;
+    ToolController tools(editor);
+    tools.setTool(Tool::Pie);
+    click(tools, editor, 0, 0);
+    click(tools, editor, 1, 0);
+    // Sweep round past half a turn, the way the pointer circles.
+    for (int deg = 15; deg <= 270; deg += 15) {
+        const double a = deg * kPi / 180.0;
+        tools.pointerMove(at(editor, std::cos(a), std::sin(a)));
+    }
+    const auto* pv = std::get_if<ArcPreview>(&editor.preview());
+    REQUIRE(pv);
+    CHECK(pv->value == ArcPreview::Value::Angle);
+    CHECK(test::near(pv->amount, 1.5 * kPi, 1e-6));
+    CHECK_FALSE(tools.submit("90")); // typed angle, in the direction of the sweep
+    const auto& m = onlyMesh(editor);
+    CHECK(m.faces().size() == 1);
+    REQUIRE(m.curves().size() == 1);
+    CHECK(test::near(m.curves().begin()->second.sweep, 0.5 * kPi, 1e-12));
+    CHECK(editor.undoLabel() == "Draw pie");
+
+    // Typed radius.
+    click(tools, editor, 5, 5);
+    tools.pointerMove(at(editor, 6, 5));
+    CHECK_FALSE(tools.submit("2000"));
+    tools.pointerMove(at(editor, 5, 7));
+    click(tools, editor, 5, 7);
+    CHECK(editor.document().objects.size() == 2);
+    const auto& pie = *editor.document().objects[1]->mesh;
+    REQUIRE(pie.curves().size() == 1);
+    CHECK(test::near(pie.curves().begin()->second.radius, 2.0, 1e-9));
+}
+
+TEST_CASE("Arc tool: Escape cancels without an undo entry") {
+    Editor editor;
+    ToolController tools(editor);
+    tools.setTool(Tool::Arc);
+    click(tools, editor, 0, 0);
+    click(tools, editor, 1, 0);
+    CHECK(tools.cancel());
+    CHECK_FALSE(tools.active());
+    CHECK(editor.undoDepth() == 0);
+    CHECK(editor.document().objects.empty());
+}
+
+TEST_CASE("acceptance: rounded rectangle from lines and tangent arcs is one face") {
+    // Lines drawn as edges, each corner a tangent arc taken with a double-click
+    // on its end point, exactly as the Arc tool is used after the Line tool.
+    Editor editor;
+    ToolController tools(editor);
+    tools.setTool(Tool::Arc);
+    const auto corner = [&](double x0, double y0, double x1, double y1) {
+        click(tools, editor, x0, y0);
+        REQUIRE(tools.active());
+        click(tools, editor, x1, y1);
+        tools.pointerDown(at(editor, x1, y1, 2));
+        tools.pointerUp(at(editor, x1, y1, 2));
+        REQUIRE_FALSE(tools.active());
+    };
+    line(editor, {0.5, 0, 0}, {3.5, 0, 0});
+    corner(3.5, 0, 4, 0.5);
+    line(editor, {4, 0.5, 0}, {4, 1.5, 0});
+    corner(4, 1.5, 3.5, 2);
+    line(editor, {3.5, 2, 0}, {0.5, 2, 0});
+    corner(0.5, 2, 0, 1.5);
+    line(editor, {0, 1.5, 0}, {0, 0.5, 0});
+    corner(0, 0.5, 0.5, 0);
+
+    const auto& m = onlyMesh(editor);
+    CHECK(m.faces().size() == 1);
+    CHECK(m.curves().size() == 4);
+    for (const auto& [id, c] : m.curves()) CHECK(test::near(c.radius, 0.5, 1e-9));
+    CHECK_FALSE(validateDocument(editor.document()));
+}
+
+} // namespace pf

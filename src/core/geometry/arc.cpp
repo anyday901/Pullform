@@ -146,6 +146,30 @@ double unwrapSweep(double previous, double wrapped) {
     return best;
 }
 
+ArcGeometry arcOfCurve(const mesh::Curve& curve) {
+    return ArcGeometry{curve.center, curve.normal, curve.xAxis, curve.radius, curve.start, curve.sweep};
+}
+
+std::optional<Vec3> openEndTangent(const mesh::Mesh& m, mesh::VertexId vertex) {
+    const auto edges = m.edgesOfVertex(vertex);
+    if (edges.size() != 1) return std::nullopt;
+    const mesh::Edge* e = m.edge(edges.front());
+    const mesh::Vertex* here = m.vertex(vertex);
+    const mesh::Vertex* other = m.vertex(e->v0 == vertex ? e->v1 : e->v0);
+    if (!here || !other) return std::nullopt;
+    if (e->curve) {
+        if (const mesh::Curve* c = m.curve(*e->curve)) {
+            const ArcGeometry arc = arcOfCurve(*c);
+            if (glm::length(arcEndPoint(arc) - here->position) <= tol::kWeldDistance) return arcEndTangent(arc);
+            if (glm::length(arcStartPoint(arc) - here->position) <= tol::kWeldDistance) return -arcStartTangent(arc);
+        }
+    }
+    const Vec3 d = here->position - other->position;
+    const double len = glm::length(d);
+    if (!(len > 0.0)) return std::nullopt;
+    return d / len;
+}
+
 Expected<ArcGeometry> arcThroughPoints(const Vec3& start, const Vec3& through, const Vec3& end) {
     for (const Vec3& p : {start, through, end}) {
         if (!inRange(p)) return Error{"Arc points must be finite and within the supported range of +/-10 km."};

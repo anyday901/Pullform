@@ -9,6 +9,15 @@ include breaking changes, but project files will keep a migration path.
 
 ### Added
 
+- **Arc tools.** Arc (A): click the start and the end, then move to set the bulge and
+  click, or type the chord length and then the bulge. Starting from the open end of a line
+  or arc, the bulge snaps to the tangent arc (drawn cyan), and double-clicking the end point
+  takes it right away; the bulge also snaps to a half circle. 3 Point Arc: start, a point on
+  the arc, end. Pie: centre, start of the arc (or type the radius), end (or type the angle);
+  the pie closes into a face. Type `12s` with any arc tool for 12 segments (default 24 per
+  full turn). Arcs are stored as true arcs (a curve record) plus their segment edges, and a
+  loop closed by an arc becomes a face, so a rounded rectangle drawn from lines and tangent
+  arcs is one face. Tools > Arcs and the toolbar list all three.
 - **Multi-selection.** With the Select tool, Shift-click adds or removes an object,
   Ctrl-click (Cmd on macOS) adds one, clicking empty space clears, and Ctrl+A / Cmd+A
   (Edit > Select all) selects everything. Drag a box left to right to select objects
