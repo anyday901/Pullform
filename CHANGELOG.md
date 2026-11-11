@@ -7,6 +7,17 @@ include breaking changes, but project files will keep a migration path.
 
 ## [Unreleased]
 
+### Added
+
+- **Duplicate** (Edit > Duplicate, Ctrl+D / Cmd+D, or the Duplicate buttons): copies the
+  selected object with a new stable ID and places it beside the original along +X. The copy
+  becomes the selection, so repeating it builds a row. Editing either object leaves the
+  other unchanged. One undo entry per duplicate.
+- **Copy while moving:** with the Move tool, tap Ctrl (Option on macOS) to switch to copy
+  mode, before the first click or in the middle of a move. Committing then places a
+  duplicate at the destination (dragged or typed, with axis locks) and leaves the original
+  where it was, as one undo entry. Tap again to go back to a plain move.
+
 ### Fixed
 
 - An extra Backspace after clearing a typed value no longer deletes the selected object.
@@ -32,6 +43,10 @@ include breaking changes, but project files will keep a migration path.
 
 ### Added
 
+- Move tool (M). Drag an object, or click it and click the destination; X, Y, Z or the
+  Right, Left and Up arrows lock the move to an axis. Type a distance to move exactly along
+  the locked axis or the pointer direction, or `x, y, z` to move by a vector. Each move is
+  one undo entry.
 - Endpoint and midpoint snapping. Rectangle corners and push/pull heights snap to the
   corners and edge midpoints of existing objects (within 12 pixels; corners win over
   nearby midpoints, and points hidden behind the face under the pointer are ignored). A

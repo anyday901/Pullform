@@ -26,6 +26,20 @@ Expected<OpResult> createRectangle(const Document& doc, const RectanglePlacement
 Expected<OpResult> extrudeProfile(const Document& doc, ObjectId id, double height);
 /// Changes the total height of an existing extrusion (same object, same ID).
 Expected<OpResult> setExtrusionHeight(const Document& doc, ObjectId id, double height);
+/// Checks a move of `object` by `offset`: finite, and the new position stays
+/// within the +/-10 km model range. Zero is allowed here (callers decide).
+std::optional<std::string> checkMove(const ProfileObject& object, const Vec3& offset);
+/// Moves an object by `offset` (meters, world space). Only the translation
+/// changes: the ID, profile, extrusion and any other placement stay as they are.
+/// A zero offset is rejected so a no-op never becomes an undo entry.
+Expected<OpResult> moveObject(const Document& doc, ObjectId id, const Vec3& offset);
+/// Copies an object to a new object with a new stable ID, placed at the
+/// original's position plus `offset`. The copy shares nothing mutable with the
+/// original, so later edits to either leave the other unchanged. Default names
+/// ("Rectangle 3", "Box 3") follow the new ID; other names get " copy".
+Expected<OpResult> duplicateObject(const Document& doc, ObjectId id, const Vec3& offset);
+/// Name for a copy of `name` that receives ID `newId`.
+std::string duplicateName(const std::string& name, ObjectId newId);
 /// Removes a whole object.
 Expected<OpResult> deleteObject(const Document& doc, ObjectId id);
 /// Changes the display unit (storage stays in meters).

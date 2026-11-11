@@ -12,7 +12,7 @@
 
 namespace pf {
 
-enum class Tool { Select, Rectangle, PushPull, Orbit };
+enum class Tool { Select, Rectangle, PushPull, Move, Orbit };
 
 std::string_view toolName(Tool tool);
 
@@ -35,8 +35,8 @@ public:
     [[nodiscard]] SnapSettings& snap() { return snap_; }
     [[nodiscard]] const SnapSettings& snap() const { return snap_; }
 
-    /// True while a gesture is in progress (first corner placed, push/pull started).
-    [[nodiscard]] bool active() const { return rect_.has_value() || push_.has_value(); }
+    /// True while a gesture is in progress (first corner placed, push/pull or move started).
+    [[nodiscard]] bool active() const { return rect_.has_value() || push_.has_value() || move_.has_value(); }
 
     /// Escape: cancels the active gesture. Returns whether anything was cancelled.
     bool cancel();
@@ -55,8 +55,33 @@ public:
     /// gesture, or else to the selected object.
     std::optional<std::string> submitPushDistance(std::string_view distance);
 
+    /// Move axis lock (X, Y or Z key, or the arrow keys). Locking the axis that
+    /// is already locked releases it. The lock lasts until the move is
+    /// committed or the tool changes, so it can be set before the first click.
+    void toggleAxisLock(MoveAxis axis);
+    [[nodiscard]] const std::optional<MoveAxis>& axisLock() const { return axisLock_; }
+
+    /// Move copy mode (tap Ctrl, or Option on macOS). While on, committing a
+    /// move places a duplicate at the destination and leaves the original where
+    /// it is: one undo entry, and the copy becomes the selection. Like the axis
+    /// lock, it can be set before the first click and lasts until the move is
+    /// committed or the tool changes.
+    void toggleMoveCopy();
+    [[nodiscard]] bool moveCopy() const { return moveCopy_; }
+
+    /// Exact move. A single length moves along the locked axis or, while a move
+    /// is in progress without a lock, along the current pointer direction.
+    /// "x, y, z" moves by that vector. Applies to the active gesture, or else to
+    /// the selected object.
+    std::optional<std::string> submitMoveDistance(std::string_view distance);
+
     /// Sets the total extrusion height of an object (properties panel).
     std::optional<std::string> setTotalHeight(ObjectId id, std::string_view height);
+
+    /// Duplicates the selected object (Edit > Duplicate). The copy is placed
+    /// beside the original along +X, one object width over, and becomes the
+    /// selection, so repeating it builds a row. One undo entry.
+    std::optional<std::string> duplicateSelection();
 
     /// Explanation when a face cannot be push/pulled in this milestone.
     static std::optional<std::string> pushableReason(const FaceId& face);
@@ -99,6 +124,15 @@ private:
         bool pressed = false;
     };
 
+    struct MoveGesture {
+        ObjectId objectId;
+        Vec3 anchor{0.0};           ///< picked point the guide line starts from
+        Vec3 startTranslation{0.0}; ///< object translation when the gesture began
+        Vec2 pressScreen{0.0};
+        bool pressed = false;
+        std::optional<Ray> lastRay; ///< re-evaluates the preview when the axis lock changes
+    };
+
     [[nodiscard]] std::string toolHint() const;
     [[nodiscard]] std::optional<Vec3> groundPoint(const PointerInput& input);
     std::optional<double> snapPushHeight(const PointerInput& input, std::optional<double> raw);
@@ -113,6 +147,13 @@ private:
     void pushFinish();
     void setPushPreview(double delta);
     bool commitHeight(ObjectId id, FaceKind face, double height);
+    void moveDown(const PointerInput& input);
+    void moveMove(const PointerInput& input);
+    void moveFinish();
+    void updateMovePreview(const Ray& ray);
+    [[nodiscard]] std::optional<Vec3> moveOffset(const Ray& ray) const;
+    /// Every move (mouse or typed) commits here: one undo entry.
+    bool commitMove(ObjectId id, const Vec3& offset);
     [[nodiscard]] std::string lastError(const char* fallback) const;
 
     Editor& editor_;
@@ -120,6 +161,9 @@ private:
     SnapSettings snap_;
     std::optional<RectGesture> rect_;
     std::optional<PushGesture> push_;
+    std::optional<MoveGesture> move_;
+    std::optional<MoveAxis> axisLock_;
+    bool moveCopy_ = false;
     PointSnapper snapper_; // after snap_, which it refers to
     std::optional<SnapResult> indicator_;
 };
