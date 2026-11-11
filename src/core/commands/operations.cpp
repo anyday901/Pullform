@@ -3,6 +3,7 @@
 #include "core/document/tolerance.hpp"
 #include "core/document/validate.hpp"
 #include "core/geometry/measure.hpp"
+#include "core/geometry/solid.hpp"
 
 #include <algorithm>
 
@@ -22,7 +23,7 @@ Expected<OpResult> replaceObject(const Document& doc, ProfileObject changed) {
     const auto index = doc.indexOf(changed.id);
     if (index < 0) return Error{"Object " + idString(changed.id) + " no longer exists."};
     if (auto e = validateObject(changed, idString(changed.id))) return Error{*e};
-    OpResult result{doc, changed.id};
+    OpResult result{doc, changed.id, {}};
     result.document.objects[static_cast<std::size_t>(index)] = std::make_shared<const ProfileObject>(std::move(changed));
     return result;
 }
@@ -49,7 +50,7 @@ Expected<OpResult> createRectangle(const Document& doc, const RectanglePlacement
     o.profile.boundary = rectangleBoundary(placement.width, placement.depth);
     o.transform.translation = placement.corner;
     if (auto e = validateObject(o, "rectangle")) return Error{*e};
-    OpResult result{doc, o.id};
+    OpResult result{doc, o.id, {}};
     result.document.nextId = doc.nextId + 1;
     result.document.objects.push_back(std::make_shared<const ProfileObject>(std::move(o)));
     return result;
@@ -114,6 +115,13 @@ Expected<OpResult> rotateObject(const Document& doc, ObjectId id, const Vec3& pi
     changed.transform.rotation = glm::normalize(axisAngle(a, radians) * o->transform.rotation);
     changed.transform.translation = pivot + rotateVector(o->transform.translation - pivot, a, radians);
     return replaceObject(doc, std::move(changed));
+}
+
+Vec3 objectBaseCenter(const ProfileObject& o) {
+    Vec2 sum{0.0};
+    for (const auto& p : o.profile.boundary) sum += p;
+    const Vec2 c = o.profile.boundary.empty() ? Vec2{0.0} : sum / static_cast<double>(o.profile.boundary.size());
+    return profileToWorld(o, c, 0.0);
 }
 
 Expected<OpResult> scaleObject(const Document& doc, ObjectId id, const Vec3& f) {
@@ -190,7 +198,7 @@ Expected<OpResult> duplicateObject(const Document& doc, ObjectId id, const Vec3&
     copy.name = duplicateName(o->name, copy.id);
     copy.transform.translation += offset;
     if (auto e = validateObject(copy, "copy")) return Error{*e};
-    OpResult result{doc, copy.id};
+    OpResult result{doc, copy.id, {}};
     result.document.nextId = doc.nextId + 1;
     result.document.objects.push_back(std::make_shared<const ProfileObject>(std::move(copy)));
     return result;
@@ -199,7 +207,7 @@ Expected<OpResult> duplicateObject(const Document& doc, ObjectId id, const Vec3&
 Expected<OpResult> deleteObject(const Document& doc, ObjectId id) {
     const auto index = doc.indexOf(id);
     if (index < 0) return Error{"Object " + idString(id) + " no longer exists."};
-    OpResult result{doc, std::nullopt};
+    OpResult result{doc, std::nullopt, {}};
     result.document.objects.erase(result.document.objects.begin() + index);
     // A dimension measures geometry; without its object it has nothing to measure.
     std::erase_if(result.document.dimensions,
@@ -216,14 +224,14 @@ Expected<OpResult> addDimension(const Document& doc, const DimensionAnchor& a, c
     }
     Dimension d{DimensionId{doc.nextId}, a, b, offset};
     if (auto e = validateDimension(d, doc, "dimension")) return Error{*e};
-    OpResult result{doc, std::nullopt};
+    OpResult result{doc, std::nullopt, {}};
     result.document.nextId = doc.nextId + 1;
     result.document.dimensions.push_back(std::move(d));
     return result;
 }
 
 Expected<OpResult> deleteDimension(const Document& doc, DimensionId id) {
-    OpResult result{doc, std::nullopt};
+    OpResult result{doc, std::nullopt, {}};
     if (const auto removed = std::erase_if(result.document.dimensions, [id](const Dimension& d) { return d.id == id; });
         removed == 0) {
         return Error{"Dimension " + idString(id) + " no longer exists."};
@@ -231,8 +239,97 @@ Expected<OpResult> deleteDimension(const Document& doc, DimensionId id) {
     return result;
 }
 
+namespace {
+
+std::optional<std::string> checkIds(const Document& doc, const std::vector<ObjectId>& ids) {
+    if (ids.empty()) return "Nothing is selected.";
+    for (std::size_t i = 0; i < ids.size(); ++i) {
+        if (!doc.find(ids[i])) return "Object " + idString(ids[i]) + " no longer exists.";
+        if (std::find(ids.begin(), ids.begin() + static_cast<std::ptrdiff_t>(i), ids[i]) != ids.begin() + static_cast<std::ptrdiff_t>(i)) {
+            return "Object " + idString(ids[i]) + " is listed twice.";
+        }
+    }
+    return std::nullopt;
+}
+
+/// Applies `op` to each object in turn on the evolving document.
+template <class Op>
+Expected<OpResult> forEachObject(const Document& doc, const std::vector<ObjectId>& ids, Op op) {
+    if (auto e = checkIds(doc, ids)) return Error{*e};
+    OpResult result{doc, std::nullopt, {}};
+    for (const ObjectId id : ids) {
+        auto step = op(result.document, id);
+        if (!step) return Error{step.error()};
+        result.document = std::move(step).value().document;
+        result.objectIds.push_back(id);
+    }
+    result.objectId = ids.back();
+    return result;
+}
+
+} // namespace
+
+Expected<Vec3> selectionBaseCenter(const Document& doc, const std::vector<ObjectId>& ids) {
+    if (auto e = checkIds(doc, ids)) return Error{*e};
+    Bounds b;
+    for (const ObjectId id : ids) b.extend(objectBounds(*doc.find(id)));
+    return Vec3{(b.min.x + b.max.x) * 0.5, (b.min.y + b.max.y) * 0.5, b.min.z};
+}
+
+Expected<OpResult> moveObjects(const Document& doc, const std::vector<ObjectId>& ids, const Vec3& offset) {
+    return forEachObject(doc, ids, [&](const Document& d, ObjectId id) { return moveObject(d, id, offset); });
+}
+
+Expected<OpResult> rotateObjects(const Document& doc, const std::vector<ObjectId>& ids, const Vec3& pivot, const Vec3& axis,
+                                 double radians) {
+    return forEachObject(doc, ids, [&](const Document& d, ObjectId id) { return rotateObject(d, id, pivot, axis, radians); });
+}
+
+Expected<OpResult> scaleObjects(const Document& doc, const std::vector<ObjectId>& ids, const Vec3& factors, const Vec3& pivot) {
+    if (!std::isfinite(pivot.x) || !std::isfinite(pivot.y) || !std::isfinite(pivot.z)) {
+        return Error{"The scale centre is not valid."};
+    }
+    return forEachObject(doc, ids, [&](const Document& d, ObjectId id) -> Expected<OpResult> {
+        const ProfileObject& before = *d.find(id);
+        const Vec3 centre = objectBaseCenter(before);
+        auto scaled = scaleObject(d, id, factors); // keeps `centre` fixed
+        if (!scaled) return scaled;
+        const Vec3 shift = (centre - pivot) * (factors - Vec3{1.0});
+        if (std::abs(shift.x) < tol::kLengthEpsilon && std::abs(shift.y) < tol::kLengthEpsilon &&
+            std::abs(shift.z) < tol::kLengthEpsilon) {
+            return scaled;
+        }
+        const ProfileObject& after = *scaled->document.find(id);
+        if (auto e = checkMove(after, shift)) return Error{*e};
+        ProfileObject moved = after;
+        moved.transform.translation += shift;
+        return replaceObject(scaled->document, std::move(moved));
+    });
+}
+
+Expected<OpResult> duplicateObjects(const Document& doc, const std::vector<ObjectId>& ids, const Vec3& offset) {
+    if (auto e = checkIds(doc, ids)) return Error{*e};
+    OpResult result{doc, std::nullopt, {}};
+    for (const ObjectId id : ids) {
+        auto step = duplicateObject(result.document, id, offset);
+        if (!step) return Error{step.error()};
+        result.objectIds.push_back(*step->objectId);
+        result.document = std::move(step).value().document;
+    }
+    result.objectId = result.objectIds.back();
+    return result;
+}
+
+Expected<OpResult> deleteObjects(const Document& doc, const std::vector<ObjectId>& ids) {
+    auto r = forEachObject(doc, ids, [](const Document& d, ObjectId id) { return deleteObject(d, id); });
+    if (!r) return r;
+    OpResult result = std::move(r).value();
+    result.objectId.reset();
+    return result;
+}
+
 Expected<OpResult> setDisplayUnit(const Document& doc, LengthUnit unit) {
-    OpResult result{doc, std::nullopt};
+    OpResult result{doc, std::nullopt, {}};
     result.document.displayUnit = unit;
     return result;
 }
