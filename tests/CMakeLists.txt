@@ -19,8 +19,11 @@ add_executable(pullform_tests
   element_tests.cpp
   tool_interface_tests.cpp
   mesh_tests.cpp
+  format_v3_tests.cpp
   fake_renderer.hpp)
-target_link_libraries(pullform_tests PRIVATE pullform_app_logic doctest::doctest)
+target_link_libraries(pullform_tests PRIVATE pullform_app_logic doctest::doctest nlohmann_json::nlohmann_json)
+# Project files of every earlier version (tests/data), opened by migration tests.
+target_compile_definitions(pullform_tests PRIVATE PULLFORM_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/data")
 pullform_set_warnings(pullform_tests)
 
 include(${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake)

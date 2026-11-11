@@ -2,6 +2,7 @@
 
 #include "core/document/document.hpp"
 #include "core/document/result.hpp"
+#include "core/geometry/mesh.hpp"
 #include "core/geometry/rectangle.hpp"
 
 #include <optional>
@@ -93,5 +94,19 @@ Expected<OpResult> deleteObjects(const Document& doc, const std::vector<ObjectId
 
 /// Changes the display unit (storage stays in meters).
 Expected<OpResult> setDisplayUnit(const Document& doc, LengthUnit unit);
+
+// ---- Edges and faces (docs/GEOMETRY.md) ------------------------------------------
+
+/// Draws a straight edge between two world points into a group's mesh: the
+/// endpoints weld to its vertices, crossed edges split, a closed planar loop
+/// makes a face and an edge across a face splits it. `target` names the group;
+/// a rectangle or box is converted to a mesh group first (same corner ids, so
+/// dimensions stay attached). Without a target the line joins the first mesh
+/// group it touches, or starts a new group.
+Expected<OpResult> drawEdge(const Document& doc, std::optional<ObjectId> target, const Vec3& a, const Vec3& b);
+/// Erases one edge of a group: coplanar faces on both sides merge, other faces
+/// that used it are removed. A rectangle or box is converted to a mesh group
+/// first. A group left with nothing is deleted.
+Expected<OpResult> eraseEdge(const Document& doc, ObjectId id, mesh::EdgeId edge);
 
 } // namespace pf

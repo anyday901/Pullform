@@ -301,7 +301,8 @@ TEST_CASE("mesh group: a square split by a line has two pickable faces and a sha
     CHECK(topo.faces.size() == 2);
     CHECK(topo.edges.size() == m.edges().size());
     for (const auto& f : topo.faces) CHECK(f.twoSided); // a loose sheet: both sides
-    CHECK_FALSE(topo.faces[0].logical);
+    // A mesh group's faces are FaceKind::Mesh faces (the ids buildMesh and picking use).
+    CHECK(topo.faces[0].logical == FaceId::meshFace(topo.faces[0].id));
 
     const Vec3 eye{11.0, 1.0, 11.0};
     // The splitting edge, at x = 1 (world 11), borders both faces.

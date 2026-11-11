@@ -167,18 +167,20 @@ bool sameContent(const Document& a, const Document& b);
 ///  - Profile: the single face of an un-extruded profile
 ///  - Base / Cap: bottom and top of an extrusion
 ///  - Side i: the side generated from boundary edge i (vertex i to i+1)
-enum class FaceKind { Profile, Base, Cap, Side };
+///  - Mesh: face `side` (its mesh::FaceId value) of a mesh group
+enum class FaceKind { Profile, Base, Cap, Side, Mesh };
 
 struct FaceId {
     FaceKind kind = FaceKind::Profile;
-    int side = 0; ///< boundary edge index; only meaningful for FaceKind::Side
+    int side = 0; ///< boundary edge index for FaceKind::Side; mesh face id for FaceKind::Mesh
     friend bool operator==(const FaceId& a, const FaceId& b) {
-        return a.kind == b.kind && (a.kind != FaceKind::Side || a.side == b.side);
+        return a.kind == b.kind && ((a.kind != FaceKind::Side && a.kind != FaceKind::Mesh) || a.side == b.side);
     }
     static FaceId profile() { return {FaceKind::Profile, 0}; }
     static FaceId base() { return {FaceKind::Base, 0}; }
     static FaceId cap() { return {FaceKind::Cap, 0}; }
     static FaceId sideAt(int i) { return {FaceKind::Side, i}; }
+    static FaceId meshFace(std::uint32_t id) { return {FaceKind::Mesh, static_cast<int>(id)}; }
 };
 
 std::string faceKey(FaceId face);

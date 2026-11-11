@@ -841,6 +841,11 @@ void Mesh::scale(const Vec3& f) {
     }
 }
 
+void Mesh::translate(const Vec3& offset) {
+    for (auto& [id, v] : vertices_) v.position += offset;
+    for (auto& [id, c] : curves_) c.center += offset;
+}
+
 // ---- Validation --------------------------------------------------------------------
 
 std::optional<std::string> validateMesh(const Mesh& m, std::string_view pathView) {
@@ -1141,12 +1146,13 @@ FaceId faceIdFor(pf::FaceId face) {
     case FaceKind::Base: return FaceId{1};
     case FaceKind::Cap: return FaceId{2};
     case FaceKind::Side: return FaceId{3 + static_cast<std::uint32_t>(face.side)};
+    case FaceKind::Mesh: return FaceId{static_cast<std::uint32_t>(face.side)};
     }
     return FaceId{1};
 }
 
 std::optional<pf::FaceId> semanticFace(const ProfileObject& o, FaceId face) {
-    if (o.mesh) return std::nullopt;
+    if (o.mesh) return o.mesh->face(face) ? std::optional<pf::FaceId>(pf::FaceId::meshFace(face.value)) : std::nullopt;
     const auto n = static_cast<std::uint32_t>(o.profile.boundary.size());
     if (face.value == 1) return o.extrusion ? pf::FaceId::base() : pf::FaceId::profile();
     if (!o.extrusion) return std::nullopt;

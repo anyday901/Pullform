@@ -1,7 +1,10 @@
 #include "core/document/project_file.hpp"
 
+#include "core/document/tolerance.hpp"
 #include "core/document/validate.hpp"
+#include "core/geometry/mesh.hpp"
 
+#include <glm/geometric.hpp>
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -82,21 +85,24 @@ const json* member(const json& obj, const char* key, const std::string& path) {
     return &*it;
 }
 
-ProfileObject readObject(const json& v, const std::string& path) {
-    if (!v.is_object()) fail(path, "must be an object");
-    ProfileObject o;
+/// Id, name and transform, shared by every object.
+void readObjectHeader(const json& v, const std::string& path, ProfileObject& o) {
     const auto& id = *member(v, "id", path);
     if (!id.is_string()) fail(path + ".id", "must look like \"obj-1\"");
     const auto parsedId = parseObjectId(id.get<std::string>());
     if (!parsedId) fail(path + ".id", "must look like \"obj-1\"");
     o.id = *parsedId;
-
-    const auto& type = *member(v, "type", path);
-    if (!type.is_string() || type.get<std::string>() != "profile") fail(path + ".type", "unsupported object type " + type.dump());
     const auto& name = *member(v, "name", path);
     if (!name.is_string()) fail(path + ".name", "must be a string");
     o.name = name.get<std::string>();
+    const auto& transform = *member(v, "transform", path);
+    if (!transform.is_object()) fail(path + ".transform", "must be an object");
+    o.transform.translation = vec3(*member(transform, "translation", path + ".transform"), path + ".transform.translation");
+    o.transform.rotation = quaternion(*member(transform, "rotation", path + ".transform"), path + ".transform.rotation");
+}
 
+/// The parametric part of a rectangle or box: "profile" and "extrusion".
+void readProfileFields(const json& v, const std::string& path, ProfileObject& o) {
     const auto& profile = *member(v, "profile", path);
     if (!profile.is_object()) fail(path + ".profile", "must be an object");
     const auto& kind = *member(profile, "kind", path + ".profile");
@@ -120,10 +126,217 @@ ProfileObject readObject(const json& v, const std::string& path) {
         if (!extrusion.is_object()) fail(path + ".extrusion", "must be null or an object");
         o.extrusion = Extrusion{number(*member(extrusion, "height", path + ".extrusion"), path + ".extrusion.height")};
     }
-    const auto& transform = *member(v, "transform", path);
-    if (!transform.is_object()) fail(path + ".transform", "must be an object");
-    o.transform.translation = vec3(*member(transform, "translation", path + ".transform"), path + ".transform.translation");
-    o.transform.rotation = quaternion(*member(transform, "rotation", path + ".transform"), path + ".transform.rotation");
+}
+
+/// A version 2 object ("type": "profile"); used by the v2 -> v3 migration.
+ProfileObject readProfileObjectV2(const json& v, const std::string& path) {
+    if (!v.is_object()) fail(path, "must be an object");
+    ProfileObject o;
+    readObjectHeader(v, path, o);
+    const auto& type = *member(v, "type", path);
+    if (!type.is_string() || type.get<std::string>() != "profile") fail(path + ".type", "unsupported object type " + type.dump());
+    readProfileFields(v, path, o);
+    return o;
+}
+
+// ---- Meshes (version 3) ---------------------------------------------------------
+//
+// "mesh": {
+//   "vertices": [[id, x, y, z], ...],
+//   "edges":    [[id, v0, v1, flags], ...],      flags: 1 = soft, 2 = smooth
+//   "faces":    [{"id": n, "loops": [[use, ...], ...]}, ...],
+//                use = +edgeId (walked v0 -> v1) or -edgeId (reversed);
+//                loops[0] is the outer loop, the rest are holes
+//   "curves":   [{"id", "kind": "arc"|"circle", "center", "normal", "xAxis",
+//                 "radius", "start", "sweep", "segments", "edges": [ids]}, ...],
+//   "next":     [vertex, edge, face, curve]       ids the next elements get
+// }
+// A face's normal is not stored: it follows from its outer loop.
+
+constexpr std::uint32_t kMaxElementId = 1u << 30;
+
+std::uint32_t elementId(const json& v, const std::string& path) {
+    if (!v.is_number_integer() || v.get<std::int64_t>() < 1 || v.get<std::int64_t>() >= kMaxElementId) {
+        fail(path, "must be a positive id");
+    }
+    return static_cast<std::uint32_t>(v.get<std::int64_t>());
+}
+
+json meshToJson(const mesh::Mesh& m) {
+    json vertices = json::array();
+    for (const auto& [id, v] : m.vertices()) vertices.push_back(json::array({id, v.position.x, v.position.y, v.position.z}));
+    json edges = json::array();
+    for (const auto& [id, e] : m.edges()) {
+        edges.push_back(json::array({id, e.v0.value, e.v1.value, (e.soft ? 1 : 0) | (e.smooth ? 2 : 0)}));
+    }
+    json faces = json::array();
+    for (const auto& [id, f] : m.faces()) {
+        json loops = json::array();
+        for (const auto& loop : f.loops) {
+            json uses = json::array();
+            for (const auto& u : loop) uses.push_back(u.reversed ? -static_cast<std::int64_t>(u.edge.value) : static_cast<std::int64_t>(u.edge.value));
+            loops.push_back(std::move(uses));
+        }
+        faces.push_back({{"id", id}, {"loops", std::move(loops)}});
+    }
+    json curves = json::array();
+    for (const auto& [id, c] : m.curves()) {
+        json ids = json::array();
+        for (const auto e : c.edges) ids.push_back(e.value);
+        curves.push_back({{"id", id},
+                          {"kind", c.kind == mesh::CurveKind::Circle ? "circle" : "arc"},
+                          {"center", vec3ToJson(c.center)},
+                          {"normal", vec3ToJson(c.normal)},
+                          {"xAxis", vec3ToJson(c.xAxis)},
+                          {"radius", c.radius},
+                          {"start", c.start},
+                          {"sweep", c.sweep},
+                          {"segments", c.segments},
+                          {"edges", std::move(ids)}});
+    }
+    return {{"vertices", std::move(vertices)},
+            {"edges", std::move(edges)},
+            {"faces", std::move(faces)},
+            {"curves", std::move(curves)},
+            {"next", json::array({m.nextVertexId(), m.nextEdgeId(), m.nextFaceId(), m.nextCurveId()})}};
+}
+
+mesh::Mesh readMesh(const json& v, const std::string& path) {
+    if (!v.is_object()) fail(path, "must be an object");
+    mesh::Mesh m;
+    const auto array = [&](const char* key) -> const json& {
+        const auto& a = *member(v, key, path);
+        if (!a.is_array()) fail(path + "." + key, "must be an array");
+        return a;
+    };
+    const auto& vertices = array("vertices");
+    for (std::size_t i = 0; i < vertices.size(); ++i) {
+        const std::string p = path + ".vertices[" + std::to_string(i) + "]";
+        const auto& e = vertices[i];
+        if (!e.is_array() || e.size() != 4) fail(p, "must be [id, x, y, z]");
+        const mesh::VertexId id{elementId(e[0], p + "[0]")};
+        if (m.vertex(id)) fail(p, "duplicate vertex id");
+        m.insertVertex(id, {number(e[1], p + "[1]"), number(e[2], p + "[2]"), number(e[3], p + "[3]")});
+    }
+    const auto& edges = array("edges");
+    for (std::size_t i = 0; i < edges.size(); ++i) {
+        const std::string p = path + ".edges[" + std::to_string(i) + "]";
+        const auto& e = edges[i];
+        if (!e.is_array() || e.size() != 4) fail(p, "must be [id, v0, v1, flags]");
+        const mesh::EdgeId id{elementId(e[0], p + "[0]")};
+        if (m.edge(id)) fail(p, "duplicate edge id");
+        if (!e[3].is_number_integer() || e[3].get<std::int64_t>() < 0 || e[3].get<std::int64_t>() > 3) fail(p + "[3]", "must be 0 to 3");
+        const auto flags = e[3].get<std::int64_t>();
+        m.insertEdge(id, mesh::Edge{mesh::VertexId{elementId(e[1], p + "[1]")}, mesh::VertexId{elementId(e[2], p + "[2]")}, std::nullopt,
+                                    (flags & 1) != 0, (flags & 2) != 0});
+    }
+    const auto& faces = array("faces");
+    for (std::size_t i = 0; i < faces.size(); ++i) {
+        const std::string p = path + ".faces[" + std::to_string(i) + "]";
+        const auto& f = faces[i];
+        if (!f.is_object()) fail(p, "must be an object");
+        const mesh::FaceId id{elementId(*member(f, "id", p), p + ".id")};
+        if (m.face(id)) fail(p, "duplicate face id");
+        const auto& loops = *member(f, "loops", p);
+        if (!loops.is_array() || loops.empty()) fail(p + ".loops", "must be a non-empty array of loops");
+        mesh::Face face;
+        for (std::size_t l = 0; l < loops.size(); ++l) {
+            const std::string lp = p + ".loops[" + std::to_string(l) + "]";
+            if (!loops[l].is_array()) fail(lp, "must be an array of edge uses");
+            mesh::Loop loop;
+            for (std::size_t k = 0; k < loops[l].size(); ++k) {
+                const auto& u = loops[l][k];
+                const std::string up = lp + "[" + std::to_string(k) + "]";
+                if (!u.is_number_integer() || u.get<std::int64_t>() == 0) fail(up, "must be +edgeId or -edgeId");
+                const auto n = u.get<std::int64_t>();
+                const mesh::EdgeId edge{elementId(json(n < 0 ? -n : n), up)};
+                if (!m.edge(edge)) fail(up, "refers to a missing edge");
+                loop.push_back(mesh::EdgeUse{edge, n < 0});
+            }
+            face.loops.push_back(std::move(loop));
+        }
+        const Vec3 n = mesh::loopNormal(m.loopPositions(face.loops[0]));
+        if (glm::length(n) == 0.0) fail(p, "outer loop is degenerate");
+        face.normal = n;
+        m.insertFace(id, face);
+    }
+    if (const auto curves = v.find("curves"); curves != v.end()) {
+        if (!curves->is_array()) fail(path + ".curves", "must be an array");
+        for (std::size_t i = 0; i < curves->size(); ++i) {
+            const std::string p = path + ".curves[" + std::to_string(i) + "]";
+            const auto& c = (*curves)[i];
+            if (!c.is_object()) fail(p, "must be an object");
+            const mesh::CurveId id{elementId(*member(c, "id", p), p + ".id")};
+            mesh::Curve curve;
+            const auto& kind = *member(c, "kind", p);
+            if (!kind.is_string() || (kind.get<std::string>() != "arc" && kind.get<std::string>() != "circle")) fail(p + ".kind", "must be \"arc\" or \"circle\"");
+            curve.kind = kind.get<std::string>() == "circle" ? mesh::CurveKind::Circle : mesh::CurveKind::Arc;
+            curve.center = vec3(*member(c, "center", p), p + ".center");
+            curve.normal = vec3(*member(c, "normal", p), p + ".normal");
+            curve.xAxis = vec3(*member(c, "xAxis", p), p + ".xAxis");
+            curve.radius = number(*member(c, "radius", p), p + ".radius");
+            curve.start = number(*member(c, "start", p), p + ".start");
+            curve.sweep = number(*member(c, "sweep", p), p + ".sweep");
+            const auto& segments = *member(c, "segments", p);
+            if (!segments.is_number_integer() || segments.get<std::int64_t>() < 1 || segments.get<std::int64_t>() > 100000) fail(p + ".segments", "must be a positive integer");
+            curve.segments = static_cast<int>(segments.get<std::int64_t>());
+            const auto& ids = *member(c, "edges", p);
+            if (!ids.is_array()) fail(p + ".edges", "must be an array of edge ids");
+            for (std::size_t k = 0; k < ids.size(); ++k) curve.edges.push_back(mesh::EdgeId{elementId(ids[k], p + ".edges[" + std::to_string(k) + "]")});
+            m.insertCurve(id, curve);
+            for (const auto e : curve.edges) {
+                if (const auto* edge = m.edge(e)) {
+                    mesh::Edge changed = *edge;
+                    changed.curve = id;
+                    m.insertEdge(e, changed);
+                }
+            }
+        }
+    }
+    const auto& next = *member(v, "next", path);
+    if (!next.is_array() || next.size() != 4) fail(path + ".next", "must be [vertex, edge, face, curve]");
+    const auto nextId = [&](std::size_t k, std::uint32_t used) {
+        const auto value = elementId(next[k], path + ".next[" + std::to_string(k) + "]");
+        if (value < used) fail(path + ".next[" + std::to_string(k) + "]", "must be greater than every id of its kind");
+        return value;
+    };
+    m.reserveIds(nextId(0, m.nextVertexId()), nextId(1, m.nextEdgeId()), nextId(2, m.nextFaceId()), nextId(3, m.nextCurveId()));
+    m.pruneCurves();
+    return m;
+}
+
+/// Same geometry and ids, positions within the weld distance.
+bool sameMesh(const mesh::Mesh& a, const mesh::Mesh& b) {
+    if (a.vertices().size() != b.vertices().size() || a.edges() != b.edges() || a.faces().size() != b.faces().size()) return false;
+    for (const auto& [id, v] : a.vertices()) {
+        const auto* other = b.vertex(mesh::VertexId{id});
+        if (!other || glm::length(other->position - v.position) > tol::kWeldDistance) return false;
+    }
+    for (const auto& [id, f] : a.faces()) {
+        const auto* other = b.face(mesh::FaceId{id});
+        if (!other || other->loops != f.loops) return false;
+    }
+    return true;
+}
+
+/// A version 3 object: "type": "group" with a mesh, plus "profile" and
+/// "extrusion" when the group is still a parametric rectangle or box.
+ProfileObject readObject(const json& v, const std::string& path) {
+    if (!v.is_object()) fail(path, "must be an object");
+    ProfileObject o;
+    readObjectHeader(v, path, o);
+    const auto& type = *member(v, "type", path);
+    if (!type.is_string() || type.get<std::string>() != "group") fail(path + ".type", "unsupported object type " + type.dump());
+    mesh::Mesh m = readMesh(*member(v, "mesh", path), path + ".mesh");
+    if (v.contains("profile")) {
+        readProfileFields(v, path, o);
+        // The profile is the source of truth; the stored mesh must be the one it makes.
+        if (auto e = validateObject(o, path)) throw ParseError{*e};
+        if (!sameMesh(m, mesh::meshFromProfile(o))) fail(path + ".mesh", "does not match the object's profile");
+    } else {
+        if (v.contains("extrusion")) fail(path + ".extrusion", "only a group with a profile can have one");
+        o.mesh = std::make_shared<const mesh::Mesh>(std::move(m));
+    }
     return o;
 }
 
@@ -227,9 +440,30 @@ void migrateV1ToV2(json& file) {
     }
 }
 
+/// Version 2 -> 3: every object becomes a group that holds an edge/face mesh.
+/// A rectangle or box keeps its profile and extrusion (still the source of
+/// truth) and gains the mesh they make, with the deterministic ids of
+/// meshFromProfile (vertex id = corner index + 1), so corner-indexed dimension
+/// anchors keep their meaning.
+void migrateV2ToV3(json& file) {
+    const auto doc = file.find("document");
+    if (doc == file.end() || !doc->is_object()) return;
+    const auto objects = doc->find("objects");
+    if (objects == doc->end() || !objects->is_array()) return;
+    for (std::size_t i = 0; i < objects->size(); ++i) {
+        json& object = (*objects)[i];
+        const std::string path = "document.objects[" + std::to_string(i) + "]";
+        const ProfileObject o = readProfileObjectV2(object, path);
+        if (auto e = validateObject(o, path)) throw ParseError{*e};
+        object["type"] = "group";
+        object["mesh"] = meshToJson(mesh::meshFromProfile(o));
+    }
+}
+
 void migrateProject(json& file, int fromVersion) {
     switch (fromVersion) {
     case 1: migrateV1ToV2(file); break;
+    case 2: migrateV2ToV3(file); break;
     default: fail("version", "no migration from version " + std::to_string(fromVersion));
     }
     file["version"] = fromVersion + 1;
@@ -257,21 +491,23 @@ std::string serializeProject(const Document& doc, const std::optional<CameraView
         for (const auto& p : o.profile.boundary) boundary.push_back(vec2ToJson(p));
         json obj = {
             {"id", idString(o.id)},
-            {"type", "profile"},
+            {"type", "group"},
             {"name", o.name},
-            {"profile",
-             {{"kind", "rectangle"},
-              {"plane",
-               {{"origin", vec3ToJson(o.profile.plane.origin)},
-                {"xAxis", vec3ToJson(o.profile.plane.xAxis)},
-                {"yAxis", vec3ToJson(o.profile.plane.yAxis)}}},
-              {"boundary", boundary}}},
-            {"extrusion", o.extrusion ? json{{"height", o.extrusion->height}} : json(nullptr)},
             {"transform",
              {{"translation", vec3ToJson(o.transform.translation)},
               {"rotation", json::array({o.transform.rotation.x, o.transform.rotation.y, o.transform.rotation.z,
                                         o.transform.rotation.w})}}},
         };
+        if (!o.isMeshGroup()) {
+            obj["profile"] = {{"kind", "rectangle"},
+                              {"plane",
+                               {{"origin", vec3ToJson(o.profile.plane.origin)},
+                                {"xAxis", vec3ToJson(o.profile.plane.xAxis)},
+                                {"yAxis", vec3ToJson(o.profile.plane.yAxis)}}},
+                              {"boundary", boundary}};
+            obj["extrusion"] = o.extrusion ? json{{"height", o.extrusion->height}} : json(nullptr);
+        }
+        obj["mesh"] = meshToJson(*mesh::objectMesh(o));
         objects.push_back(std::move(obj));
     }
     json file = {

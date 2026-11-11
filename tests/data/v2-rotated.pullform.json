@@ -1,0 +1,25 @@
+{
+  "format": "pullform-project", "version": 2, "generator": "Pullform 0.2.0",
+  "document": { "lengthUnit": "m", "displayUnit": "mm", "nextId": 5, "objects": [
+    { "id": "obj-1", "type": "profile", "name": "Box 1",
+      "profile": { "kind": "rectangle",
+        "plane": { "origin": [0,0,0], "xAxis": [1,0,0], "yAxis": [0,1,0] },
+        "boundary": [[0,0],[2,0],[2,1],[0,1]] },
+      "extrusion": { "height": 0.75 },
+      "transform": { "translation": [0.5, 0.25, 0], "rotation": [0, 0, 0.25881904510252074, 0.9659258262890683] } },
+    { "id": "obj-2", "type": "profile", "name": "Box 2",
+      "profile": { "kind": "rectangle",
+        "plane": { "origin": [0,0,0], "xAxis": [1,0,0], "yAxis": [0,1,0] },
+        "boundary": [[0,0],[1,0],[1,1],[0,1]] },
+      "extrusion": { "height": 1 },
+      "transform": { "translation": [5, 0, 0], "rotation": [0.7071067811865476, 0, 0, 0.7071067811865476] } },
+    { "id": "obj-3", "type": "profile", "name": "Rectangle 3",
+      "profile": { "kind": "rectangle",
+        "plane": { "origin": [0,0,0], "xAxis": [1,0,0], "yAxis": [0,1,0] },
+        "boundary": [[0,0],[3,0],[3,0.5],[0,0.5]] },
+      "extrusion": null,
+      "transform": { "translation": [-4, -4, 0], "rotation": [0, 0, 0, 1] } } ],
+    "dimensions": [{ "id": "dim-4", "a": { "object": "obj-1", "vertices": [0] },
+      "b": { "point": [3, 0, 0] }, "offset": [0, -0.4, 0] }] },
+  "view": { "position": [8, -8, 6], "target": [0, 0, 0] }
+}

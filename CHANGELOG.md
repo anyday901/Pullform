@@ -17,6 +17,19 @@ include breaking changes, but project files will keep a migration path.
   Scale, Duplicate and Delete act on the whole selection as one undo entry: grab any
   selected object to move, copy, turn or resize the group. Undo and redo restore the
   selection. The properties panel shows the group's overall size.
+- **Edge/face mesh in the core** (`core/geometry/mesh.*`, design in `docs/GEOMETRY.md`):
+  vertices, edges and faces with holes, with stable ids that are never reused. Drawing an
+  edge welds its ends to nearby vertices (1 micrometer), splits edges it touches or crosses,
+  makes a face when it closes a planar loop and splits a face it runs across; a loop drawn
+  inside a face becomes a hole plus an inner face. Erasing the edge between two coplanar
+  faces merges them. Meshes are validated on every commit and triangulated with holes.
+  The `drawEdge` and `eraseEdge` operations commit these as single undo entries (no Line
+  tool yet). Each object is now a group that owns its geometry.
+- **Project file version 3:** every object is written as a `"group"` with its `"mesh"`.
+  Rectangles and boxes keep their profile and height, and their mesh uses fixed ids
+  (corner i is vertex i + 1), so dimensions stay attached. Version 1 and 2 files open
+  through a migration and look exactly as before; saving writes version 3, which Pullform
+  0.2.0 and earlier cannot open.
 - **Edges and faces you can pick:** the Select tool highlights the vertex, edge or face under
   the pointer (hidden edges are never picked). Click selects that edge or face, double-click
   a face with its edges, triple-click everything connected. Selected edges draw wide and

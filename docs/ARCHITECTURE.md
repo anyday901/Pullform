@@ -101,6 +101,56 @@ Objects are immutable once in a document. Operations (`core/commands/operations.
 `setDisplayUnit`) are pure functions that return a new document sharing unchanged objects,
 or an `Error` with a user-facing message.
 
+## Edge/face mesh and groups
+
+`core/geometry/mesh.*` (design and the alternatives considered: `docs/GEOMETRY.md`). Every
+object is a **group** that owns its geometry, so nothing merges across objects. During the
+Phase 1 transition a group is one of two kinds:
+
+- a **profile group** (`ProfileObject::mesh` empty): a rectangle or box. Its profile and
+  extrusion stay the source of truth for push/pull, scale and dimensions, and
+  `mesh::objectMesh` derives its mesh with fixed ids: vertex id = corner index + 1 (the
+  `objectVertex` numbering), edges = base 1..n, cap n+1..2n, vertical 2n+1..3n, faces =
+  Profile/Base 1, Cap 2, Side i 3 + i (`mesh::faceIdFor`, `mesh::semanticFace`).
+- a **mesh group** (`mesh` set, empty profile, no extrusion): free edges and faces in
+  object-local space. The first mesh edit of a profile group (`drawEdge` / `eraseEdge`
+  with its id) converts it in the same commit, keeping the ids above, so corner-indexed
+  dimension anchors keep their meaning. Corner index i of a mesh group is vertex id i + 1.
+
+`mesh::Mesh` is an index-based edge-use mesh (not strict half-edge: loose edges and edges
+with three or more faces are allowed). Vertices, edges, faces and curves live in id-keyed
+maps; ids are `uint32` and never reused, and the mesh keeps the next id of each kind. A
+face is an outer loop (counter-clockwise about its cached unit normal) plus hole loops
+(clockwise); a loop is a list of edge uses `(edge, reversed)`. Curves (arc/circle with
+center, normal, x axis, radius, start, sweep, segments and their edges) are stored beside
+the segments; topology only sees segments, and a curve whose edges no longer chain is
+dropped (`pruneCurves`).
+
+- `addEdge(a, b)`: ends weld to an existing vertex within `tol::kWeldDistance` (1 um) or
+  split the edge they land on; existing edges crossed and vertices passed split the new
+  edge. Each new piece then either lies across a face (coplanar within `tol::kPlanarity`,
+  midpoint inside): the planar graph inside that face is traced on both sides of the
+  piece (always taking the sharpest turn, after pruning dangling edges); two loops split
+  the face, one loop that touches nothing is an island (a hole in the face plus an inner
+  face). Otherwise every plane spanned with a neighbouring edge is tried, and a closed
+  loop that does not overlap an existing coplanar face becomes a face, taking any
+  coplanar faces wholly inside it as holes. Horizontal faces face +Z.
+- `eraseEdge(id)`: two coplanar faces sharing the edge merge (outer loops spliced,
+  leftover back-and-forth spurs dropped); a coplanar inner face is absorbed by the face it
+  is a hole of; any other face using the edge is removed. Vertices left without edges go.
+- `validateMesh` (run by `validateObject`, so on every commit and file open): in-range
+  finite positions, edges between distinct vertices at least 1 um apart, no duplicate
+  edges, closed loops without repeated vertices, planar faces, outer CCW with area, holes
+  CW and inside, ids below the next ids.
+- `triangulateFace` is ear clipping with holes bridged in. `buildMesh` renders a mesh
+  group's faces two-sided like a planar profile, with every mesh edge as a line;
+  `buildFaces` gives each face's outer loop (FaceKind::Mesh with the mesh face id), so
+  picking, selection, snapping and bounds work unchanged.
+- Undo cost: a mesh is immutable and shared like an object, so a snapshot still costs one
+  pointer per unchanged object; an edit copies the edited group's mesh only. Adjacency
+  queries (`facesOfEdge`, `edgesOfVertex`) scan and are fine at today's sizes; an index
+  can be added behind the same functions.
+
 ## Geometry and render mapping
 
 `core/geometry/solid.*` derives everything that is drawn and picked:
@@ -278,17 +328,23 @@ resolved pick, screen position), so tests drive it with synthetic events and no 
 ```json
 {
   "format": "pullform-project",
-  "version": 2,
+  "version": 3,
   "generator": "Pullform 0.2.0",
   "document": {
     "lengthUnit": "m", "displayUnit": "mm", "nextId": 2,
     "objects": [{
-      "id": "obj-1", "type": "profile", "name": "Box 1",
+      "id": "obj-1", "type": "group", "name": "Box 1",
+      "transform": { "translation": [0,0,0], "rotation": [0,0,0,1] },
       "profile": { "kind": "rectangle",
                    "plane": { "origin": [0,0,0], "xAxis": [1,0,0], "yAxis": [0,1,0] },
                    "boundary": [[0,0],[2,0],[2,1],[0,1]] },
       "extrusion": { "height": 0.75 },
-      "transform": { "translation": [0,0,0], "rotation": [0,0,0,1] } }],
+      "mesh": {
+        "vertices": [[1, 0,0,0], [2, 2,0,0], ...],      // [id, x, y, z], object-local
+        "edges":    [[1, 1,2, 0], ...],                // [id, v0, v1, flags: 1 soft, 2 smooth]
+        "faces":    [{ "id": 1, "loops": [[-4,-3,-2,-1]] }, ...], // +edge / -edge (reversed); loops[0] outer
+        "curves":   [],
+        "next":     [9, 13, 7, 1] } }],               // next vertex, edge, face, curve id
     "dimensions": [{
       "id": "dim-2",
       "a": { "object": "obj-1", "vertices": [0] },
@@ -312,13 +368,23 @@ resolved pick, screen position), so tests drive it with synthetic events and no 
   `nextId` greater than every used ID). Only then does it replace the open project.
 - `transform.rotation` is a unit quaternion in glTF order `[x, y, z, w]`. Values within
   1e-4 of unit length (hand-edited files) are accepted and normalized.
-- An unknown `format` or a version newer than 2 is rejected (a newer version asks the user
+- **Version 3 objects** are `"type": "group"` with a `mesh` (schema above; a face's
+  normal is not stored, it follows from the outer loop). A group with `profile` and
+  `extrusion` is a profile group: the profile is the truth, and the stored mesh must be
+  exactly the one `meshFromProfile` makes (ids, loops, positions within 1 um), or the file
+  is rejected. A group without them is a mesh group whose mesh is the truth.
+- An unknown `format` or a version newer than 3 is rejected (a newer version asks the user
   to update). Older versions are migrated on the parsed JSON, one version at a time
   (`migrateProject`), before the reader runs, so the reader only knows the current schema.
   **Version 1 -> 2:** every object gains the identity rotation `[0,0,0,1]` (version 1
   transforms were translation only). The app says when it opened an older file; saving
-  writes version 2, which Pullform 0.2.0 and earlier cannot open. Each future version adds
-  one migration and a test that opens a file of every previous version.
+  writes the current version. **Version 2 -> 3:** each object is read as a version 2
+  profile, validated, and becomes `"type": "group"` with the mesh `meshFromProfile` makes
+  (fixed ids above), so it renders exactly as before and its dimensions stay attached.
+  Saving writes version 3, which Pullform 0.2.0 and earlier cannot open. Each future
+  version adds one migration; `tests/data/` holds files of every previous version and
+  `format_v3_tests.cpp` opens each of them, checks every corner against the file and
+  checks the v3 round trip.
 - Saving writes to `<file>.tmp-N` beside the target, flushes, and renames over the target
   (`MoveFileExW(MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)` on Windows,
   `rename(2)` elsewhere).
@@ -327,9 +393,8 @@ resolved pick, screen position), so tests drive it with synthetic events and no 
 
 ## Geometry boundaries (what this design does not do yet)
 
-There is no boundary-representation topology (shared vertices/edges between faces), no
-boolean operations, no face splitting and no general polygon triangulation. These are
-deliberately deferred; see the roadmap. `MeshData` with stable `FaceId`s and
-triangle-to-face maps is the seam a richer topology model would replace: as long as it
-still produces logical faces with stable IDs, the viewport, picking and tools keep
-working.
+The edge/face mesh exists in the core, but there is no Line or Eraser tool yet (the
+`drawEdge`/`eraseEdge` operations are ready for them), push/pull works only on profile
+groups, there are no booleans, no healing of collinear edges left after an erase, and no
+arc tool (curves are in the schema only). Dimension anchors still name corners by index
+(vertex id - 1) rather than by vertex id. See docs/GEOMETRY.md and the roadmap.

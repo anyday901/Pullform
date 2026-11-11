@@ -417,7 +417,7 @@ void Ui::properties(UiContext& ctx, float x, float y, float width, float height)
             };
             row("Name", o->name);
             row("ID", idString(o->id));
-            row("Type", o->extrusion ? "Rectangular extrusion" : "Rectangle (planar face)");
+            row("Type", o->isMeshGroup() ? "Group (edges and faces)" : o->extrusion ? "Rectangular extrusion" : "Rectangle (planar face)");
             row("Target face", faceLabel(sel->face));
             row("Position X", formatLength(b.min.x, u));
             row("Position Y", formatLength(b.min.y, u));
