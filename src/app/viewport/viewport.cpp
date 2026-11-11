@@ -640,6 +640,11 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
             lines.push_back({movePreview->from, movePreview->from + movePreview->offset, guide});
         }
     }
+    if (const auto* fh = std::get_if<FreehandPreview>(&editor.preview())) {
+        for (std::size_t i = 1; i < fh->points.size(); ++i) lines.emplace_back(fh->points[i - 1], fh->points[i], kPreviewEdge);
+        // The closing edge, dimmed, while releasing would close the loop.
+        if (fh->closes && fh->points.size() > 2) lines.emplace_back(fh->points.back(), fh->points.front(), dim(kPreviewEdge, 0.5f));
+    }
     if (const auto* rot = std::get_if<RotatePreview>(&editor.preview())) {
         drawTransformGroup(rot->group, rot->objectIds, rot->result, rot->error.has_value(), rot->objectId, doc, lines);
         // Protractor: a circle in the rotation plane, the reference and current spokes.

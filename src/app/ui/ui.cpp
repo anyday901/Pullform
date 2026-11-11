@@ -203,6 +203,13 @@ std::string Ui::measurementLabel(const UiContext& ctx) const { return std::strin
 
 namespace {
 
+/// Live length of a freehand stroke.
+std::string freehandLive(const FreehandPreview& f, LengthUnit u) {
+    double length = 0.0;
+    for (std::size_t i = 1; i < f.points.size(); ++i) length += glm::length(f.points[i] - f.points[i - 1]);
+    return formatLength(length, u) + (f.closes ? "   (closes the loop)" : "");
+}
+
 /// Live text for an arc tool: the value being placed, then the arc's radius,
 /// segments and any inference.
 std::string arcLive(const ArcPreview& a, LengthUnit u) {
@@ -245,6 +252,7 @@ std::string Ui::measurementLive(const UiContext& ctx) const {
     if (const auto* p = std::get_if<PushPullPreview>(&ctx.editor.preview()); p && p->face == FaceKind::Mesh) {
         return (p->delta >= 0 ? "+" : "") + formatLength(p->delta, u);
     }
+    if (const auto* f = std::get_if<FreehandPreview>(&ctx.editor.preview())) return freehandLive(*f, u);
     if (const auto* p = std::get_if<PushPullPreview>(&ctx.editor.preview())) {
         return (p->delta >= 0 ? "+" : "") + formatLength(p->delta, u) + "   (total height " + formatLength(p->height, u) + ")";
     }
@@ -349,6 +357,7 @@ void Ui::menuBar(UiContext& ctx) {
         if (ImGui::MenuItem("Polygon", shortcuts::kPolygon, t == Tool::Polygon)) ctx.tools.setTool(Tool::Polygon);
         if (ImGui::MenuItem("Rotated Rectangle", nullptr, t == Tool::RotatedRectangle)) ctx.tools.setTool(Tool::RotatedRectangle);
         if (ImGui::MenuItem("Line", shortcuts::kLine, t == Tool::Line)) ctx.tools.setTool(Tool::Line);
+        if (ImGui::MenuItem("Freehand", nullptr, t == Tool::Freehand)) ctx.tools.setTool(Tool::Freehand);
         if (ImGui::BeginMenu("Arcs")) {
             if (ImGui::MenuItem("Arc", shortcuts::kArc, t == Tool::Arc)) ctx.tools.setTool(Tool::Arc);
             if (ImGui::MenuItem("3 Point Arc", nullptr, t == Tool::ThreePointArc)) ctx.tools.setTool(Tool::ThreePointArc);
@@ -397,6 +406,8 @@ void Ui::toolbar(UiContext& ctx, float y, float height, float width) {
     if (toolButton("3Pt Arc", t == Tool::ThreePointArc, "3 Point Arc\nClick the start, a point on the arc, and the end.")) ctx.tools.setTool(Tool::ThreePointArc);
     ImGui::SameLine();
     if (toolButton("Pie", t == Tool::Pie, "Pie\nClick the centre, the start of the arc (or type the radius), then the end (or type the angle).")) ctx.tools.setTool(Tool::Pie);
+    ImGui::SameLine();
+    if (toolButton("Freehand", t == Tool::Freehand, "Freehand\nPress and drag to draw a smooth curve of edges.\nEnd on the start point to close it into a face.")) ctx.tools.setTool(Tool::Freehand);
     ImGui::SameLine();
     if (toolButton("Circle", t == Tool::Circle, "Circle (C)\nClick the center, then a point on the circle, or type the radius.\nType 48s for 48 segments.")) ctx.tools.setTool(Tool::Circle);
     ImGui::SameLine();

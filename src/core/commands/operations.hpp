@@ -132,6 +132,13 @@ Expected<OpResult> setDisplayUnit(const Document& doc, LengthUnit unit);
 /// dimensions stay attached). Without a target the line joins the first mesh
 /// group it touches, or starts a new group.
 Expected<OpResult> drawEdge(const Document& doc, std::optional<ObjectId> target, const Vec3& a, const Vec3& b);
+/// Draws a chain of straight edges through `points` as one operation (one undo
+/// entry), each edge as drawEdge would draw it; `closed` adds the edge from the
+/// last point back to the first, so a planar loop makes a face. Edges shorter
+/// than the weld distance are skipped. The whole chain goes into one group:
+/// `target`, else the group the first edge joins or starts.
+Expected<OpResult> drawPolyline(const Document& doc, std::optional<ObjectId> target, const std::vector<Vec3>& points,
+                                bool closed);
 /// Erases one edge of a group: coplanar faces on both sides merge, other faces
 /// that used it are removed. A rectangle or box is converted to a mesh group
 /// first. A group left with nothing is deleted.

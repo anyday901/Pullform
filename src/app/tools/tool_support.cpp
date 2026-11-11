@@ -29,6 +29,7 @@ std::string_view toolName(Tool tool) {
     case Arc: return "Arc";
     case ThreePointArc: return "3 Point Arc";
     case Pie: return "Pie";
+    case Freehand: return "Freehand";
     }
     return "Select";
 }

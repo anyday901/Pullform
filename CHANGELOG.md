@@ -9,6 +9,12 @@ include breaking changes, but project files will keep a migration path.
 
 ### Added
 
+- **Freehand tool** (Tools > Freehand, or the toolbar). Press and drag to draw a curve; on
+  release it is smoothed (within 3 screen pixels of the stroke) into a polyline of straight
+  edges and committed as one undo entry. It draws on the horizontal plane through the press
+  point: the ground, or the top of the geometry it starts on, which it then becomes part of.
+  Ending the stroke back on its start closes it into a loop that makes a face. A click or
+  Esc draws nothing. The core gains `drawPolyline` and `freehand::smoothStroke`.
 - **Eraser tool (E).** Click an edge, or press and drag over several, and release: every
   edge the stroke touched is erased in one undo entry. Erasing the edge between two
   coplanar faces leaves one face; other faces that used the edge go with it. Hold Shift

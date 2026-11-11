@@ -489,6 +489,25 @@ Expected<OpResult> drawEdge(const Document& doc, std::optional<ObjectId> target,
     return result;
 }
 
+Expected<OpResult> drawPolyline(const Document& doc, std::optional<ObjectId> target, const std::vector<Vec3>& points,
+                                bool closed) {
+    std::vector<Vec3> chain;
+    for (const Vec3& p : points) {
+        if (chain.empty() || glm::length(p - chain.back()) > tol::kWeldDistance) chain.push_back(p);
+    }
+    if (closed && chain.size() > 2 && glm::length(chain.back() - chain.front()) > tol::kWeldDistance) {
+        chain.push_back(chain.front());
+    }
+    if (chain.size() < 2) return Error{"The stroke has no length. Drag further before releasing."};
+    OpResult result{doc, target, {}};
+    for (std::size_t i = 0; i + 1 < chain.size(); ++i) {
+        auto next = drawEdge(result.document, result.objectId, chain[i], chain[i + 1]);
+        if (!next) return Error{next.error()};
+        result = std::move(next).value();
+    }
+    return result;
+}
+
 Expected<OpResult> eraseEdge(const Document& doc, ObjectId id, mesh::EdgeId edge) {
     return eraseEdges(doc, id, {edge});
 }
