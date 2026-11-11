@@ -13,6 +13,10 @@ std::string_view toolName(Tool tool) {
     switch (tool) {
     case Select: return "Select";
     case Rectangle: return "Rectangle";
+    case Circle: return "Circle";
+    case Polygon: return "Polygon";
+    case RotatedRectangle: return "Rotated Rectangle";
+    case Line: return "Line";
     case PushPull: return "Push/Pull";
     case Rotate: return "Rotate";
     case Scale: return "Scale";
@@ -20,6 +24,9 @@ std::string_view toolName(Tool tool) {
     case Orbit: return "Orbit";
     case TapeMeasure: return "Tape Measure";
     case Dimension: return "Dimension";
+    case Arc: return "Arc";
+    case ThreePointArc: return "3 Point Arc";
+    case Pie: return "Pie";
     case Freehand: return "Freehand";
     }
     return "Select";
@@ -74,6 +81,8 @@ std::string trimmed(std::string_view s) {
 bool isDrag(const Vec2& press, const Vec2& release) { return glm::length(release - press) > kDragThresholdPx; }
 
 Vec3 baseCenter(const ProfileObject& o) {
+    // A circle or polygon is centred on its origin exactly; averaging its corners would round.
+    if (!o.isMeshGroup() && o.profile.kind != ProfileKind::Rectangle) return profileToWorld(o, Vec2{0.0}, 0.0);
     Vec2 sum{0.0};
     for (const auto& p : o.profile.boundary) sum += p;
     const Vec2 c = o.profile.boundary.empty() ? Vec2{0.0} : sum / static_cast<double>(o.profile.boundary.size());
@@ -87,12 +96,11 @@ std::optional<SnapResult> ToolContext::snapGround(const PointerInput& input, con
 }
 
 SnapResult ToolContext::snapPointer(const PointerInput& input, const std::optional<Vec3>& skip) {
-    if (auto hit = snapper.point(input)) return *hit;
-    if (input.pick) {
-        const Vec3 p = input.pick->point;
-        return SnapResult{p, SnapKind::OnFace, input.pick->objectId, -1, p, {}};
-    }
-    return snapGround(input, skip).value_or(SnapResult{input.ray.origin, SnapKind::None, std::nullopt, -1, input.ray.origin, {}});
+    return inferPointer(input, InferOptions{std::nullopt, std::nullopt, std::nullopt, skip, true});
+}
+
+SnapResult ToolContext::inferPointer(const PointerInput& input, const InferOptions& options) {
+    return snapper.infer(input, options).value_or(SnapResult{input.ray.origin, SnapKind::None, std::nullopt, -1, input.ray.origin, {}});
 }
 
 std::optional<Vec3> ToolContext::groundPoint(const PointerInput& input, const std::optional<Vec3>& skip) {
@@ -102,9 +110,9 @@ std::optional<Vec3> ToolContext::groundPoint(const PointerInput& input, const st
     return res->point;
 }
 
-std::optional<SnapResult> ToolContext::measureSnap(const PointerInput& input) {
-    SnapResult res = snapPointer(input);
-    // snapPointer reports a miss as SnapKind::None, but so is a plain ground
+std::optional<SnapResult> ToolContext::measureSnap(const PointerInput& input, const std::optional<Vec3>& from) {
+    SnapResult res = inferPointer(input, InferOptions{from, std::nullopt, std::nullopt, std::nullopt, true});
+    // inferPointer reports a miss as SnapKind::None, but so is a plain ground
     // point with grid snap off: only a ray that misses the ground is a miss.
     if (res.kind == SnapKind::None && !intersectHorizontalPlane(input.ray, 0.0)) {
         indicator.reset();

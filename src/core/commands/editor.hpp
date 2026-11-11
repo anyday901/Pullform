@@ -28,17 +28,35 @@ struct RectanglePreview {
     Vec3 start{0.0};
     Vec3 end{0.0};
     std::optional<RectanglePlacement> placement; ///< empty while degenerate
+    /// World points of the outline drawn so far, in order: four corners of a
+    /// rectangle on any plane, or the two ends of a rotated rectangle's first
+    /// side. Empty: the ground rectangle with corners `start` and `end`.
+    std::vector<Vec3> outline;
+    double width = 0.0; ///< shown in the measurements box
+    double depth = 0.0;
+};
+
+/// Live circle or polygon preview (center placed, pointer at `edge`).
+struct CirclePreview {
+    ProfileKind kind = ProfileKind::Circle;
+    Vec3 center{0.0};
+    Vec3 edge{0.0};
+    int segments = kDefaultCircleSegments;
+    std::optional<CirclePlacement> placement; ///< empty while the radius is too small
 };
 
 /// Live push/pull preview. `delta` is the incremental drag distance; `height`
 /// is the resulting total height (what is committed).
 struct PushPullPreview {
     ObjectId objectId;
-    FaceKind face = FaceKind::Profile; ///< Profile (create extrusion) or Cap (change height)
+    FaceKind face = FaceKind::Profile; ///< Profile (create extrusion), Cap (change height) or Mesh (a drawn face)
     double startHeight = 0.0;
     double delta = 0.0;
     double height = 0.0;
     std::optional<std::string> error; ///< why the current height cannot be committed
+    /// A drawn face (FaceKind::Mesh): the object as it would be after the
+    /// push/pull, drawn in place of the real one. Empty while `error` is set.
+    std::optional<ProfileObject> result;
 };
 
 /// Live tape measure or dimension placement. Points are world space.
@@ -54,6 +72,15 @@ struct MeasurePreview {
 
 /// A world axis that a gesture is locked to (Move: the direction of travel).
 enum class MoveAxis { X, Y, Z };
+
+/// Live Line tool segment, from the last point of the chain to the pointer.
+struct LinePreview {
+    Vec3 start{0.0};
+    Vec3 end{0.0};
+    std::optional<MoveAxis> axis;     ///< the segment runs along this axis (locked or inferred)
+    bool locked = false;              ///< `axis` is a lock (arrow keys), not an inference
+    std::optional<std::string> error; ///< why the segment cannot be drawn here
+};
 
 /// Unit vector of a world axis.
 Vec3 axisVector(MoveAxis axis);
@@ -108,6 +135,23 @@ struct ScalePreview {
     std::vector<ObjectId> objectIds;
 };
 
+/// Live arc (Arc, 3 Point Arc and Pie tools). `points` is the polyline drawn:
+/// the chord or radius line while the second point is placed, then the arc's
+/// segments (a pie also runs from the centre and back).
+struct ArcPreview {
+    /// What the measurements box shows and a typed value sets.
+    enum class Value { Length, Bulge, Radius, Angle, None };
+    std::vector<Vec3> points;
+    std::vector<std::pair<Vec3, Vec3>> guides; ///< construction lines (chord, radii), drawn faint
+    Value value = Value::None;
+    double amount = 0.0; ///< meters, or radians for Angle
+    double radius = 0.0; ///< of the arc, once it has one
+    int segments = 0;
+    bool tangent = false;    ///< the arc continues the edge it starts from (shown cyan)
+    bool halfCircle = false; ///< snapped to a semicircle
+    std::optional<std::string> error;
+};
+
 /// Live window (left to right) or crossing (right to left) selection
 /// rectangle, in the pointer's screen coordinates (PointerInput::screen), with
 /// the objects that will be selected when it is released.
@@ -127,8 +171,8 @@ struct FreehandPreview {
 
 /// Transient feedback drawn by the viewport. Never part of the document or history.
 using Preview =
-    std::variant<std::monostate, RectanglePreview, PushPullPreview, MovePreview, RotatePreview, ScalePreview, MeasurePreview,
-                 SelectBoxPreview, FreehandPreview>;
+    std::variant<std::monostate, RectanglePreview, CirclePreview, LinePreview, PushPullPreview, MovePreview, RotatePreview, ScalePreview,
+                 MeasurePreview, SelectBoxPreview, ArcPreview, FreehandPreview>;
 
 /// The object a preview draws in place of the document's version (push/pull,
 /// rotate and scale), if any. The viewport hides the original while it is set.

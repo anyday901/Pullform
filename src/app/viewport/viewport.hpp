@@ -43,6 +43,9 @@ public:
     /// Text labels for dimensions and the live measurement, in window coordinates.
     [[nodiscard]] std::vector<ViewportLabel> labels(const Editor& editor) const;
 
+    /// Window position of a world point, or nothing when it is behind the eye.
+    [[nodiscard]] std::optional<Vec2> toWindow(const Vec3& world) const;
+
     /// Grid spacing currently drawn (meters), for the status bar.
     [[nodiscard]] double gridStep() const { return gridStep_; }
 
@@ -64,7 +67,6 @@ private:
     void drawSnap(std::vector<LineSegment>& lines, const SnapResult& snap) const;
     void appendDimension(std::vector<LineSegment>& lines, const Vec3& a, const Vec3& b, const Vec3& offset,
                          const glm::vec4& color) const;
-    [[nodiscard]] std::optional<Vec2> toWindow(const Vec3& world) const;
     void drawFaceOverlay(const CachedMesh& cached, const FaceId& face, const glm::vec4& color);
     /// Hovered and selected vertices, edges and faces (Select tool).
     void drawElements(const Editor& editor, const std::vector<ObjectId>& previewed, std::vector<LineSegment>& onTop);

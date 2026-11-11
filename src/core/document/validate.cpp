@@ -1,6 +1,7 @@
 #include "core/document/validate.hpp"
 
 #include "core/document/tolerance.hpp"
+#include "core/geometry/circle.hpp"
 #include "core/geometry/measure.hpp"
 #include "core/geometry/mesh.hpp"
 
@@ -86,7 +87,10 @@ Expected<RectangleSize> rectangleSize(const std::vector<Vec2>& b) {
 std::optional<std::string> validateObject(const ProfileObject& o, std::string_view path) {
     if (o.id.value == 0) return join(path, ".id: must be a positive object ID");
     if (o.name.size() > 200) return join(path, ".name: must be at most 200 characters");
-    if (o.profile.kind != ProfileKind::Rectangle) return join(path, ".profile.kind: unsupported profile kind");
+    if (o.profile.kind != ProfileKind::Rectangle && o.profile.kind != ProfileKind::Circle &&
+        o.profile.kind != ProfileKind::Polygon) {
+        return join(path, ".profile.kind: unsupported profile kind");
+    }
     if (o.mesh) {
         // A mesh group: its edges and faces are the geometry; no profile.
         if (!o.profile.boundary.empty() || o.extrusion) return join(path, ": a mesh group has no profile or extrusion");
@@ -106,8 +110,10 @@ std::optional<std::string> validateObject(const ProfileObject& o, std::string_vi
         return join(path, ".profile.plane: only the local XY plane (origin 0,0,0; xAxis 1,0,0; yAxis 0,1,0) is "
                           "supported in this version");
     }
-    if (auto size = rectangleSize(o.profile.boundary); !size) {
-        return join(path, ".profile.boundary: " + size.error());
+    if (o.profile.kind == ProfileKind::Rectangle) {
+        if (auto size = rectangleSize(o.profile.boundary); !size) return join(path, ".profile.boundary: " + size.error());
+    } else if (auto shape = regularShape(o.profile.boundary); !shape) {
+        return join(path, ".profile.boundary: " + shape.error());
     }
     if (o.extrusion) {
         const double h = o.extrusion->height;

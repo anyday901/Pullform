@@ -61,6 +61,8 @@ private:
     /// `snap` is empty when the pointer reaches neither the model nor the ground.
     void click(const PointerInput& input, const std::optional<SnapResult>& snap);
     [[nodiscard]] bool placingLine() const { return mode_ == Mode::Dimension && fixed_ && start_ && end_; }
+    /// The point to infer from (the first point, until the second is placed).
+    [[nodiscard]] std::optional<Vec3> inferFrom() const;
     void publish(const MeasurePoint& cursor);
     bool commitDimension(const Vec3& offset);
 

@@ -152,10 +152,10 @@ TEST_CASE("side and base faces explain that push/pull is not supported yet") {
     CHECK(editor.undoDepth() == depth);
 }
 
-TEST_CASE("push/pull below the base is rejected during the drag and the gesture survives") {
+TEST_CASE("push/pull of a cap below the base is rejected during the drag and the gesture survives") {
     Editor editor;
     ToolController tools(editor);
-    test::makeBox(editor, tools, "1000, 1000", nullptr);
+    test::makeBox(editor, tools, "1000, 1000", "500");
     tools.setTool(Tool::PushPull);
     tools.pointerDown(downAt(editor, 0.5, 0.5, {100, 100}));
     tools.pointerMove(levelAt(0.5, 0.5, -0.3, {100, 140}));
@@ -164,11 +164,11 @@ TEST_CASE("push/pull below the base is rejected during the drag and the gesture 
     CHECK(preview->error.has_value());
     tools.pointerUp(levelAt(0.5, 0.5, -0.3, {100, 140}));
     CHECK(tools.active());
-    CHECK(editor.undoDepth() == 1);
+    CHECK(editor.undoDepth() == 2);
     tools.pointerMove(levelAt(0.5, 0.5, 0.4, {100, 60}));
     tools.pointerDown(levelAt(0.5, 0.5, 0.4, {100, 60}));
     CHECK_FALSE(tools.active());
-    CHECK(editor.undoDepth() == 2);
+    CHECK(editor.undoDepth() == 3);
 }
 
 TEST_CASE("a zero-distance push/pull click is a no-op") {

@@ -289,7 +289,17 @@ void App::frame() {
     }
     updateTitle();
     // Labels after input, so they match this frame's preview and document.
-    ui_.drawLabels(viewport_->labels(editor_));
+    auto labels = viewport_->labels(editor_);
+    if (const auto& snap = tools_.snapIndicator()) {
+        // The inference tooltip, just below and right of the snap marker.
+        if (std::string tip = tools_.snapTooltip(); !tip.empty()) {
+            if (const auto at = viewport_->toWindow(snap->point)) {
+                const double gap = 14.0 * ImGui::GetFontSize() / 15.0;
+                labels.push_back({*at + Vec2{gap, gap}, std::move(tip), ViewportLabel::Style::Inference});
+            }
+        }
+    }
+    ui_.drawLabels(labels);
     ui_.drawSelectBox(editor_);
 
     ImGui::Render();
@@ -335,10 +345,24 @@ void App::handleViewportInput() {
         }
     }
 
-    if (moved) {
+    // Pressing or releasing Shift locks or unlocks the inference at once, so
+    // tools see it as a pointer event even when the mouse is still.
+    const bool shiftChanged = io.KeyShift != lastShift_;
+    lastShift_ = io.KeyShift;
+    if (moved || shiftChanged) {
         switch (drag_) {
-        case DragMode::Orbit: viewport_->camera().orbit(delta); onActivity(); break;
-        case DragMode::Pan: viewport_->camera().pan(delta, viewport_->size()); onActivity(); break;
+        case DragMode::Orbit:
+            if (moved) {
+                viewport_->camera().orbit(delta);
+                onActivity();
+            }
+            break;
+        case DragMode::Pan:
+            if (moved) {
+                viewport_->camera().pan(delta, viewport_->size());
+                onActivity();
+            }
+            break;
         case DragMode::Tool: tools_.pointerMove(pointerInput(mouse)); break;
         case DragMode::None:
             if (hovering) tools_.pointerMove(pointerInput(mouse));
@@ -400,6 +424,7 @@ void App::handleShortcuts() {
     if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) tools_.key(ToolKey::ArrowRight);
     if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) tools_.key(ToolKey::ArrowLeft);
     if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, false)) tools_.key(ToolKey::ArrowUp);
+    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, false)) tools_.key(ToolKey::ArrowDown);
     const bool typing = ui_.hasMeasurementText();
     for (int i = 0; i < io.InputQueueCharacters.Size; ++i) {
         const unsigned int c = io.InputQueueCharacters[i];
@@ -431,6 +456,9 @@ void App::handleShortcuts() {
     }
     if (ImGui::IsKeyPressed(ImGuiKey_Space, false)) tools_.setTool(Tool::Select);
     if (ImGui::IsKeyPressed(ImGuiKey_R, false)) tools_.setTool(Tool::Rectangle);
+    if (ImGui::IsKeyPressed(ImGuiKey_A, false)) tools_.setTool(Tool::Arc);
+    if (ImGui::IsKeyPressed(ImGuiKey_L, false)) tools_.setTool(Tool::Line);
+    if (ImGui::IsKeyPressed(ImGuiKey_C, false)) tools_.setTool(io.KeyShift ? Tool::Polygon : Tool::Circle);
     if (ImGui::IsKeyPressed(ImGuiKey_P, false)) tools_.setTool(Tool::PushPull);
     if (ImGui::IsKeyPressed(ImGuiKey_Q, false)) tools_.setTool(Tool::Rotate);
     if (ImGui::IsKeyPressed(ImGuiKey_S, false)) tools_.setTool(Tool::Scale);

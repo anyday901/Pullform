@@ -66,7 +66,11 @@ std::optional<std::pair<std::size_t, double>> castFaces(const Ray& ray, std::spa
             const auto& face = topo.faces[tri.face];
             const auto t = intersectTriangle(ray, topo.vertices[tri.v[0]].position, topo.vertices[tri.v[1]].position,
                                              topo.vertices[tri.v[2]].position, /*cullBack=*/!face.twoSided);
-            if (t.has_value() && *t < limit && (!best || *t < best->second)) {
+            // Equal distances (a rectangle drawn on a wall) go to the later target, drawn on top.
+            const bool nearer = best && t.has_value() &&
+                                (*t < best->second - 1e-9 * std::max(1.0, best->second) ||
+                                 (ti > best->first && std::abs(*t - best->second) <= 1e-9 * std::max(1.0, best->second)));
+            if (t.has_value() && *t < limit && (!best || nearer)) {
                 best = std::make_pair(ti, *t);
                 if (faceOut) *faceOut = tri.face;
             }

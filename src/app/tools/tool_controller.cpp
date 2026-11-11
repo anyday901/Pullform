@@ -1,5 +1,8 @@
 #include "app/tools/tool_controller.hpp"
 
+#include "app/tools/arc_tool.hpp"
+#include "app/tools/line_tool.hpp"
+#include "app/tools/circle_tool.hpp"
 #include "app/tools/freehand_tool.hpp"
 #include "app/tools/measure_tool.hpp"
 #include "app/tools/move_tool.hpp"
@@ -12,7 +15,6 @@
 #include "core/commands/operations.hpp"
 #include "core/geometry/solid.hpp"
 
-#include <algorithm>
 #include <algorithm>
 #include <cassert>
 
@@ -31,12 +33,19 @@ ToolController::ToolController(Editor& editor) : editor_(editor), snapper_(edito
     pushPull_ = &add<PushPullTool>(Tool::PushPull);
     add<SelectTool>(Tool::Select, *pushPull_);
     rectangle_ = &add<RectangleTool>(Tool::Rectangle);
+    add<CircleTool>(Tool::Circle, ProfileKind::Circle);
+    add<CircleTool>(Tool::Polygon, ProfileKind::Polygon);
+    add<RectangleTool>(Tool::RotatedRectangle, RectangleTool::Mode::Rotated);
+    add<LineTool>(Tool::Line);
     move_ = &add<MoveTool>(Tool::Move);
     rotate_ = &add<RotateTool>(Tool::Rotate);
     scale_ = &add<ScaleTool>(Tool::Scale);
     add<OrbitTool>(Tool::Orbit);
     add<MeasureTool>(Tool::TapeMeasure, MeasureTool::Mode::Tape);
     add<MeasureTool>(Tool::Dimension, MeasureTool::Mode::Dimension);
+    add<ArcTool>(Tool::Arc, ArcTool::Mode::TwoPoint);
+    add<ArcTool>(Tool::ThreePointArc, ArcTool::Mode::ThreePoint);
+    add<ArcTool>(Tool::Pie, ArcTool::Mode::Pie);
     add<FreehandTool>(Tool::Freehand);
     for ([[maybe_unused]] const auto& t : tools_) assert(t && "every Tool value needs a registered tool");
 }
@@ -82,11 +91,14 @@ std::optional<SnapResult> ToolController::snapGround(const PointerInput& input) 
 
 SnapResult ToolController::snapPointer(const PointerInput& input) { return ctx_.snapPointer(input, current().groundSkip()); }
 
+std::string ToolController::snapTooltip() const {
+    if (!ctx_.indicator || ctx_.indicator->kind < SnapKind::OnFace || !current().showsSnapInHint()) return {};
+    return snapLabel(*ctx_.indicator);
+}
+
 std::string ToolController::hint() const {
     std::string text = current().hint();
-    if (ctx_.indicator && ctx_.indicator->kind >= SnapKind::OnFace && current().showsSnapInHint()) {
-        text = std::string("[") + snapKindName(ctx_.indicator->kind) + "] " + text;
-    }
+    if (const std::string tip = snapTooltip(); !tip.empty()) text = "[" + tip + "] " + text;
     return text;
 }
 
