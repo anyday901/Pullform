@@ -402,6 +402,11 @@ void Viewport::drawElements(const Editor& editor, const std::vector<ObjectId>& p
     if (const auto* erase = std::get_if<ErasePreview>(&editor.preview())) {
         for (const auto& ref : erase->edges) append(ref, hoverFaces, hoverEdges, 5.0, kHoverEdge);
     }
+    // Follow Me: the path, and the profile until the sweep is shown in its place.
+    if (const auto* follow = std::get_if<FollowMePreview>(&editor.preview())) {
+        for (const auto& ref : follow->path) append(ref, hoverFaces, hoverEdges, 5.0, follow->error ? kErrorEdge : kHoverEdge);
+        if (!follow->result) append(follow->profile, selectedFaces, selectedEdges, 4.0, kSelectedEdge);
+    }
     if (const auto& hover = editor.hoverElement(); hover.has_value() && !set.containsElement(*hover)) {
         append(*hover, hoverFaces, hoverEdges, 5.0, kHoverEdge);
     }
@@ -650,6 +655,9 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
         for (std::size_t i = 1; i < fh->points.size(); ++i) lines.emplace_back(fh->points[i - 1], fh->points[i], kPreviewEdge);
         // The closing edge, dimmed, while releasing would close the loop.
         if (fh->closes && fh->points.size() > 2) lines.emplace_back(fh->points.back(), fh->points.front(), dim(kPreviewEdge, 0.5f));
+    }
+    if (const auto* follow = std::get_if<FollowMePreview>(&editor.preview()); follow && follow->result) {
+        drawTransformResult(follow->result, false, nullptr, lines);
     }
     if (const auto* rot = std::get_if<RotatePreview>(&editor.preview())) {
         drawTransformGroup(rot->group, rot->objectIds, rot->result, rot->error.has_value(), rot->objectId, doc, lines);

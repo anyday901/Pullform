@@ -200,11 +200,21 @@ struct OffsetPreview {
     std::optional<std::string> error; ///< why this distance cannot be committed
 };
 
+/// Follow Me: the profile face, the path it would follow, and the profile's
+/// group as the sweep would leave it, drawn in place of the real one. `result`
+/// is empty while no path is hovered, or while `error` says why it cannot sweep.
+struct FollowMePreview {
+    ElementRef profile;
+    std::vector<ElementRef> path;
+    std::optional<ProfileObject> result;
+    std::optional<std::string> error;
+};
+
 /// Transient feedback drawn by the viewport. Never part of the document or history.
 using Preview =
     std::variant<std::monostate, RectanglePreview, CirclePreview, LinePreview, PushPullPreview, MovePreview, RotatePreview, ScalePreview,
                  MeasurePreview, SelectBoxPreview, ArcPreview, ProtractorPreview, ErasePreview, FreehandPreview,
-                 OffsetPreview>;
+                 OffsetPreview, FollowMePreview>;
 
 /// The object a preview draws in place of the document's version (push/pull,
 /// rotate and scale), if any. The viewport hides the original while it is set.

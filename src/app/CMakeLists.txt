@@ -15,6 +15,7 @@ add_library(pullform_app_logic STATIC
   tools/freehand_tool.cpp
   tools/push_pull_tool.cpp
   tools/offset_tool.cpp
+  tools/follow_me_tool.cpp
   tools/move_tool.cpp
   tools/rotate_tool.cpp
   tools/scale_tool.cpp

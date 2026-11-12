@@ -31,6 +31,7 @@ std::string_view toolName(Tool tool) {
     case Pie: return "Pie";
     case Freehand: return "Freehand";
     case Offset: return "Offset";
+    case FollowMe: return "Follow Me";
     }
     return "Select";
 }

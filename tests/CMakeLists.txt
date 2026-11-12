@@ -31,6 +31,7 @@ add_executable(pullform_tests
   freehand_tests.cpp
   offset_tests.cpp
   push_pull_tests.cpp
+  follow_me_tests.cpp
   solid_tools_tests.cpp
   fake_renderer.hpp)
 target_link_libraries(pullform_tests PRIVATE pullform_app_logic doctest::doctest nlohmann_json::nlohmann_json)

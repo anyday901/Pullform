@@ -321,6 +321,18 @@ All operations are pure functions over an immutable mesh that return a new mesh 
   its loops; when neighbouring faces are perpendicular (prism walls), move the face and
   stretch the walls instead of creating new ones (SketchUp's behaviour, and what today's
   height edit does). Negative distance through the solid cuts an opening, later.
+- **followMe(face, path)** (`core/geometry/follow_me.*`): sweep a profile face along a
+  chain of edges. Each profile point travels parallel to each path segment and turns on
+  the mitre plane at each path point (the plane halfway between the two segments), so
+  every side face is a planar quad and straight runs keep the section exactly. An open
+  path starts at its end nearer the profile, keeps the profile as the start cap and ends
+  square to its last segment; a closed path starts at its point nearest the profile and
+  must meet itself going round (a twisting 3D loop is refused). Section points weld to
+  existing vertices, so points on a lathe axis collapse and their faces become triangles;
+  a fan of coplanar triangles from one profile edge becomes one face (a vase's base and
+  lip). Edges along a profile curve or across a path curve are made soft and smooth. New
+  faces do not intersect existing ones (a moulding's back lies over a wall face without
+  splitting it) until Intersect Faces exists.
 - **moveVertices / transformVertices**: the general case behind scale and later the move of
   edges and faces; refuses to produce non-planar faces in Phase 1.
 - **validate(mesh)**: the load checks above, also usable in tests and as a debug assert
