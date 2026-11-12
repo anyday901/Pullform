@@ -22,7 +22,59 @@ include breaking changes, but project files will keep a migration path.
   the selection in place about the centre of its bounding box; mirrored solids keep facing
   out and arcs, circles and polygons stay true curves. The Eraser's Shift now sets the new
   hidden flag instead of softening without smoothing.
-
+- **Solid tools** (Tools > Solid Tools, or the buttons under a multi-selection): Union,
+  Subtract, Intersect, Trim, Split and Outer Shell on closed solids (boxes, cylinders,
+  prisms and closed mesh groups), at any position and rotation. The order of selection
+  matters: for Subtract, Trim and Split the first object selected cuts the second. The
+  result is a mesh group that keeps the object's id, name and placement, with coplanar
+  faces merged and a cylinder's soft edges kept, and passes `checkSolid`; it is one undo
+  entry. Dimensions on changed objects are removed. The booleans are our own code on the
+  edge/face mesh (`core/geometry/solid_boolean.*`); no geometry kernel was added.
+- **Intersect Faces** (Edit > Intersect Faces > With Model, With Selection, With
+  Context). Adds edges where faces cross, so the pieces can be erased or pushed on their
+  own: select faces, or whole objects for all their faces, and pick what to cut them
+  against: every face in the model, only the rest of the selection, or the other faces of
+  their own object (the editing context, until groups can be opened). Both of two crossing
+  objects are cut, and each new edge splits the face it runs across as a drawn edge would.
+  Intersecting two overlapping boxes and erasing the parts inside each other leaves the
+  outline of their union. Rectangles and boxes that get cut become mesh groups. Parallel
+  and coplanar faces are not cut. One undo entry; nothing changes when no face crosses
+  another. The core gains `intersectFaces`, `selectedFaces` and `mesh::faceIntersection`,
+  and an edge lying in two crossing faces of one mesh now splits both.
+- **Offset tool (F).** Click a face and move the pointer into or out of it, then click (or
+  press, drag and release), or type a distance. Every loop of the face is copied that far
+  in its own plane, with mitred corners: inward the face becomes a ring around a smaller
+  copy of itself (each hole grows and gets a ring of its own), outward a ring forms around
+  it (and inside each hole, which shrinks, or is filled once it closes up). Concave shapes work, and short edges that would
+  turn inside out (a small chamfer) are dropped; a distance too large for the shape is
+  refused with a message and the preview turns red. Arcs, circles and polygons stay true
+  curves at the offset radius. Rectangles and boxes become mesh groups, keeping their face
+  ids, and the ring is selected afterwards. Double-click a face to repeat the last offset.
+  The core gains `offsetFace`, `mesh::offsetLoops` and `mesh::signedBoundaryDistance`.
+- **Push/pull any planar face.** Side and base faces of a box, faces drawn on a wall, and
+  faces of any shape now push and pull. Each edge of the face either stretches the face
+  beside it, when that face runs along the push (a box's wall grows or shrinks), or gets a
+  new side face (a recess pushed into a wall, a boss pulled out of it). A face pushed all
+  the way to the far side of a wall cuts an opening through it (a window, or a doorway that
+  splits the floor of the wall in two), and a recess pulled back flush mends the wall.
+  Pushing past the far side is refused with a message instead of passing through it.
+  Tap Ctrl (Option on macOS) with Push/Pull, or hold Ctrl while clicking the face, for a new
+  starting face: no wall stretches, the old outline stays as edges, so pulling a cap twice
+  gives a block of three bands that can be pushed back into steps. Double-clicking a face
+  repeats the last distance. Circles keep a true circle on the far end and a smooth side.
+- **Rectangles and circles drawn on a face become part of it.** A rectangle, circle or
+  polygon drawn entirely on one face of a box or group goes into that object's edges and
+  faces (a hole in the face plus the inner face), like lines drawn there, so push/pull makes
+  a recess or an opening instead of a separate box. One hanging over the face's edge is
+  still a shape of its own.
+- **Follow Me tool** (Tools > Follow Me, or the toolbar). Sweeps a profile face along a
+  path of edges, open or closed, or around a face's edge: select the path and click the
+  face, or click the face and then the path (an edge brings its whole arc, circle or run
+  of edges). Hovering previews the sweep. Corners are mitred, a closed loop removes the
+  profile face it ends up inside, a lathe profile touching the axis of a circle closes
+  into a solid with one face for its base and lip, and the edges round a circle or along
+  a profile arc are softened. The profile and the path can be in different groups; the
+  sweep joins the profile's group. The core gains `followMe` and `followMePath`.
 - **Freehand tool** (Tools > Freehand, or the toolbar). Press and drag to draw a curve; on
   release it is smoothed (within 3 screen pixels of the stroke) into a polyline of straight
   edges and committed as one undo entry. It draws on the horizontal plane through the press
@@ -35,8 +87,8 @@ include breaking changes, but project files will keep a migration path.
   to hide the edges instead, or Ctrl (Cmd on macOS) to soften them (soft and smooth); faces are kept. A fast drag
   also takes the visible edges passed over between two pointer events, and near a corner
   the Eraser takes the corner's edge nearest the pointer.
-  Erasing, hiding or softening an edge of a rectangle or box turns it into a mesh group
-  (Push/Pull then no longer applies to it).
+  Erasing, hiding or softening an edge of a rectangle or box turns it into a mesh group,
+  whose faces Push/Pull works on like any other.
 - **Inference engine.** Besides endpoints, midpoints and axis guides, the pointer now
   infers On Edge, On Face, Intersection (edge with edge, or with an inference line), Center
   of a true arc or circle, Parallel and Perpendicular to an edge (magenta guides, with the
@@ -135,6 +187,7 @@ include breaking changes, but project files will keep a migration path.
 
 ### Changed
 
+- **Fit view moved from F to Shift+Z**, so F can be the Offset tool as in other modelers.
 - Internal: each tool is now its own class behind a small interface (`app/tools/tool.hpp`),
   with snapping, axis locks and numeric entry in shared helpers. No behavior change.
 

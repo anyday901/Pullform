@@ -408,6 +408,14 @@ resolved pick, screen position), so tests drive it with synthetic events and no 
   result is a guide line through the centre (`ProtractorPreview`, `protractorDirection`).
 - The viewport draws guide lines as dashes of constant screen size out to a far
   distance, and guide points as small three-axis crosses, depth-tested like edges.
+- Intersect Faces (Edit menu, `ToolController::intersectSelection`): `selectedFaces`
+  turns the selection into face references (selected faces, or every face of an object
+  selected whole), and `intersectFaces` pairs each with the faces of the mode (the
+  model, the selection, or the face's own object), finds the crossing segments in world
+  space (`mesh::faceIntersection`: the planes' meeting line clipped to both faces, holes
+  included, minus parts on both boundaries), and adds each segment with `Mesh::addEdge`
+  to every mesh it was found on, so faces split as for a drawn edge. One commit; the
+  touched objects stay selected whole, since split faces get new ids.
 - Eraser (`app/tools/eraser_tool.*`): a press starts a stroke, and every edge the
   pointer passes over until release (`edgeUnder`: the picked edge, or for a picked vertex
   its edge nearest the pointer ray; plus `edgesCrossed`: visible edges whose screen image
@@ -418,6 +426,34 @@ resolved pick, screen position), so tests drive it with synthetic events and no 
   keys held at release decide. Soft edges are not drawn or picked; faces keep using them.
   There is no separate "hidden" edge flag (the file format has soft and smooth only), so
   hide and soften differ only in the smooth flag, which shading does not use yet.
+- Offset (`app/tools/offset_tool.*`, `core/geometry/offset.*`): a click on a face starts
+  the gesture; the pointer ray meets the face's plane and the distance is how much further
+  inside the face (`mesh::signedBoundaryDistance`: distance to the nearest edge, negative
+  outside or in a hole) that point is than the clicked one. A corner or midpoint snap gives
+  an exact distance, otherwise it snaps to the grid. `mesh::offsetLoops` moves every loop of
+  the face to its left (into the face, since outer loops are CCW and holes CW) in 2D plane
+  coordinates: each edge's line moves by the distance and each corner goes where its two
+  lines meet (mitred). Edges whose offset turns round are dropped and their neighbours meet
+  instead, until none does; the outer loop closing up, a loop crossing itself or another,
+  or a grown hole leaving the shrunken outer loop is an error ("too large"), and a hole
+  shrinking to nothing is left out (and `offsetFace` fills it). The `OffsetPreview` carries the loops (world space) or
+  the error. `offsetFace` (a rectangle or box becomes a mesh group first, same face ids)
+  draws the loops with `Mesh::addEdge`, so inward the island rule makes the face a ring
+  around a new inner face (and each grown hole a ring), and outward the closed loop takes
+  the face as a hole; a shrunken hole drawn in empty space would fill it, so that face is
+  turned into the ring between the hole and its offset. Faces made in the face's plane
+  are turned to face the same way. A run of offset edges along consecutive segments of one
+  curve is drawn with `addCurve` (same centre and plane, radius from its inner points), so
+  circles stay circles. Splitting a shape in two (a straight-skeleton split event) is not
+  handled: such distances are refused.
+- Follow Me (`app/tools/follow_me_tool.*`): with edges or a face already selected, a
+  click on a face sweeps it along them; otherwise the first click picks the profile face
+  (`faceUnder`, which ignores a nearer edge) and the second the path (`followMePath`: an
+  edge brings its whole arc or circle, or its run of edges through vertices with two
+  edges; a face, its outer edge). Hovering shows a `FollowMePreview`: the path
+  highlighted and the profile's group as `followMe` would leave it, drawn in its place,
+  or the error in the hint. The profile and path may be in different groups; the sweep
+  goes into the profile's group. One commit, "Follow Me", selects that group.
 - Input ownership (`App::handleViewportInput`): Dear ImGui owns the pointer over panels,
   menus and popups (`WantCaptureMouse`); a drag that starts in the viewport belongs to the
   viewport until its button is released. Left button = active tool (or orbit with the
@@ -505,8 +541,14 @@ resolved pick, screen position), so tests drive it with synthetic events and no 
 
 ## Geometry boundaries (what this design does not do yet)
 
-The edge/face mesh exists in the core, but push/pull on a drawn group works only on a
-face standing on its own or the end of a prism, there are no booleans, and no healing of
-collinear edges left after an erase. Arcs are drawn by the Arc tools; a curve record gives
+The edge/face mesh exists in the core. Push/pull works on any planar face
+(`mesh::Mesh::pushPull`): a free face is extruded; otherwise each edge either stretches the
+one neighbouring face that contains the push direction or gets a new side face, the face
+lands on coplanar faces to cut an opening or fill a hole, and collinear edges left at the
+old outline are joined. It does not intersect the moved face with geometry it passes
+(that is refused) or with faces it lands on only partly. There is no
+healing of collinear edges left after an erase. Solid booleans (Tools > Solid Tools) work on whole closed
+objects and give the result fresh element ids without curve records (docs/GEOMETRY.md,
+"Solid booleans"). Arcs are drawn by the Arc tools; a curve record gives
 centre snapping but is not yet used for selecting a whole curve. Dimension anchors still name corners by index
 (vertex id - 1) rather than by vertex id. See docs/GEOMETRY.md and the roadmap.

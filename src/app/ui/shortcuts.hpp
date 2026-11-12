@@ -28,7 +28,7 @@ inline constexpr const char* kRedo = "Ctrl+Y";
 inline constexpr const char* kDelete = "Delete";
 inline constexpr const char* kDuplicate = PF_MOD "D";
 inline constexpr const char* kSelectAll = PF_MOD "A";
-inline constexpr const char* kFit = "F";
+inline constexpr const char* kFit = "Shift+Z";
 inline constexpr const char* kSelect = "Space";
 inline constexpr const char* kRectangle = "R";
 inline constexpr const char* kArc = "A";
@@ -43,9 +43,10 @@ inline constexpr const char* kOrbit = "O";
 inline constexpr const char* kTape = "T";
 inline constexpr const char* kDimension = "D";
 inline constexpr const char* kEraser = "E";
+inline constexpr const char* kOffset = "F";
 inline constexpr const char* kSnap = "G";
 
-inline constexpr std::array<std::pair<const char*, const char*>, 41> kTable = {{
+inline constexpr std::array<std::pair<const char*, const char*>, 42> kTable = {{
     {"Left button", "Use the active tool"},
     {"Middle drag", "Orbit"},
     {"Shift + middle drag", "Pan"},
@@ -85,7 +86,8 @@ inline constexpr std::array<std::pair<const char*, const char*>, 41> kTable = {{
     {"D", "Dimension tool"},
     {"E", "Eraser tool (click or drag over edges)"},
     {"Shift / " PF_MOD "erase", "Eraser: hide / soften the edges instead"},
-    {"F", "Fit view to model"},
+    {"F", "Offset tool (click a face, move in or out)"},
+    {"Shift+Z", "Fit view to model"},
     {"G", "Toggle grid snap"},
     {"Type digits, Enter", "Exact size or distance for the active tool"},
     {"Esc", "Cancel the operation, or clear the selection"},

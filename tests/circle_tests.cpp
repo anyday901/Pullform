@@ -293,7 +293,7 @@ TEST_CASE("circles and polygons save and open with their curves") {
     CHECK_FALSE(parseProject(serializeProject(bentDoc, std::nullopt)));
 }
 
-TEST_CASE("a circle on a wall pushed in 100 mm: a round hole-shaped recess facing the wall") {
+TEST_CASE("a circle on a wall pushed in 100 mm: a round recess in the wall") {
     Editor editor;
     ToolController tools(editor);
     const ObjectId wall = test::makeBox(editor, tools, "4000, 200", "3000");
@@ -310,52 +310,43 @@ TEST_CASE("a circle on a wall pushed in 100 mm: a round hole-shaped recess facin
     REQUIRE(tools.active());
     tools.pointerMove(atWall(2.0, 2.0, {100, 60})); // straight up the wall
     REQUIRE_FALSE(tools.submit("300").has_value());
-    REQUIRE(editor.document().objects.size() == 2);
-    const ProfileObject& disc = *editor.document().objects[1];
-    CHECK(disc.profile.kind == ProfileKind::Circle);
-    const Vec3 n = profileNormalWorld(disc);
-    CHECK(n.y == doctest::Approx(-1.0));
-    const Bounds b = objectBounds(disc);
+    // The circle went into the wall: a round hole in its front plus the disc, selected.
+    REQUIRE(editor.document().objects.size() == 1);
+    const ProfileObject& drawn = *editor.document().find(wall);
+    REQUIRE(drawn.isMeshGroup());
+    REQUIRE(editor.selection());
+    REQUIRE(editor.selection()->face);
+    const mesh::FaceId disc{static_cast<std::uint32_t>(editor.selection()->face->side)};
+    const auto* f = drawn.mesh->face(disc);
+    REQUIRE(f);
+    Bounds b;
+    for (const Vec3& p : drawn.mesh->loopPositions(f->loops[0])) b.extend(localToWorld(drawn, p));
+    CHECK(drawn.mesh->loopPositions(f->loops[0]).size() == 24);
     CHECK(b.min.x == doctest::Approx(1.7));
     CHECK(b.max.x == doctest::Approx(2.3));
     CHECK(b.min.z == doctest::Approx(1.2));
     CHECK(b.max.z == doctest::Approx(1.8));
     CHECK(std::abs(b.max.y) < 1e-12);
-    // The first corner points where the pointer was: straight up.
-    const auto top = objectVertex(disc, 0);
-    REQUIRE(top);
-    CHECK(top->z == doctest::Approx(1.8));
+    REQUIRE(drawn.mesh->curves().size() == 1);
+    CHECK(drawn.mesh->curves().begin()->second.kind == mesh::CurveKind::Circle);
 
-    // A dimension on corner 5, then push the circle 100 mm into the wall.
-    const Vec3 corner5 = *objectVertex(disc, 5);
-    REQUIRE(editor.commit("Dimension", [&](const Document& d) {
-        return addDimension(d, DimensionAnchor{{}, disc.id, {5}}, DimensionAnchor{{0, -1, 0}, std::nullopt, {}}, Vec3{0, -0.2, 0});
-    }));
-    editor.select(Selection{disc.id, FaceId::profile()});
+    // Push the disc 100 mm into the wall: a round recess with a smooth side.
+    tools.setTool(Tool::PushPull);
     REQUIRE_FALSE(tools.submitPushDistance("-100").has_value());
-    const ProfileObject& recess = *editor.document().find(disc.id);
-    REQUIRE(recess.extrusion);
-    CHECK(recess.extrusion->height == doctest::Approx(0.1));
-    CHECK(profileNormalWorld(recess).y == doctest::Approx(1.0)); // extruded into the wall
-    const Bounds rb = objectBounds(recess);
-    CHECK(rb.min.x == doctest::Approx(1.7));
-    CHECK(rb.max.y == doctest::Approx(0.1));
-    CHECK(checkSolid(buildMesh(recess)).ok());
+    const ProfileObject& recess = *editor.document().find(wall);
+    CHECK(recess.mesh->faces().size() == 6 + 1 + 24);
+    int smooth = 0;
+    for (const auto& [id, e] : recess.mesh->edges()) smooth += e.smooth ? 1 : 0;
+    CHECK(smooth == 24);
     CHECK_FALSE(validateDocument(editor.document()));
-    // The footprint did not move, and the dimension still measures the same point.
-    const auto& dim = editor.document().dimensions.back();
-    const auto end = resolveAnchor(editor.document(), dim.a);
-    REQUIRE(end);
-    CHECK(glm::length(*end - corner5) < 1e-9);
-    CHECK(editor.document().find(wall)->extrusion->height == 3.0);
 
-    // The far circle's center snaps from inside the wall's plane.
-    const auto f = snapFeatures(recess);
-    REQUIRE(f.curveCenters.size() == 2);
-    CHECK(f.curveCenters[0].x == doctest::Approx(2.0));
-    CHECK(f.curveCenters[0].z == doctest::Approx(1.5));
-    CHECK(std::abs(f.curveCenters[0].y) < 1e-12);
-    CHECK(f.curveCenters[1].y == doctest::Approx(0.1));
+    // Both circles' centers snap: on the wall's face and at the recess bottom.
+    const auto features = snapFeatures(recess);
+    REQUIRE(features.curveCenters.size() == 2);
+    CHECK(features.curveCenters[0].x == doctest::Approx(2.0));
+    CHECK(features.curveCenters[0].z == doctest::Approx(1.5));
+    CHECK(std::abs(features.curveCenters[0].y) < 1e-12);
+    CHECK(features.curveCenters[1].y == doctest::Approx(0.1));
 
     const auto loaded = parseProject(serializeProject(editor.document(), std::nullopt));
     REQUIRE(loaded);

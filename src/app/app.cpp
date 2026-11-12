@@ -468,11 +468,15 @@ void App::handleShortcuts() {
     if (ImGui::IsKeyPressed(ImGuiKey_M, false)) tools_.setTool(Tool::Move);
     if (ImGui::IsKeyPressed(ImGuiKey_X, false)) tools_.key(ToolKey::X);
     if (ImGui::IsKeyPressed(ImGuiKey_Y, false)) tools_.key(ToolKey::Y);
-    if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) tools_.key(ToolKey::Z);
+    // Shift+Z fits the view (F is the Offset tool); Z alone is the axis lock.
+    if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) {
+        if (io.KeyShift) fitView();
+        else tools_.key(ToolKey::Z);
+    }
     if (ImGui::IsKeyPressed(ImGuiKey_T, false)) tools_.setTool(Tool::TapeMeasure);
     if (ImGui::IsKeyPressed(ImGuiKey_D, false)) tools_.setTool(Tool::Dimension);
     if (ImGui::IsKeyPressed(ImGuiKey_E, false)) tools_.setTool(Tool::Eraser);
-    if (ImGui::IsKeyPressed(ImGuiKey_F, false)) fitView();
+    if (ImGui::IsKeyPressed(ImGuiKey_F, false)) tools_.setTool(Tool::Offset);
     if (ImGui::IsKeyPressed(ImGuiKey_G, false)) tools_.snap().enabled = !tools_.snap().enabled;
     // Backspace also erases typed values: right after the last character is
     // erased it stays erase-only, so an extra press does not delete the object.
@@ -499,8 +503,15 @@ void App::handleActions() {
         case UiAction::DeleteGuides:
             if (auto e = tools_.deleteGuides()) editor_.notify(Message{Message::Kind::Error, *e});
             break;
+        case UiAction::IntersectModel: intersect(IntersectMode::Model); break;
+        case UiAction::IntersectSelection: intersect(IntersectMode::Selection); break;
+        case UiAction::IntersectContext: intersect(IntersectMode::Context); break;
         }
     }
+}
+
+void App::intersect(IntersectMode mode) {
+    if (auto e = tools_.intersectSelection(mode)) editor_.notify(Message{Message::Kind::Error, *e});
 }
 
 void App::requestPending(Pending pending) {
@@ -635,8 +646,9 @@ void App::handleMoveCopyTap() {
     constexpr ImGuiKey left = ImGuiKey_LeftCtrl;
     constexpr ImGuiKey right = ImGuiKey_RightCtrl;
 #endif
-    // The same tap toggles the tape measure's guide creation.
-    if (tools_.tool() != Tool::Move && tools_.tool() != Tool::TapeMeasure) {
+    // The same tap toggles the tape measure's guide creation and push/pull's
+    // new starting face.
+    if (tools_.tool() != Tool::Move && tools_.tool() != Tool::TapeMeasure && tools_.tool() != Tool::PushPull) {
         copyTapArmed_ = false;
         return;
     }
@@ -653,6 +665,7 @@ void App::handleMoveCopyTap() {
     if (ImGui::IsKeyReleased(left) || ImGui::IsKeyReleased(right)) {
         copyTapArmed_ = false;
         if (tools_.tool() == Tool::Move) tools_.toggleMoveCopy();
+        else if (tools_.tool() == Tool::PushPull) tools_.togglePushNewFace();
         else tools_.toggleTapeGuides();
         onActivity();
     }
