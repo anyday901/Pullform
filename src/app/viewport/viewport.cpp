@@ -114,6 +114,7 @@ bool Viewport::contains(const Vec2& p) const {
 }
 
 PointerInput Viewport::pointerAt(const Vec2& windowPos, const Document& document) {
+    meshes_.setShowHidden(hiddenGeometry_);
     meshes_.sync(document);
     PointerInput in;
     in.screen = windowPos;
@@ -195,6 +196,18 @@ void Viewport::drawSnap(std::vector<LineSegment>& lines, const SnapResult& snap)
     case SnapKind::None: break;
     }
     if (snap.locked) poly({{-1.6, -1.6}, {1.6, -1.6}, {1.6, 1.6}, {-1.6, 1.6}}, kGuideParallel);
+}
+
+void Viewport::appendDashed(std::vector<LineSegment>& lines, const Vec3& a, const Vec3& b, const glm::vec4& color) const {
+    const double len = glm::length(b - a);
+    if (len <= 0.0) return;
+    const Vec3 eye = camera_.position();
+    const double near = std::max(std::min(glm::length(a - eye), glm::length(b - eye)), 1e-6);
+    const double dash = 4.0 * pixelAngle() * near;
+    // An integer dash count (at most 64); a long edge gets longer dashes.
+    const int count = std::clamp(static_cast<int>(len / (2.0 * dash)), 1, 64);
+    const Vec3 step = (b - a) / static_cast<double>(count);
+    for (int i = 0; i < count; ++i) lines.emplace_back(a + step * static_cast<double>(i), a + step * (i + 0.5), color);
 }
 
 void Viewport::appendGuide(std::vector<LineSegment>& lines, const Guide& guide, const glm::vec4& color) const {
@@ -450,6 +463,7 @@ void Viewport::drawTransformGroup(const std::vector<ProfileObject>& group, const
 
 void Viewport::render(const Editor& editor, const ToolController& tools) {
     const Document& doc = editor.document();
+    meshes_.setShowHidden(hiddenGeometry_);
     meshes_.sync(doc);
 
     FrameSetup frame;
@@ -521,6 +535,11 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
         // From the topology, so loose edges (no face) of a mesh group draw too.
         for (const auto& e : cached.topology.edges) {
             if (e.soft) continue;
+            if (e.ghost) { // soft or hidden, shown by View > Hidden Geometry: dashed and faint
+                appendDashed(selected ? selectedLines : lines, cached.topology.vertices[e.a].position,
+                             cached.topology.vertices[e.b].position, dim(selected ? kSelectedEdge : kEdge, 0.5f));
+                continue;
+            }
             (selected ? selectedLines : lines)
                 .emplace_back(cached.topology.vertices[e.a].position, cached.topology.vertices[e.b].position,
                               selected ? kSelectedEdge : kEdge);

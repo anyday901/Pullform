@@ -518,7 +518,10 @@ resolved pick, screen position), so tests drive it with synthetic events and no 
   `extrusion` is a profile group: the profile is the truth, and the stored mesh must be
   exactly the one `meshFromProfile` makes (ids, loops, positions within 1 um), or the file
   is rejected. A group without them is a mesh group whose mesh is the truth.
-- An unknown `format` or a version newer than 3 is rejected (a newer version asks the user
+- **Version 4** adds hidden geometry: edge flag 4 (`hidden`, beside 1 soft and 2 smooth)
+  and `"hidden": true` on a face, written only when set. **Version 3 -> 4** changes
+  nothing (no version 3 file has hidden geometry); saving writes version 4.
+- An unknown `format` or a version newer than 4 is rejected (a newer version asks the user
   to update). Older versions are migrated on the parsed JSON, one version at a time
   (`migrateProject`), before the reader runs, so the reader only knows the current schema.
   **Version 1 -> 2:** every object gains the identity rotation `[0,0,0,1]` (version 1

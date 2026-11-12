@@ -148,12 +148,18 @@ SnapFeatures meshFeatures(const ProfileObject& object) {
     SnapFeatures f;
     const mesh::Mesh& m = *object.mesh;
     std::map<std::uint32_t, int> index;
+    // A vertex only hidden edges meet is hidden with them: it does not snap.
+    std::map<std::uint32_t, bool> visible;
+    for (const auto& [id, e] : m.edges()) {
+        for (const auto v : {e.v0.value, e.v1.value}) visible[v] = visible[v] || !e.hidden;
+    }
     for (const auto& [id, v] : m.vertices()) {
+        if (const auto it = visible.find(id); it != visible.end() && !it->second) continue;
         index.emplace(id, static_cast<int>(f.vertices.size()));
         f.vertices.push_back(localToWorld(object, v.position));
     }
     for (const auto& [id, e] : m.edges()) {
-        if (e.soft) continue; // hidden geometry neither draws nor snaps
+        if (e.soft || e.hidden) continue; // hidden geometry neither draws nor snaps
         const auto a = index.find(e.v0.value);
         const auto b = index.find(e.v1.value);
         if (a == index.end() || b == index.end() || a->second == b->second) continue;

@@ -1,5 +1,7 @@
 #include "core/commands/operations.hpp"
 
+#include "core/commands/object_edit.hpp"
+
 #include "core/document/tolerance.hpp"
 #include "core/document/validate.hpp"
 #include "core/geometry/follow_me.hpp"
@@ -49,8 +51,6 @@ Expected<OpResult> deleteGuides(const Document& doc) {
     return result;
 }
 
-namespace {
-
 Expected<OpResult> replaceObject(const Document& doc, ProfileObject changed) {
     const auto index = doc.indexOf(changed.id);
     if (index < 0) return Error{"Object " + idString(changed.id) + " no longer exists."};
@@ -59,8 +59,6 @@ Expected<OpResult> replaceObject(const Document& doc, ProfileObject changed) {
     result.document.objects[static_cast<std::size_t>(index)] = std::make_shared<const ProfileObject>(std::move(changed));
     return result;
 }
-
-} // namespace
 
 std::optional<std::string> checkHeight(double height) {
     if (!std::isfinite(height)) return "Height must be a finite number.";
@@ -398,10 +396,6 @@ Expected<OpResult> deleteDimension(const Document& doc, DimensionId id) {
     return result;
 }
 
-namespace {
-
-/// The object as a mesh group: a profile group becomes one (same ids as
-/// meshFromProfile, so corner anchors stay valid); a mesh group is unchanged.
 ProfileObject asMeshGroup(const ProfileObject& o) {
     if (o.isMeshGroup()) return o;
     ProfileObject changed = o;
@@ -417,6 +411,8 @@ ProfileObject asMeshGroup(const ProfileObject& o) {
     }
     return changed;
 }
+
+namespace {
 
 Vec3 worldToLocal(const ProfileObject& o, const Vec3& world) {
     return glm::transpose(rotationMatrix(o.transform)) * (world - o.transform.translation);

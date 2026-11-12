@@ -17,8 +17,9 @@ EraseMode eraseMode(const PointerInput& input);
 /// Eraser (E): click an edge, or press and drag over several, and release.
 /// Every edge the stroke touched is erased in one commit (one undo entry):
 /// two coplanar faces on either side merge into one, other faces that used the
-/// edge go with it (mesh::Mesh::eraseEdge). Shift hides the edges instead and
-/// Ctrl softens them (soft and smooth); faces are kept either way. Faces under
+/// edge go with it (mesh::Mesh::eraseEdge). Shift hides the edges instead
+/// (Edit > Unhide brings them back) and Ctrl softens them (soft and smooth);
+/// faces are kept either way. Faces under
 /// the pointer are ignored. Escape drops the stroke.
 class EraserTool final : public ToolBase {
 public:

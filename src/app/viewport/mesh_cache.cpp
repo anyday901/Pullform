@@ -39,12 +39,18 @@ bool MeshCache::sync(const Document& document) {
         if (cached.source == obj) continue;
         if (cached.handle != kNoMesh) renderer_.destroyMesh(cached.handle);
         cached.source = obj;
-        cached.mesh = buildMesh(*obj);
-        cached.topology = buildTopology(*obj);
+        cached.mesh = buildMesh(*obj, std::nullopt, showHidden_);
+        cached.topology = buildTopology(*obj, showHidden_);
         cached.handle = renderer_.createMesh(cached.mesh);
     }
     synced_ = document.objects;
     return true;
+}
+
+void MeshCache::setShowHidden(bool show) {
+    if (show == showHidden_) return;
+    showHidden_ = show;
+    clear();
 }
 
 void MeshCache::clear() {

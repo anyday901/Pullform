@@ -163,7 +163,7 @@ with selection, not item 14).
       with a round hole that passes `checkSolid`. *Done:* written on our own edge/face mesh
       (no kernel), working on today's closed objects, which groups and components can use
       once item 22 lands.
-- [ ] **21. Edge and face cleanup.** Soften/smooth edges with an angle slider, Reverse
+- [x] **21. Edge and face cleanup.** Soften/smooth edges with an angle slider, Reverse
       Faces and Orient Faces, Hide/Unhide geometry, Flip Along an axis. *Depends on:* 5.
       *Accept:* a 48-sided cylinder can be shown smooth with no visible segment edges.
 

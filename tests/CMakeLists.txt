@@ -29,6 +29,7 @@ add_executable(pullform_tests
   line_tool_tests.cpp
   circle_tests.cpp
   freehand_tests.cpp
+  cleanup_tests.cpp
   offset_tests.cpp
   push_pull_tests.cpp
   follow_me_tests.cpp

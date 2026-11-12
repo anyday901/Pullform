@@ -946,6 +946,13 @@ void Mesh::scale(const Vec3& f) {
     }
 }
 
+void Mesh::removeCurve(CurveId id) {
+    if (curves_.erase(id.value) == 0) return;
+    for (auto& [eid, e] : edges_) {
+        if (e.curve == id) e.curve.reset();
+    }
+}
+
 void Mesh::translate(const Vec3& offset) {
     for (auto& [id, v] : vertices_) v.position += offset;
     for (auto& [id, c] : curves_) c.center += offset;
