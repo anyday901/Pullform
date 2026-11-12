@@ -466,11 +466,15 @@ void App::handleShortcuts() {
     if (ImGui::IsKeyPressed(ImGuiKey_M, false)) tools_.setTool(Tool::Move);
     if (ImGui::IsKeyPressed(ImGuiKey_X, false)) tools_.key(ToolKey::X);
     if (ImGui::IsKeyPressed(ImGuiKey_Y, false)) tools_.key(ToolKey::Y);
-    if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) tools_.key(ToolKey::Z);
+    // Shift+Z fits the view (F is the Offset tool); Z alone is the axis lock.
+    if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) {
+        if (io.KeyShift) fitView();
+        else tools_.key(ToolKey::Z);
+    }
     if (ImGui::IsKeyPressed(ImGuiKey_T, false)) tools_.setTool(Tool::TapeMeasure);
     if (ImGui::IsKeyPressed(ImGuiKey_D, false)) tools_.setTool(Tool::Dimension);
     if (ImGui::IsKeyPressed(ImGuiKey_E, false)) tools_.setTool(Tool::Eraser);
-    if (ImGui::IsKeyPressed(ImGuiKey_F, false)) fitView();
+    if (ImGui::IsKeyPressed(ImGuiKey_F, false)) tools_.setTool(Tool::Offset);
     if (ImGui::IsKeyPressed(ImGuiKey_G, false)) tools_.snap().enabled = !tools_.snap().enabled;
     // Backspace also erases typed values: right after the last character is
     // erased it stays erase-only, so an extra press does not delete the object.

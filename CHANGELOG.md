@@ -9,6 +9,16 @@ include breaking changes, but project files will keep a migration path.
 
 ### Added
 
+- **Offset tool (F).** Click a face and move the pointer into or out of it, then click (or
+  press, drag and release), or type a distance. Every loop of the face is copied that far
+  in its own plane, with mitred corners: inward the face becomes a ring around a smaller
+  copy of itself (each hole grows and gets a ring of its own), outward a ring forms around
+  it (and inside each hole, which shrinks, or is filled once it closes up). Concave shapes work, and short edges that would
+  turn inside out (a small chamfer) are dropped; a distance too large for the shape is
+  refused with a message and the preview turns red. Arcs, circles and polygons stay true
+  curves at the offset radius. Rectangles and boxes become mesh groups, keeping their face
+  ids, and the ring is selected afterwards. Double-click a face to repeat the last offset.
+  The core gains `offsetFace`, `mesh::offsetLoops` and `mesh::signedBoundaryDistance`.
 - **Push/pull any planar face.** Side and base faces of a box, faces drawn on a wall, and
   faces of any shape now push and pull. Each edge of the face either stretches the face
   beside it, when that face runs along the push (a box's wall grows or shrinks), or gets a
@@ -138,6 +148,7 @@ include breaking changes, but project files will keep a migration path.
 
 ### Changed
 
+- **Fit view moved from F to Shift+Z**, so F can be the Offset tool as in other modelers.
 - Internal: each tool is now its own class behind a small interface (`app/tools/tool.hpp`),
   with snapping, axis locks and numeric entry in shared helpers. No behavior change.
 
