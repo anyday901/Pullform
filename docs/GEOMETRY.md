@@ -18,10 +18,10 @@ and pick edges and faces) build on.
 - Curves are stored as **true arcs plus their segment edges**. Topology only ever sees the
   segments; the arc record is kept for snapping, dimensions, re-segmenting and export.
 - Weld tolerance is **1 um** (`1e-6` m), not the 1 nm coordinate equality used today.
-- **OpenCascade is ruled out.** **Manifold** (Apache-2.0) is the candidate for solid
-  booleans later (Intersect, Union, Subtract, Outer Shell on closed groups), added as an
-  optional dependency only when that feature is scheduled, converting a group mesh in and
-  out. It is never the model of record.
+- **OpenCascade is ruled out.** **Manifold** (Apache-2.0) was the candidate for solid
+  booleans later (Intersect, Union, Subtract, Outer Shell on closed groups). When they
+  were scheduled (item 20) the owner chose to write them on our own mesh instead; see
+  [Solid booleans](#solid-booleans). It is never the model of record.
 
 The main trade-off: we write and maintain the topology code ourselves (face creation,
 splitting, merging, validation, robust 2D predicates). That is a few thousand lines of
@@ -71,7 +71,7 @@ much larger API.
 | Fit with our static MSVC runtime | Yes | Yes | LGPL relinking means shipping it as DLLs; static linking needs care to stay compliant |
 
 Sizes in the table are estimates from typical builds, not measurements in this repository.
-The Manifold figure must be measured before it is adopted (see the boolean plan below).
+The Manifold figure was never measured: the booleans were written on our own mesh instead (see [Solid booleans](#solid-booleans)).
 
 **Why not OpenCascade:** it solves problems we do not have (exact NURBS surfaces, fillets,
 STEP) and does not solve the one we do (sticky editing feel). It would multiply the
@@ -421,21 +421,44 @@ So:
 Add `tests/bench/mesh_edit_bench.cpp` (built, not run by CTest, like the hover benchmark)
 with step 4 to measure this.
 
-## Booleans later (Manifold)
+## Solid booleans
 
-When Intersect/Union/Subtract/Outer Shell are scheduled:
+Item 20 (Solid tools) was scheduled after this document was accepted, and the project
+owner chose then to keep the booleans in our own code rather than add Manifold, so the
+core stays one small, dependency-free mesh. The code is `core/geometry/solid_boolean.*`
+(mesh level) and `core/commands/solid_tools.*` (the six tools on document objects).
 
-- Add Manifold as an **optional** dependency (`PULLFORM_WITH_MANIFOLD`, default on for the
-  app, off for minimal builds), pinned by version in `cmake/PullformDependencies.cmake`
-  and listed in `THIRD_PARTY_NOTICES.md` with Clipper2. Build without TBB (single-thread)
-  to keep the size down, and record the measured size increase in the PR.
-- Booleans apply only to groups that pass the closed-solid query. Convert by triangulating
-  faces with face ids as Manifold's `faceID`/`originalID` properties, run the boolean, then
-  rebuild planar faces by merging coplanar triangles that carry the same face id, and
-  restore edges and curves from the inputs where they survive.
+- Booleans apply only to meshes that pass the closed-solid query, `mesh::solidProblem`:
+  faces, every edge used by exactly two faces walking it in opposite directions, no loose
+  edges, outward faces (positive volume). `checkSolid` on `mesh::solidMeshData` gives the
+  same answer on triangles.
+- Both meshes are brought into the first object's frame. Every pair of faces whose boxes
+  overlap is intersected: crossing planes give the segment of their common line that lies
+  in both polygons; coplanar faces imprint each other's edges.
+- Each face is split by its cut segments into regions (a planar arrangement: segments are
+  split at crossings and at points on them, spurs are pruned, cycles are traced, clockwise
+  cycles become holes of the smallest region around them). Points are welded with
+  `kWeldDistance` in one pool, so a point shared by two faces is one vertex.
+- A region is classified by a point well inside it: on a coplanar face of the other solid
+  (facing the same or the opposite way), or inside or outside the other solid by its
+  generalised winding number, which needs no ray and has no degenerate directions. Union
+  keeps what is outside the other solid, Intersect what is inside, Subtract keeps a's
+  outside and b's inside turned around; of two coincident same-facing regions only a's
+  is kept.
+- The kept regions are welded into a fresh mesh, with T-junctions filled in so neighbours
+  share their edges. Then coplanar faces are merged across edges that are not a split
+  the user drew (an edge between two coplanar faces in its source solid is kept), straight
+  runs left with a vertex in the middle are joined, soft and smooth flags follow from the
+  source edges, and the result is validated and checked to be a closed solid.
+- Outer Shell is a union followed by dropping every shell that lies inside another.
+- Known limits: the result has fresh element ids and no curve records (a drilled hole is
+  its segments, not a circle); faces that would touch themselves at a single corner, or two
+  solids touching along only an edge, are refused rather than represented; the face pair
+  search and the T-junction pass are quadratic in the worst case, fine for the solids
+  drawn today but a candidate for a spatial index with large models.
 - Intersecting faces with each other (SketchUp's "Intersect Faces", which also works on
-  open geometry) is our own operation on our mesh, not Manifold: it is `addEdge` with the
-  intersection segments.
+  open geometry) is item 19 and stays a separate operation on one mesh (`addEdge` with the
+  intersection segments). It can share the face-pair intersection above.
 
 ## Risks and how we handle them
 

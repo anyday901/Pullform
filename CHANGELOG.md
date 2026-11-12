@@ -9,6 +9,25 @@ include breaking changes, but project files will keep a migration path.
 
 ### Added
 
+- **Solid tools** (Tools > Solid Tools, or the buttons under a multi-selection): Union,
+  Subtract, Intersect, Trim, Split and Outer Shell on closed solids (boxes, cylinders,
+  prisms and closed mesh groups), at any position and rotation. The order of selection
+  matters: for Subtract, Trim and Split the first object selected cuts the second. The
+  result is a mesh group that keeps the object's id, name and placement, with coplanar
+  faces merged and a cylinder's soft edges kept, and passes `checkSolid`; it is one undo
+  entry. Dimensions on changed objects are removed. The booleans are our own code on the
+  edge/face mesh (`core/geometry/solid_boolean.*`); no geometry kernel was added.
+- **Intersect Faces** (Edit > Intersect Faces > With Model, With Selection, With
+  Context). Adds edges where faces cross, so the pieces can be erased or pushed on their
+  own: select faces, or whole objects for all their faces, and pick what to cut them
+  against: every face in the model, only the rest of the selection, or the other faces of
+  their own object (the editing context, until groups can be opened). Both of two crossing
+  objects are cut, and each new edge splits the face it runs across as a drawn edge would.
+  Intersecting two overlapping boxes and erasing the parts inside each other leaves the
+  outline of their union. Rectangles and boxes that get cut become mesh groups. Parallel
+  and coplanar faces are not cut. One undo entry; nothing changes when no face crosses
+  another. The core gains `intersectFaces`, `selectedFaces` and `mesh::faceIntersection`,
+  and an edge lying in two crossing faces of one mesh now splits both.
 - **Offset tool (F).** Click a face and move the pointer into or out of it, then click (or
   press, drag and release), or type a distance. Every loop of the face is copied that far
   in its own plane, with mitred corners: inward the face becomes a ring around a smaller

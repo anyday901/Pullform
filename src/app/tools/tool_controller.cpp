@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <format>
 
 namespace pf {
 
@@ -165,6 +166,45 @@ std::optional<std::string> ToolController::deleteGuides() {
     return std::nullopt;
 }
 
+namespace {
+
+const char* intersectLabel(IntersectMode mode) {
+    switch (mode) {
+    case IntersectMode::Model: return "Intersect with model";
+    case IntersectMode::Selection: return "Intersect with selection";
+    case IntersectMode::Context: return "Intersect with context";
+    }
+    return "Intersect faces";
+}
+
+} // namespace
+
+std::optional<std::string> ToolController::intersectSelection(IntersectMode mode) {
+    const auto faces = selectedFaces(editor_.document(), editor_.selectionSet());
+    if (faces.empty()) return std::string{"Select the faces or objects to intersect first."};
+    cancel();
+    const auto before = editor_.document().objects;
+    const SelectionSet kept = editor_.selectionSet();
+    if (!editor_.commit(intersectLabel(mode), [&faces, mode](const Document& d) { return pf::intersectFaces(d, faces, mode); },
+                        [&kept](const OpResult& r) {
+                            // Face ids change where faces split: keep the objects, whole.
+                            std::vector<ObjectId> ids = kept.objects();
+                            for (const ObjectId id : r.objectIds) {
+                                if (std::ranges::find(ids, id) == ids.end()) ids.push_back(id);
+                            }
+                            return SelectionSet::ofObjects(ids);
+                        })) {
+        return ctx_.lastError("Could not intersect the faces.");
+    }
+    std::size_t changed = 0;
+    for (const auto& o : editor_.document().objects) {
+        if (std::ranges::none_of(before, [&o](const ObjectPtr& b) { return b == o; })) ++changed;
+    }
+    editor_.notify(Message{Message::Kind::Info, changed == 1 ? std::string("Intersected faces in 1 object.")
+                                                             : std::format("Intersected faces in {} objects.", changed)});
+    return std::nullopt;
+}
+
 std::optional<std::string> ToolController::duplicateSelection() {
     const auto selection = editor_.selection();
     if (!selection) return std::string{"Select an object to duplicate."};
@@ -199,6 +239,31 @@ std::optional<std::string> ToolController::duplicateSelection() {
     } else if (const auto* copy = editor_.selection() ? editor_.document().find(editor_.selection()->objectId) : nullptr) {
         editor_.notify(Message{Message::Kind::Info, "Duplicated as " + copy->name + "."});
     }
+    return std::nullopt;
+}
+
+std::optional<std::string> ToolController::applySolidTool(SolidTool tool) {
+    const std::vector<ObjectId> ids = editor_.selectedObjects();
+    const std::string name(solidToolName(tool));
+    if (!solidToolAccepts(tool, ids.size())) {
+        using enum SolidTool;
+        if (tool == OuterShell) return std::string{"Select the solids for Outer Shell."};
+        if (tool == Subtract || tool == Trim || tool == Split) {
+            return name + " needs exactly two solids: select the one that cuts first, then the one to cut.";
+        }
+        return name + " needs two or more solids selected.";
+    }
+    cancel();
+    if (!editor_.commit(
+            name, [&ids, tool](const Document& d) { return pf::applySolidTool(d, tool, ids); },
+            [](const OpResult& r) {
+                SelectionSet result = SelectionSet::ofObjects(r.objectIds);
+                if (r.objectId) result.add(Selection{*r.objectId, std::nullopt});
+                return result;
+            })) {
+        return ctx_.lastError("The solid tool could not be applied.");
+    }
+    editor_.notify(Message{Message::Kind::Info, name + " done."});
     return std::nullopt;
 }
 
