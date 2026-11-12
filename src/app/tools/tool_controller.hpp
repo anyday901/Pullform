@@ -118,6 +118,12 @@ public:
     /// selection, so repeating it builds a row. One undo entry.
     std::optional<std::string> duplicateSelection();
 
+    /// Push/pull new starting face mode (tap Ctrl, or Option on macOS, with
+    /// Push/Pull): no wall stretches and the old outline stays as edges. It
+    /// lasts until it is tapped again or the tool changes.
+    void togglePushNewFace();
+    [[nodiscard]] bool pushNewFace() const;
+
     /// Tape measure guide creation (tap Ctrl, or Option on macOS, with the
     /// tape measure). On by default; it persists across tool changes.
     void toggleTapeGuides();
@@ -129,6 +135,11 @@ public:
     /// the order they were selected, and selects the result. Returns the
     /// error to show when it cannot (wrong count, not solids, no overlap).
     std::optional<std::string> applySolidTool(SolidTool tool);
+
+    /// Intersect Faces (Edit > Intersect Faces): adds edges where the selected
+    /// faces, or every face of the selected objects, cross the faces `mode`
+    /// names (see pf::intersectFaces). One undo entry; the objects stay selected.
+    std::optional<std::string> intersectSelection(IntersectMode mode);
 
     /// Typed value for the tape measure or dimension tool (the dimension line offset).
     std::optional<std::string> submitMeasure(std::string_view text);

@@ -7,6 +7,7 @@
 #include "app/tools/freehand_tool.hpp"
 #include "app/tools/measure_tool.hpp"
 #include "app/tools/move_tool.hpp"
+#include "app/tools/offset_tool.hpp"
 #include "app/tools/orbit_tool.hpp"
 #include "app/tools/protractor_tool.hpp"
 #include "app/tools/push_pull_tool.hpp"
@@ -19,6 +20,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <format>
 
 namespace pf {
 
@@ -51,6 +53,7 @@ ToolController::ToolController(Editor& editor) : editor_(editor), snapper_(edito
     add<ArcTool>(Tool::Pie, ArcTool::Mode::Pie);
     add<ProtractorTool>(Tool::Protractor);
     add<FreehandTool>(Tool::Freehand);
+    add<OffsetTool>(Tool::Offset);
     for ([[maybe_unused]] const auto& t : tools_) assert(t && "every Tool value needs a registered tool");
 }
 
@@ -141,6 +144,9 @@ std::optional<std::string> ToolController::submitMeasure(std::string_view text) 
     return tools_[static_cast<std::size_t>(lastMeasure_)]->submit(text);
 }
 
+void ToolController::togglePushNewFace() { pushPull_->toggleNewFace(); }
+bool ToolController::pushNewFace() const { return pushPull_->newFace(); }
+
 void ToolController::toggleTapeGuides() { tape_->toggleGuides(); }
 bool ToolController::tapeGuides() const { return tape_->guides(); }
 
@@ -155,6 +161,45 @@ std::optional<std::string> ToolController::deleteGuides() {
         return ctx_.lastError("Could not delete the guides.");
     }
     editor_.notify(Message{Message::Kind::Info, count == 1 ? std::string("Deleted 1 guide.") : "Deleted " + std::to_string(count) + " guides."});
+    return std::nullopt;
+}
+
+namespace {
+
+const char* intersectLabel(IntersectMode mode) {
+    switch (mode) {
+    case IntersectMode::Model: return "Intersect with model";
+    case IntersectMode::Selection: return "Intersect with selection";
+    case IntersectMode::Context: return "Intersect with context";
+    }
+    return "Intersect faces";
+}
+
+} // namespace
+
+std::optional<std::string> ToolController::intersectSelection(IntersectMode mode) {
+    const auto faces = selectedFaces(editor_.document(), editor_.selectionSet());
+    if (faces.empty()) return std::string{"Select the faces or objects to intersect first."};
+    cancel();
+    const auto before = editor_.document().objects;
+    const SelectionSet kept = editor_.selectionSet();
+    if (!editor_.commit(intersectLabel(mode), [&faces, mode](const Document& d) { return pf::intersectFaces(d, faces, mode); },
+                        [&kept](const OpResult& r) {
+                            // Face ids change where faces split: keep the objects, whole.
+                            std::vector<ObjectId> ids = kept.objects();
+                            for (const ObjectId id : r.objectIds) {
+                                if (std::ranges::find(ids, id) == ids.end()) ids.push_back(id);
+                            }
+                            return SelectionSet::ofObjects(ids);
+                        })) {
+        return ctx_.lastError("Could not intersect the faces.");
+    }
+    std::size_t changed = 0;
+    for (const auto& o : editor_.document().objects) {
+        if (std::ranges::none_of(before, [&o](const ObjectPtr& b) { return b == o; })) ++changed;
+    }
+    editor_.notify(Message{Message::Kind::Info, changed == 1 ? std::string("Intersected faces in 1 object.")
+                                                             : std::format("Intersected faces in {} objects.", changed)});
     return std::nullopt;
 }
 
