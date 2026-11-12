@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <format>
 
 namespace pf {
 
@@ -158,16 +159,26 @@ std::optional<std::string> ToolController::deleteGuides() {
     return std::nullopt;
 }
 
+namespace {
+
+const char* intersectLabel(IntersectMode mode) {
+    switch (mode) {
+    case IntersectMode::Model: return "Intersect with model";
+    case IntersectMode::Selection: return "Intersect with selection";
+    case IntersectMode::Context: return "Intersect with context";
+    }
+    return "Intersect faces";
+}
+
+} // namespace
+
 std::optional<std::string> ToolController::intersectSelection(IntersectMode mode) {
     const auto faces = selectedFaces(editor_.document(), editor_.selectionSet());
     if (faces.empty()) return std::string{"Select the faces or objects to intersect first."};
     cancel();
     const auto before = editor_.document().objects;
     const SelectionSet kept = editor_.selectionSet();
-    const char* label = mode == IntersectMode::Model ? "Intersect with model"
-                        : mode == IntersectMode::Selection ? "Intersect with selection"
-                                                           : "Intersect with context";
-    if (!editor_.commit(label, [&faces, mode](const Document& d) { return pf::intersectFaces(d, faces, mode); },
+    if (!editor_.commit(intersectLabel(mode), [&faces, mode](const Document& d) { return pf::intersectFaces(d, faces, mode); },
                         [&kept](const OpResult& r) {
                             // Face ids change where faces split: keep the objects, whole.
                             std::vector<ObjectId> ids = kept.objects();
@@ -183,7 +194,7 @@ std::optional<std::string> ToolController::intersectSelection(IntersectMode mode
         if (std::ranges::none_of(before, [&o](const ObjectPtr& b) { return b == o; })) ++changed;
     }
     editor_.notify(Message{Message::Kind::Info, changed == 1 ? std::string("Intersected faces in 1 object.")
-                                                             : "Intersected faces in " + std::to_string(changed) + " objects."});
+                                                             : std::format("Intersected faces in {} objects.", changed)});
     return std::nullopt;
 }
 

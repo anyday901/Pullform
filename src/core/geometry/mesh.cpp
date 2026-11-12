@@ -645,8 +645,9 @@ void Mesh::faceEdge(EdgeId id, AddEdgeResult& result) {
     // each is split on its own.
     std::vector<std::uint32_t> under;
     for (const auto& [fidValue, f] : faces_) {
-        if (classify(*this, f, mid) != Where::Inside) continue;
-        if (classify(*this, f, pa) == Where::Outside || classify(*this, f, pb) == Where::Outside) continue;
+        using enum Where;
+        if (classify(*this, f, mid) != Inside) continue;
+        if (classify(*this, f, pa) == Outside || classify(*this, f, pb) == Outside) continue;
         under.push_back(fidValue);
     }
     for (const std::uint32_t fidValue : under) {

@@ -497,17 +497,15 @@ void App::handleActions() {
         case UiAction::DeleteGuides:
             if (auto e = tools_.deleteGuides()) editor_.notify(Message{Message::Kind::Error, *e});
             break;
-        case UiAction::IntersectModel:
-        case UiAction::IntersectSelection:
-        case UiAction::IntersectContext: {
-            const IntersectMode mode = a == UiAction::IntersectModel       ? IntersectMode::Model
-                                       : a == UiAction::IntersectSelection ? IntersectMode::Selection
-                                                                           : IntersectMode::Context;
-            if (auto e = tools_.intersectSelection(mode)) editor_.notify(Message{Message::Kind::Error, *e});
-            break;
-        }
+        case UiAction::IntersectModel: intersect(IntersectMode::Model); break;
+        case UiAction::IntersectSelection: intersect(IntersectMode::Selection); break;
+        case UiAction::IntersectContext: intersect(IntersectMode::Context); break;
         }
     }
+}
+
+void App::intersect(IntersectMode mode) {
+    if (auto e = tools_.intersectSelection(mode)) editor_.notify(Message{Message::Kind::Error, *e});
 }
 
 void App::requestPending(Pending pending) {

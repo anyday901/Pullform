@@ -51,21 +51,25 @@ double segmentDistance(const Vec2& p, const Vec2& a, const Vec2& b) {
 /// Where a point (in the face's plane) is relative to the face: within the
 /// weld distance of a loop it is on the boundary; otherwise even-odd over all
 /// loops, so holes are outside.
+/// True when a ray from q towards +x crosses the segment ab (even-odd rule).
+bool rayCrosses(const Vec2& q, const Vec2& a, const Vec2& b) {
+    if ((a.y > q.y) == (b.y > q.y)) return false;
+    return q.x < a.x + (q.y - a.y) * (b.x - a.x) / (b.y - a.y);
+}
+
 Where classify(const Projected& f, const Vec3& point) {
+    using enum Where;
     const Vec2 q = f.to2d(point);
     bool inside = false;
     for (const auto& loop : f.loops) {
         for (std::size_t i = 0, n = loop.size(); i < n; ++i) {
             const Vec2& a = loop[i];
             const Vec2& b = loop[(i + 1) % n];
-            if (segmentDistance(q, a, b) <= tol::kWeldDistance) return Where::Boundary;
-            if ((a.y > q.y) != (b.y > q.y)) {
-                const double x = a.x + (q.y - a.y) * (b.x - a.x) / (b.y - a.y);
-                if (q.x < x) inside = !inside;
-            }
+            if (segmentDistance(q, a, b) <= tol::kWeldDistance) return Boundary;
+            if (rayCrosses(q, a, b)) inside = !inside;
         }
     }
-    return inside ? Where::Inside : Where::Outside;
+    return inside ? Inside : Outside;
 }
 
 /// Parameters along the line (point p0, unit direction d) where it meets the
@@ -152,17 +156,17 @@ std::vector<Segment> faceIntersection(const PlanarFace& a, const PlanarFace& b) 
         const Vec3 mid = p0 + d * ((stops[i] + stops[i + 1]) * 0.5);
         const Where wa = classify(pa, mid);
         const Where wb = classify(pb, mid);
-        const bool covered =
-            wa != Where::Outside && wb != Where::Outside && !(wa == Where::Boundary && wb == Where::Boundary);
+        using enum Where;
+        const bool covered = wa != Outside && wb != Outside && !(wa == Boundary && wb == Boundary);
         if (covered) {
-            if (!open) open = stops[i];
+            if (!open.has_value()) open = stops[i];
             end = stops[i + 1];
-        } else if (open) {
+        } else if (open.has_value()) {
             segments.emplace_back(p0 + d * *open, p0 + d * end);
             open.reset();
         }
     }
-    if (open) segments.emplace_back(p0 + d * *open, p0 + d * end);
+    if (open.has_value()) segments.emplace_back(p0 + d * *open, p0 + d * end);
     std::erase_if(segments, [](const Segment& s) { return glm::length(s.second - s.first) <= tol::kWeldDistance; });
     return segments;
 }

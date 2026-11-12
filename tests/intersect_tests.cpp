@@ -72,14 +72,13 @@ std::vector<mesh::EdgeId> edgesInside(const Document& doc, ObjectId id, const Ve
 
 bool hasEdge(const Document& doc, ObjectId id, const Vec3& a, const Vec3& b) {
     const auto& m = meshOf(doc, id);
-    for (const auto& [eid, e] : m.edges()) {
+    const auto at = [](const Vec3& p, const Vec3& q) { return glm::length(p - q) < 1e-6; };
+    return std::ranges::any_of(m.edges(), [&](const auto& entry) {
+        const auto& e = entry.second;
         const Vec3 p = toWorld(doc, id, m.vertex(e.v0)->position);
         const Vec3 q = toWorld(doc, id, m.vertex(e.v1)->position);
-        if ((glm::length(p - a) < 1e-6 && glm::length(q - b) < 1e-6) || (glm::length(p - b) < 1e-6 && glm::length(q - a) < 1e-6)) {
-            return true;
-        }
-    }
-    return false;
+        return (at(p, a) && at(q, b)) || (at(p, b) && at(q, a));
+    });
 }
 
 } // namespace

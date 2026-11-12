@@ -5,6 +5,7 @@
 #include "core/geometry/topology.hpp"
 
 #include <algorithm>
+#include <iterator>
 
 namespace pf {
 
@@ -180,13 +181,12 @@ std::vector<ElementRef> selectedFaces(const Document& doc, const SelectionSet& s
         const auto* o = doc.find(id);
         if (!o) continue;
         if (selection.hasElements(id)) {
-            for (const ElementRef& r : selection.elements()) {
-                if (r.object == id && r.kind == ElementKind::Face) faces.push_back(r);
-            }
+            std::ranges::copy_if(selection.elements(), std::back_inserter(faces),
+                                 [id](const ElementRef& r) { return r.object == id && r.kind == ElementKind::Face; });
             continue;
         }
         const auto m = mesh::objectMesh(*o); // keep the mesh alive while iterating
-        for (const auto& [fid, f] : m->faces()) faces.push_back(ElementRef{id, ElementKind::Face, fid});
+        for (const auto& [fid, f] : m->faces()) faces.emplace_back(ElementRef{id, ElementKind::Face, fid});
     }
     return faces;
 }
