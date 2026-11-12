@@ -632,48 +632,72 @@ Expected<OpResult> pushPullFace(const Document& doc, ObjectId id, mesh::FaceId f
     return replaceObject(doc, std::move(changed));
 }
 
+namespace {
+
+/// The one group the path's edges and faces belong to (the profile face itself does not count).
+Expected<ObjectId> pathOwnerOf(const std::vector<ElementRef>& path, const ElementRef& profile) {
+    std::optional<ObjectId> owner;
+    for (const ElementRef& ref : path) {
+        if (ref.kind == ElementKind::Vertex || ref == profile) continue;
+        if (owner && *owner != ref.object) return Error{"The path must be edges of one group."};
+        owner = ref.object;
+    }
+    if (!owner) return Error{"Pick the path first: edges, or a face to go around its edge."};
+    return *owner;
+}
+
+/// The path's edges: edges as given, faces as their outer edges.
+Expected<std::vector<mesh::EdgeId>> pathEdges(const mesh::Mesh& m, const std::vector<ElementRef>& path, ObjectId owner,
+                                              const ElementRef& profile) {
+    using enum ElementKind;
+    std::vector<mesh::EdgeId> edges;
+    for (const ElementRef& ref : path) {
+        if (ref.object != owner || ref == profile || ref.kind == Vertex) continue;
+        if (ref.kind == Edge) {
+            edges.emplace_back(mesh::EdgeId{ref.id});
+            continue;
+        }
+        const auto* f = m.face(mesh::FaceId{ref.id});
+        if (!f) return Error{"A path face no longer exists."};
+        for (const auto& use : f->loops[0]) edges.push_back(use.edge);
+    }
+    return edges;
+}
+
+/// Sharing an edge is fine (a profile drawn on the corner of the face it goes
+/// round); only the profile's own edges are not a path.
+bool onlyProfileEdges(const mesh::Mesh& m, mesh::FaceId profile, const std::vector<mesh::EdgeId>& edges) {
+    const auto own = m.edgesOfFace(profile);
+    return std::ranges::all_of(edges, [&own](mesh::EdgeId e) { return std::ranges::find(own, e) != own.end(); });
+}
+
+} // namespace
+
 Expected<OpResult> followMe(const Document& doc, const ElementRef& profile, const std::vector<ElementRef>& path,
                             std::vector<mesh::FaceId>* created) {
     if (profile.kind != ElementKind::Face) return Error{"Pick a face as the profile to sweep."};
     const auto* owner = doc.find(profile.object);
     if (!owner) return Error{"Object " + idString(profile.object) + " no longer exists."};
-    std::optional<ObjectId> pathId;
-    for (const ElementRef& ref : path) {
-        if (ref.kind == ElementKind::Vertex) continue;
-        if (ref.kind == ElementKind::Face && ref.object == profile.object && ref.id == profile.id) continue; // the profile itself
-        if (pathId && *pathId != ref.object) return Error{"The path must be edges of one group."};
-        pathId = ref.object;
-    }
-    if (!pathId) return Error{"Pick the path first: edges, or a face to go around its edge."};
+    const auto pathId = pathOwnerOf(path, profile);
+    if (!pathId) return Error{pathId.error()};
     const auto* pathOwner = doc.find(*pathId);
     if (!pathOwner) return Error{"Object " + idString(*pathId) + " no longer exists."};
     const mesh::MeshPtr pathMesh = mesh::objectMesh(*pathOwner);
-    std::vector<mesh::EdgeId> edges;
-    for (const ElementRef& ref : path) {
-        if (ref.object != *pathId) continue;
-        if (ref.kind == ElementKind::Edge) edges.push_back(mesh::EdgeId{ref.id});
-        if (ref.kind == ElementKind::Face && !(ref.object == profile.object && ref.id == profile.id)) {
-            const auto* f = pathMesh->face(mesh::FaceId{ref.id});
-            if (!f) return Error{"A path face no longer exists."};
-            for (const auto& use : f->loops[0]) edges.push_back(use.edge);
-        }
-    }
+    const auto edges = pathEdges(*pathMesh, path, *pathId, profile);
+    if (!edges) return Error{edges.error()};
+    const mesh::FaceId face{profile.id};
     const mesh::MeshPtr ownMesh = mesh::objectMesh(*owner);
-    if (!ownMesh->face(mesh::FaceId{profile.id})) return Error{"The profile face no longer exists."};
-    if (*pathId == profile.object) {
-        const auto own = ownMesh->edgesOfFace(mesh::FaceId{profile.id});
-        // Sharing an edge is fine (a profile drawn on the corner of the face it goes round); only its own edges are not a path.
-        if (std::ranges::all_of(edges, [&own](mesh::EdgeId e) { return std::ranges::find(own, e) != own.end(); })) {
-            return Error{"The path cannot use the profile's own edges. Pick edges away from the profile face."};
-        }
+    if (!ownMesh->face(face)) return Error{"The profile face no longer exists."};
+    if (*pathId == profile.object && onlyProfileEdges(*ownMesh, face, *edges)) {
+        return Error{"The path cannot use the profile's own edges. Pick edges away from the profile face."};
     }
-    auto chain = mesh::chainPath(*pathMesh, edges);
+    auto chain = mesh::chainPath(*pathMesh, *edges);
     if (!chain) return Error{chain.error()};
     ProfileObject changed = asMeshGroup(*owner);
     mesh::SweepPath sweep = std::move(chain).value();
     for (Vec3& p : sweep.points) p = worldToLocal(changed, localToWorld(*pathOwner, p));
     mesh::Mesh m = *changed.mesh;
-    auto swept = mesh::followMe(m, mesh::FaceId{profile.id}, sweep);
+    auto swept = mesh::followMe(m, face, sweep);
     if (!swept) return Error{swept.error()};
     if (created) *created = swept->createdFaces;
     changed.mesh = std::make_shared<const mesh::Mesh>(std::move(m));
@@ -682,17 +706,18 @@ Expected<OpResult> followMe(const Document& doc, const ElementRef& profile, cons
 }
 
 std::vector<ElementRef> followMePath(const Document& doc, const ElementRef& element) {
+    using enum ElementKind;
     const auto* o = doc.find(element.object);
     if (!o) return {};
     const mesh::MeshPtr m = mesh::objectMesh(*o);
-    if (element.kind == ElementKind::Face) {
+    if (element.kind == Face) {
         if (!m->face(mesh::FaceId{element.id})) return {};
         return {element};
     }
-    if (element.kind != ElementKind::Edge) return {};
+    if (element.kind != Edge) return {};
     std::vector<ElementRef> out;
     for (const mesh::EdgeId e : mesh::pathThrough(*m, mesh::EdgeId{element.id})) {
-        out.push_back(ElementRef{element.object, ElementKind::Edge, e.value});
+        out.emplace_back(ElementRef{element.object, Edge, e.value});
     }
     return out;
 }

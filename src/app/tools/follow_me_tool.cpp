@@ -31,7 +31,7 @@ std::vector<ElementRef> FollowMeTool::selectedPath() const {
     return path;
 }
 
-void FollowMeTool::preview(const ElementRef& profile, const std::vector<ElementRef>& path) {
+void FollowMeTool::preview(const ElementRef& profile, const std::vector<ElementRef>& path) const {
     FollowMePreview p{profile, path, std::nullopt, std::nullopt};
     if (!path.empty()) {
         auto swept = followMe(editor().document(), profile, path);
@@ -46,7 +46,7 @@ void FollowMeTool::preview(const ElementRef& profile, const std::vector<ElementR
 
 bool FollowMeTool::sweep(const ElementRef& profile, const std::vector<ElementRef>& path) {
     const bool ok = editor().commit(
-        "Follow Me", [&](const Document& d) { return followMe(d, profile, path); },
+        "Follow Me", [&profile, &path](const Document& d) { return followMe(d, profile, path); },
         [](const OpResult& r) -> std::optional<Selection> {
             if (!r.objectId) return std::nullopt;
             return Selection{*r.objectId, std::nullopt};
@@ -61,8 +61,7 @@ void FollowMeTool::pointerMove(const PointerInput& input) {
     if (!profile_) {
         const auto face = faceUnder(doc, input);
         editor().setHoverElement(face);
-        const auto path = face ? without(selectedPath(), *face) : std::vector<ElementRef>{};
-        if (face && !path.empty()) {
+        if (const auto path = face ? without(selectedPath(), *face) : std::vector<ElementRef>{}; face && !path.empty()) {
             preview(*face, path);
         } else {
             editor().cancelPreview();

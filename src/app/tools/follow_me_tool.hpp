@@ -33,7 +33,7 @@ public:
 
 private:
     /// Shows the sweep of `profile` along `path` (or why it cannot be made).
-    void preview(const ElementRef& profile, const std::vector<ElementRef>& path);
+    void preview(const ElementRef& profile, const std::vector<ElementRef>& path) const;
     bool sweep(const ElementRef& profile, const std::vector<ElementRef>& path);
 
     std::optional<ElementRef> profile_;
