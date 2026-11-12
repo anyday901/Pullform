@@ -535,7 +535,9 @@ The edge/face mesh exists in the core. Push/pull works on any planar face
 one neighbouring face that contains the push direction or gets a new side face, the face
 lands on coplanar faces to cut an opening or fill a hole, and collinear edges left at the
 old outline are joined. It does not intersect the moved face with geometry it passes
-(that is refused) or with faces it lands on only partly. There are no booleans, and no
-healing of collinear edges left after an erase. Arcs are drawn by the Arc tools; a curve record gives
+(that is refused) or with faces it lands on only partly. There is no
+healing of collinear edges left after an erase. Solid booleans (Tools > Solid Tools) work on whole closed
+objects and give the result fresh element ids without curve records (docs/GEOMETRY.md,
+"Solid booleans"). Arcs are drawn by the Arc tools; a curve record gives
 centre snapping but is not yet used for selecting a whole curve. Dimension anchors still name corners by index
 (vertex id - 1) rather than by vertex id. See docs/GEOMETRY.md and the roadmap.

@@ -4,6 +4,7 @@
 #include "app/tools/tool.hpp"
 #include "app/tools/tool_support.hpp"
 #include "core/commands/editor.hpp"
+#include "core/commands/solid_tools.hpp"
 #include "core/geometry/pick.hpp"
 #include "core/geometry/snap.hpp"
 
@@ -130,6 +131,10 @@ public:
 
     /// Deletes every construction guide (Edit > Delete Guides): one undo entry.
     std::optional<std::string> deleteGuides();
+    /// Runs a solid tool (Union, Subtract, ...) on the selected objects, in
+    /// the order they were selected, and selects the result. Returns the
+    /// error to show when it cannot (wrong count, not solids, no overlap).
+    std::optional<std::string> applySolidTool(SolidTool tool);
 
     /// Intersect Faces (Edit > Intersect Faces): adds edges where the selected
     /// faces, or every face of the selected objects, cross the faces `mode`
