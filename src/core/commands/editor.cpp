@@ -71,7 +71,7 @@ bool Editor::commit(const std::string& label, const Operation& op, const SelectA
     return true;
 }
 
-bool Editor::amendLast(const std::string& label, const Operation& op, const SelectAfter& selectAfter) {
+bool Editor::amendLast(std::string_view label, const Operation& op, const SelectAfter& selectAfter) {
     if (undo_.empty()) return false;
     Snapshot& base = undo_.back();
     auto result = op(base.document);
@@ -85,7 +85,7 @@ bool Editor::amendLast(const std::string& label, const Operation& op, const Sele
     }
     const SelectionSet nextSelection =
         selectAfter ? sanitizeSelection(result->document, selectAfter(*result)) : sanitizeSelection(result->document, base.selection);
-    base.label = label;
+    base.label = std::string(label);
     redo_.clear();
     document_ = std::move(result).value().document;
     selection_ = nextSelection;

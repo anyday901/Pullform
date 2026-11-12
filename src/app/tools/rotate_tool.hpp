@@ -75,6 +75,8 @@ private:
     bool commit(const std::vector<ObjectId>& ids, const Vec3& pivot, const Vec3& axis, double angle);
     /// Redoes the last copy as `array` copies of `angle`, replacing its undo entry.
     std::optional<std::string> editCopy(double angle, ArrayCount array);
+    /// "6x" or "/6": edits the last copy into a radial array.
+    std::optional<std::string> submitArray(const Expected<ArrayCount>& array);
 
     std::optional<Gesture> gesture_;
     MoveAxis axis_ = MoveAxis::Z; ///< world axis Rotate turns about

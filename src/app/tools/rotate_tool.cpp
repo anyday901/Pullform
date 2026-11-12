@@ -7,6 +7,7 @@
 #include <glm/geometric.hpp>
 
 #include <algorithm>
+#include <format>
 #include <cmath>
 
 namespace pf {
@@ -172,15 +173,15 @@ std::optional<std::string> RotateTool::editCopy(double angle, ArrayCount array) 
     const double step = array.divide ? angle / static_cast<double>(array.count) : angle;
     if (std::abs(step) < 1e-12) return std::string("Angle must not be zero.");
     const std::vector<ObjectId> ids = last.copy.originals;
-    std::string label = array.count == 1 ? "Rotate copy " + formatAngle(step)
-                                         : "Radial array " + std::to_string(array.count) + " copies " + formatAngle(step) + " apart";
+    std::string label = array.count == 1 ? std::format("Rotate copy {}", formatAngle(step))
+                                         : std::format("Radial array {} copies {} apart", array.count, formatAngle(step));
     label += groupSuffix(ids.size());
     const LastCopy& copy = last.copy;
-    const int count = array.count;
-    const Vec3 pivot = last.pivot;
-    const Vec3 axis = last.axis;
     if (!editor().amendLast(
-            label, [&ids, &pivot, &axis, step, count](const Document& doc) { return radialArrayObjects(doc, ids, pivot, axis, step, count); },
+            label,
+            [&ids, pivot = last.pivot, axis = last.axis, step, count = array.count](const Document& doc) {
+                return radialArrayObjects(doc, ids, pivot, axis, step, count);
+            },
             [&copy](const OpResult& r) { return copy.lastSet(r); })) {
         return ctx_.lastError("Could not make the copies.");
     }
@@ -190,15 +191,16 @@ std::optional<std::string> RotateTool::editCopy(double angle, ArrayCount array) 
     return std::nullopt;
 }
 
+std::optional<std::string> RotateTool::submitArray(const Expected<ArrayCount>& array) {
+    if (!array) return array.error();
+    if (gesture_) return std::string("Finish the copy first, then type 6x or /6.");
+    if (!arrayEditable()) return noCopyToArray("Rotate");
+    return editCopy(lastCopy_->angle, *array);
+}
+
 std::optional<std::string> RotateTool::submitAngle(std::string_view text) {
-    const bool editable = !gesture_ && arrayEditable();
-    if (const auto array = parseArrayCount(text)) {
-        if (!*array) return array->error();
-        if (gesture_) return std::string("Finish the copy first, then type 6x or /6.");
-        if (!editable) return noCopyToArray("Rotate");
-        return editCopy(lastCopy_->angle, **array);
-    }
-    if (editable) {
+    if (const auto array = parseArrayCount(text)) return submitArray(*array);
+    if (!gesture_ && arrayEditable()) {
         // A new angle re-spaces the copies, keeping the array. It turns the
         // same way as the copy did.
         const auto parsed = parseAngle(text);

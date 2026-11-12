@@ -8,6 +8,7 @@
 #include <glm/geometric.hpp>
 
 #include <algorithm>
+#include <format>
 
 namespace pf {
 
@@ -242,15 +243,13 @@ std::optional<std::string> MoveTool::editCopy(const Vec3& offset, ArrayCount arr
     const Vec3 step = array.divide ? offset / static_cast<double>(array.count) : offset;
     if (glm::length(step) < tol::kLengthEpsilon) return std::string("Distance must not be zero.");
     const LengthUnit unit = editor().document().displayUnit;
-    std::string label;
-    if (array.count == 1) label = "Copy " + formatLength(glm::length(step), unit);
-    else label = "Array " + std::to_string(array.count) + " copies " + formatLength(glm::length(step), unit) + " apart";
-    if (const auto axis = singleAxis(step)) label += std::string(" along ") + axisName(*axis);
+    const std::string spacing = formatLength(glm::length(step), unit);
+    std::string label = array.count == 1 ? std::format("Copy {}", spacing) : std::format("Array {} copies {} apart", array.count, spacing);
+    if (const auto axis = singleAxis(step)) label += std::format(" along {}", axisName(*axis));
     label += groupSuffix(ids.size());
     const LastCopy& copy = last.copy;
-    const int count = array.count;
     if (!editor().amendLast(
-            label, [&ids, &step, count](const Document& doc) { return arrayObjects(doc, ids, step, count); },
+            label, [&ids, &step, count = array.count](const Document& doc) { return arrayObjects(doc, ids, step, count); },
             [&copy](const OpResult& r) { return copy.lastSet(r); })) {
         return ctx_.lastError("Could not make the copies.");
     }
@@ -261,31 +260,42 @@ std::optional<std::string> MoveTool::editCopy(const Vec3& offset, ArrayCount arr
     return std::nullopt;
 }
 
-std::optional<std::string> MoveTool::submitDistance(std::string_view text) {
+Expected<Vec3> MoveTool::typedOffset(std::string_view text, const std::optional<Vec3>& direction) const {
     const LengthUnit unit = editor().document().displayUnit;
-    const bool editable = !gesture_ && arrayEditable();
-    if (const auto array = parseArrayCount(text)) {
-        if (!*array) return array->error();
-        if (gesture_) return std::string("Finish the copy first, then type 5x or /5.");
-        if (!editable) return noCopyToArray("Move");
-        return editCopy(lastCopy_->offset, **array);
+    Vec3 offset{0.0};
+    if (text.find_first_of(",;") != std::string_view::npos) {
+        const auto list = parseLengthList(text, 3, unit);
+        if (!list) return Error{"Enter one distance, or x, y, z separated by commas (for example 500, 0, 0)."};
+        offset = Vec3{(*list)[0], (*list)[1], (*list)[2]};
+    } else {
+        const auto d = parseLength(text, unit);
+        if (!d) return Error{d.error()};
+        if (!direction) {
+            return Error{"Lock an axis first (X, Y or Z, or the arrow keys), move the pointer to set a direction, "
+                         "or type x, y, z."};
+        }
+        offset = *direction * *d;
     }
-    if (editable) {
+    if (glm::length(offset) < tol::kLengthEpsilon) return Error{"Distance must not be zero."};
+    return offset;
+}
+
+std::optional<std::string> MoveTool::submitArray(const Expected<ArrayCount>& array) {
+    if (!array) return array.error();
+    if (gesture_) return std::string("Finish the copy first, then type 5x or /5.");
+    if (!arrayEditable()) return noCopyToArray("Move");
+    return editCopy(lastCopy_->offset, *array);
+}
+
+std::optional<std::string> MoveTool::submitDistance(std::string_view text) {
+    if (const auto array = parseArrayCount(text)) return submitArray(*array);
+    if (!gesture_ && arrayEditable()) {
         // A new distance re-spaces the copies, keeping the array: along the
         // locked axis, else along the copy's direction; or a new vector.
-        Vec3 offset{0.0};
-        if (text.find_first_of(",;") != std::string_view::npos) {
-            const auto list = parseLengthList(text, 3, unit);
-            if (!list) return "Enter one distance, or x, y, z separated by commas (for example 500, 0, 0).";
-            offset = Vec3{(*list)[0], (*list)[1], (*list)[2]};
-        } else {
-            const auto d = parseLength(text, unit);
-            if (!d) return d.error();
-            const Vec3 direction = axisLock_ ? axisVector(*axisLock_) : glm::normalize(lastCopy_->offset);
-            offset = direction * *d;
-        }
-        if (glm::length(offset) < tol::kLengthEpsilon) return std::string("Distance must not be zero.");
-        return editCopy(offset, lastCopy_->copy.array);
+        const Vec3 direction = axisLock_ ? axisVector(*axisLock_) : glm::normalize(lastCopy_->offset);
+        const auto offset = typedOffset(text, direction);
+        if (!offset) return offset.error();
+        return editCopy(*offset, lastCopy_->copy.array);
     }
     ObjectId id;
     std::vector<ObjectId> ids;
@@ -299,28 +309,16 @@ std::optional<std::string> MoveTool::submitDistance(std::string_view text) {
         id = o->id;
         ids = transformGroup(editor(), id);
     }
-    Vec3 offset{0.0};
-    if (text.find_first_of(",;") != std::string_view::npos) {
-        const auto list = parseLengthList(text, 3, unit);
-        if (!list) return "Enter one distance, or x, y, z separated by commas (for example 500, 0, 0).";
-        offset = Vec3{(*list)[0], (*list)[1], (*list)[2]};
-    } else {
-        const auto d = parseLength(text, unit);
-        if (!d) return d.error();
-        Vec3 direction{0.0};
-        if (axisLock_) {
-            direction = axisVector(*axisLock_);
-        } else if (const auto* p = std::get_if<MovePreview>(&editor().preview()); gesture_ && p && glm::length(p->offset) > 0.0) {
-            direction = glm::normalize(p->offset);
-        } else {
-            return std::string("Lock an axis first (X, Y or Z, or the arrow keys), move the pointer to set a direction, "
-                               "or type x, y, z.");
-        }
-        offset = direction * *d;
+    std::optional<Vec3> direction;
+    if (axisLock_) {
+        direction = axisVector(*axisLock_);
+    } else if (const auto* p = std::get_if<MovePreview>(&editor().preview()); gesture_ && p && glm::length(p->offset) > 0.0) {
+        direction = glm::normalize(p->offset);
     }
-    if (glm::length(offset) < tol::kLengthEpsilon) return std::string("Distance must not be zero.");
-    if (auto e = checkGroup(ids, offset)) return e;
-    if (!commit(ids, id, offset)) return ctx_.lastError("Move failed.");
+    const auto offset = typedOffset(text, direction);
+    if (!offset) return offset.error();
+    if (auto e = checkGroup(ids, *offset)) return e;
+    if (!commit(ids, id, *offset)) return ctx_.lastError("Move failed.");
     return std::nullopt;
 }
 

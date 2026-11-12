@@ -12,6 +12,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <variant>
 #include <vector>
 
@@ -253,7 +254,7 @@ public:
     /// `label` (still one undo entry; redo is cleared). Used to edit a copy into
     /// an array until the next action. On failure nothing changes. Returns
     /// false when there is no entry to amend.
-    bool amendLast(const std::string& label, const Operation& op, const SelectAfter& selectAfter = {});
+    bool amendLast(std::string_view label, const Operation& op, const SelectAfter& selectAfter = {});
 
     bool undo();
     bool redo();

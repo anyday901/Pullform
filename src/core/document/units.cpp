@@ -2,6 +2,7 @@
 
 #include <cctype>
 #include <cmath>
+#include <format>
 #include <locale>
 #include <numbers>
 #include <sstream>
@@ -250,14 +251,13 @@ std::optional<Expected<ArrayCount>> parseArrayCount(std::string_view input) {
     }
     s = trim(s);
     const auto v = plainNumber(s);
-    if (!v) {
+    if (!v.has_value()) {
         // "x" on its own, or letters after it ("xyz"): not array syntax.
         if (s.empty() || !isDigit(s.front())) return std::nullopt;
         return Expected<ArrayCount>{Error{"\"" + std::string(trim(input)) + "\" is not a recognized number of copies."}};
     }
     if (*v != std::floor(*v) || *v < 1.0 || *v > kMaxArrayCount) {
-        return Expected<ArrayCount>{Error{"The number of copies must be a whole number from 1 to " + std::to_string(kMaxArrayCount) +
-                                          "."}};
+        return Expected<ArrayCount>{Error{std::format("The number of copies must be a whole number from 1 to {}.", kMaxArrayCount)}};
     }
     result.count = static_cast<int>(*v);
     return Expected<ArrayCount>{result};

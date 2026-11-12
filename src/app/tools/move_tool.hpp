@@ -88,6 +88,11 @@ private:
     bool commit(const std::vector<ObjectId>& ids, ObjectId primary, const Vec3& offset);
     /// Redoes the last copy as `array` copies of `offset`, replacing its undo entry.
     std::optional<std::string> editCopy(const Vec3& offset, ArrayCount array);
+    /// "5x" or "/5": edits the last copy into an array.
+    std::optional<std::string> submitArray(const Expected<ArrayCount>& array);
+    /// A typed "x, y, z", or a length along `direction` (an error without one).
+    /// Never zero.
+    [[nodiscard]] Expected<Vec3> typedOffset(std::string_view text, const std::optional<Vec3>& direction) const;
 
     std::optional<Gesture> gesture_;
     std::optional<MoveAxis> axisLock_;

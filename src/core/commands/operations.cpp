@@ -682,7 +682,7 @@ template <class Place>
 Expected<OpResult> arrayOf(const Document& doc, const std::vector<ObjectId>& ids, int count, Place place) {
     if (auto e = checkIds(doc, ids)) return Error{*e};
     if (count < 1 || count > kMaxArrayCount) {
-        return Error{"The number of copies must be from 1 to " + std::to_string(kMaxArrayCount) + "."};
+        return Error{std::format("The number of copies must be from 1 to {}.", kMaxArrayCount)};
     }
     OpResult result{doc, std::nullopt, {}};
     for (int i = 1; i <= count; ++i) {
@@ -707,7 +707,7 @@ Expected<OpResult> arrayObjects(const Document& doc, const std::vector<ObjectId>
 
 Expected<OpResult> radialArrayObjects(const Document& doc, const std::vector<ObjectId>& ids, const Vec3& pivot, const Vec3& axis,
                                       double stepRadians, int count) {
-    return arrayOf(doc, ids, count, [&](const Document& d, ObjectId id, int i) -> Expected<OpResult> {
+    return arrayOf(doc, ids, count, [&pivot, &axis, stepRadians](const Document& d, ObjectId id, int i) -> Expected<OpResult> {
         auto copy = duplicateObject(d, id, Vec3{0.0});
         if (!copy) return copy;
         const ObjectId copyId = *copy->objectId;
