@@ -408,6 +408,14 @@ resolved pick, screen position), so tests drive it with synthetic events and no 
   result is a guide line through the centre (`ProtractorPreview`, `protractorDirection`).
 - The viewport draws guide lines as dashes of constant screen size out to a far
   distance, and guide points as small three-axis crosses, depth-tested like edges.
+- Intersect Faces (Edit menu, `ToolController::intersectSelection`): `selectedFaces`
+  turns the selection into face references (selected faces, or every face of an object
+  selected whole), and `intersectFaces` pairs each with the faces of the mode (the
+  model, the selection, or the face's own object), finds the crossing segments in world
+  space (`mesh::faceIntersection`: the planes' meeting line clipped to both faces, holes
+  included, minus parts on both boundaries), and adds each segment with `Mesh::addEdge`
+  to every mesh it was found on, so faces split as for a drawn edge. One commit; the
+  touched objects stay selected whole, since split faces get new ids.
 - Eraser (`app/tools/eraser_tool.*`): a press starts a stroke, and every edge the
   pointer passes over until release (`edgeUnder`: the picked edge, or for a picked vertex
   its edge nearest the pointer ray; plus `edgesCrossed`: visible edges whose screen image

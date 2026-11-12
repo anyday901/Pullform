@@ -651,11 +651,20 @@ void Mesh::faceEdge(EdgeId id, AddEdgeResult& result) {
 
     // Case 1: the edge runs across an existing face, so it may split it or close
     // an island inside it.
-    for (const auto& [fidValue, fRef] : faces_) {
-        const Face f = fRef;
+    // Usually one face holds the edge; in a mesh whose faces cross (before
+    // Intersect Faces cuts them) an edge on the crossing line lies in two, and
+    // each is split on its own.
+    std::vector<std::uint32_t> under;
+    for (const auto& [fidValue, f] : faces_) {
+        using enum Where;
+        if (classify(*this, f, mid) != Inside) continue;
+        if (classify(*this, f, pa) == Outside || classify(*this, f, pb) == Outside) continue;
+        under.push_back(fidValue);
+    }
+    for (const std::uint32_t fidValue : under) {
+        if (!faces_.contains(fidValue)) continue;
+        const Face f = faces_.at(fidValue);
         const FaceId fid{fidValue};
-        if (classify(*this, f, mid) != Where::Inside) continue;
-        if (classify(*this, f, pa) == Where::Outside || classify(*this, f, pb) == Where::Outside) continue;
 
         std::vector<EdgeId> allowed;
         for (const auto& [eid, other] : edges_) {
@@ -666,7 +675,7 @@ void Mesh::faceEdge(EdgeId id, AddEdgeResult& result) {
             allowed.push_back(EdgeId{eid});
         }
         allowed = pruneDangling(*this, allowed);
-        if (std::ranges::find(allowed, id) == allowed.end()) return; // dangling: no new face
+        if (std::ranges::find(allowed, id) == allowed.end()) continue; // dangling: no new face
 
         const Vec3 origin = loopPositions(f.loops[0]).front();
         std::vector<Loop> cycles;
@@ -680,8 +689,12 @@ void Mesh::faceEdge(EdgeId id, AddEdgeResult& result) {
             // Split: two faces replace f; each hole goes to the face containing it.
             Face f1{{cycles[0]}, f.normal};
             Face f2{{cycles[1]}, f.normal};
+            bool holeTouches = false;
+            for (std::size_t h = 1; h < f.loops.size() && !holeTouches; ++h) {
+                holeTouches = loopTouches(*this, f.loops[h], cycles[0]) || loopTouches(*this, f.loops[h], cycles[1]);
+            }
+            if (holeTouches) continue;
             for (std::size_t h = 1; h < f.loops.size(); ++h) {
-                if (loopTouches(*this, f.loops[h], cycles[0]) || loopTouches(*this, f.loops[h], cycles[1])) return;
                 const Loop outer = reversedLoop(f.loops[h]);
                 (loopInside(*this, outer, cycles[0], f.normal) ? f1 : f2).loops.push_back(f.loops[h]);
             }
@@ -693,14 +706,12 @@ void Mesh::faceEdge(EdgeId id, AddEdgeResult& result) {
             result.removedFaces.push_back(fid);
             result.createdFaces.push_back(id1);
             result.createdFaces.push_back(id2);
-            return;
+            continue;
         }
         if (cycles.size() == 1) {
             // An island: a closed loop inside f that does not touch its boundary.
             const Loop& c = cycles[0];
-            for (const auto& loop : f.loops) {
-                if (loopTouches(*this, loop, c)) return;
-            }
+            if (std::ranges::any_of(f.loops, [&](const Loop& loop) { return loopTouches(*this, loop, c); })) continue;
             Face inner{{c}, f.normal};
             Face outer{{f.loops[0]}, f.normal};
             for (std::size_t h = 1; h < f.loops.size(); ++h) {
@@ -715,10 +726,9 @@ void Mesh::faceEdge(EdgeId id, AddEdgeResult& result) {
             const FaceId innerId{nextFace_};
             insertFace(innerId, inner);
             result.createdFaces.push_back(innerId);
-            return;
         }
-        return;
     }
+    if (!under.empty()) return;
 
     // Case 2: no face under the edge. Try every plane the edge spans with a
     // neighbouring edge and close the smallest loop on each side.

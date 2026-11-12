@@ -131,6 +131,11 @@ public:
     /// Deletes every construction guide (Edit > Delete Guides): one undo entry.
     std::optional<std::string> deleteGuides();
 
+    /// Intersect Faces (Edit > Intersect Faces): adds edges where the selected
+    /// faces, or every face of the selected objects, cross the faces `mode`
+    /// names (see pf::intersectFaces). One undo entry; the objects stay selected.
+    std::optional<std::string> intersectSelection(IntersectMode mode);
+
     /// Typed value for the tape measure or dimension tool (the dimension line offset).
     std::optional<std::string> submitMeasure(std::string_view text);
 

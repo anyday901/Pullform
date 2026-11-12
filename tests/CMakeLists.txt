@@ -20,6 +20,7 @@ add_executable(pullform_tests
   element_tests.cpp
   tool_interface_tests.cpp
   eraser_tests.cpp
+  intersect_tests.cpp
   drawing_plane_tests.cpp
   mesh_tests.cpp
   format_v3_tests.cpp

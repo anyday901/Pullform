@@ -338,6 +338,12 @@ void Ui::menuBar(UiContext& ctx) {
         }
         if (ImGui::MenuItem("Clear selection", "Esc", false, ctx.editor.selection().has_value())) ctx.editor.select(std::nullopt);
         ImGui::Separator();
+        if (ImGui::BeginMenu("Intersect Faces", ctx.editor.selection().has_value())) {
+            if (ImGui::MenuItem("With Model")) action(UiAction::IntersectModel);
+            if (ImGui::MenuItem("With Selection")) action(UiAction::IntersectSelection);
+            if (ImGui::MenuItem("With Context")) action(UiAction::IntersectContext);
+            ImGui::EndMenu();
+        }
         if (ImGui::MenuItem("Delete Guides", nullptr, false, !ctx.editor.document().guides.empty())) action(UiAction::DeleteGuides);
         ImGui::EndMenu();
     }
