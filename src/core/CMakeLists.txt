@@ -13,6 +13,7 @@ add_library(pullform_core STATIC
   geometry/solid.cpp
   geometry/mesh.cpp
   geometry/intersect.cpp
+  geometry/offset.cpp
   geometry/pick.cpp
   geometry/topology.cpp
   geometry/element_pick.cpp

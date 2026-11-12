@@ -161,12 +161,36 @@ Expected<OpResult> setEdgesSoft(const Document& doc, const std::vector<ElementRe
 /// the pie closes into a face. Target selection is as for drawEdge.
 Expected<OpResult> drawArc(const Document& doc, std::optional<ObjectId> target, const ArcGeometry& arc, int segments,
                            bool pie = false);
-/// Pushes or pulls face `face` of a mesh group by `distance` along its normal
-/// (see mesh::Mesh::pushPull): a free face becomes a closed solid, and the end
-/// face of a prism moves with its walls stretching. Same object, same id.
-/// `pushed`, when given, receives the face where it ended up (the new cap of an extrusion).
+/// Draws a rectangle into group `target` (the object whose face it was drawn
+/// on) as edges, like the same lines drawn with the Line tool: inside a face it
+/// makes a hole plus an inner face, which push/pull turns into a recess or an
+/// opening. A rectangle or box is converted to a mesh group first. `face`, when
+/// given, receives the face the rectangle closed (0 if none). A rectangle not
+/// lying on a single face of `target` (hanging over its edge) is added as a
+/// rectangle of its own instead, as createRectangle does.
+Expected<OpResult> drawRectangleOn(const Document& doc, ObjectId target, const RectanglePlacement& placement,
+                                   mesh::FaceId* face = nullptr);
+/// The same for a circle or regular polygon (`kind`), which keeps its curve record.
+Expected<OpResult> drawCircleOn(const Document& doc, ObjectId target, const CirclePlacement& placement, ProfileKind kind,
+                                mesh::FaceId* face = nullptr);
+
+/// Pushes or pulls face `face` of a group by `distance` along its normal (see
+/// mesh::Mesh::pushPull): a free face becomes a closed solid, a wall's face
+/// stretches its neighbours, a face drawn on a wall makes a recess or a boss,
+/// and one pushed through to the far side cuts an opening. A rectangle or box
+/// is converted to a mesh group first (faces numbered as mesh::faceIdFor).
+/// With `newFace` (Ctrl), no neighbour stretches and a new starting face is
+/// made. Same object, same id. `pushed`, when given, receives the face where
+/// it ended up (0 when it cut an opening).
 Expected<OpResult> pushPullFace(const Document& doc, ObjectId id, mesh::FaceId face, double distance,
-                                mesh::FaceId* pushed = nullptr);
+                                mesh::FaceId* pushed = nullptr, bool newFace = false);
+/// Offsets face `face` of a group by `distance` in its own plane (see
+/// mesh::offsetFace): positive goes into the face, which becomes a ring around
+/// a new inner face; negative goes out and adds a ring around it. A rectangle
+/// or box is converted to a mesh group first (same face ids). `ring`, when
+/// given, receives the ring face between the face's outer loop and its offset.
+Expected<OpResult> offsetFace(const Document& doc, ObjectId id, mesh::FaceId face, double distance,
+                              mesh::FaceId* ring = nullptr);
 
 
 /// What Intersect Faces cuts the chosen faces against.

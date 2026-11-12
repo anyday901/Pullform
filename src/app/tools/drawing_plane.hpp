@@ -40,6 +40,7 @@ public:
     struct Hit {
         Vec3 point{0.0};
         PlaneBasis plane;
+        std::optional<ObjectId> object; ///< the object whose face gives the plane (not a lock or the ground)
     };
 
     /// Arrow keys (see above). Returns whether the key was used.
@@ -49,8 +50,9 @@ public:
     /// the snap marker. Nothing when the pointer reaches no plane.
     std::optional<Hit> hover(ToolContext& ctx, const PointerInput& input);
 
-    /// Starts a gesture on `plane` at `anchor` (on the plane).
-    void begin(const PlaneBasis& plane, const Vec3& anchor);
+    /// Starts a gesture on `plane` at `anchor` (on the plane). `object` is the
+    /// object whose face the plane came from, if any (Hit::object).
+    void begin(const PlaneBasis& plane, const Vec3& anchor, std::optional<ObjectId> object = std::nullopt);
     /// While drawing: the snapped pointer point on the gesture's plane; shows
     /// the snap marker. `skip` is a point not to infer from.
     std::optional<Vec3> point(ToolContext& ctx, const PointerInput& input, const std::optional<Vec3>& skip = std::nullopt);
@@ -60,6 +62,10 @@ public:
     [[nodiscard]] bool drawing() const { return plane_.has_value(); }
     /// The gesture's plane (empty before begin()).
     [[nodiscard]] const std::optional<PlaneBasis>& plane() const { return plane_; }
+    /// The object whose face the gesture draws on, while the plane is still
+    /// that face's (an arrow key that turns the plane drops it): a shape drawn
+    /// there goes into that object's edges and faces.
+    [[nodiscard]] std::optional<ObjectId> target() const { return plane_ && plane_ == original_ ? target_ : std::nullopt; }
     /// The axis whose plane is locked by an arrow key, if any.
     [[nodiscard]] const std::optional<MoveAxis>& axisLock() const { return axis_; }
     /// Whether Down locked the hovered plane.
@@ -74,9 +80,12 @@ private:
     std::optional<MoveAxis> axis_;
     std::optional<PlaneBasis> faceLock_;
     std::optional<PlaneBasis> lastHovered_;
+    std::optional<ObjectId> lastHoveredObject_; ///< whose face lastHovered_ is, if any
+    std::optional<ObjectId> faceLockObject_;    ///< whose face faceLock_ is, if any
     std::optional<PlaneBasis> plane_;    ///< the gesture's plane
     std::optional<PlaneBasis> original_; ///< the plane begin() was given, for releasing a lock mid-gesture
     Vec3 anchor_{0.0};
+    std::optional<ObjectId> target_;
     Vec3 lastView_{0.0, 0.0, -1.0};
 };
 

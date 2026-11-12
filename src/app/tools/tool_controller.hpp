@@ -117,6 +117,12 @@ public:
     /// selection, so repeating it builds a row. One undo entry.
     std::optional<std::string> duplicateSelection();
 
+    /// Push/pull new starting face mode (tap Ctrl, or Option on macOS, with
+    /// Push/Pull): no wall stretches and the old outline stays as edges. It
+    /// lasts until it is tapped again or the tool changes.
+    void togglePushNewFace();
+    [[nodiscard]] bool pushNewFace() const;
+
     /// Tape measure guide creation (tap Ctrl, or Option on macOS, with the
     /// tape measure). On by default; it persists across tool changes.
     void toggleTapeGuides();
