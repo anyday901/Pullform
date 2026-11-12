@@ -136,6 +136,18 @@ ElementTopology buildTopology(const std::vector<FacePolygon>& polygons, double t
     return topo;
 }
 
+namespace {
+
+/// A vertex only hidden edges meet (the ends of a hidden loose line) is hidden
+/// with them, unless hidden geometry is shown.
+void hideLoneVertices(ElementTopology& topo, const mesh::Mesh& m, bool showHidden) {
+    if (showHidden) return;
+    const auto hiddenEdge = [&topo, &m](std::uint32_t e) { return m.edge(mesh::EdgeId{topo.edges[e].id})->hidden; };
+    for (auto& v : topo.vertices) v.hidden = !v.edges.empty() && std::ranges::all_of(v.edges, hiddenEdge);
+}
+
+} // namespace
+
 ElementTopology buildTopology(const mesh::Mesh& m, const ProfileObject& object, bool showHidden) {
     ElementTopology topo;
     const Mat3 rotation = rotationMatrix(object.transform);
@@ -156,14 +168,7 @@ ElementTopology buildTopology(const mesh::Mesh& m, const ProfileObject& object, 
         topo.vertices[a->second].edges.push_back(index);
         topo.vertices[b->second].edges.push_back(index);
     }
-    if (!showHidden) {
-        // A vertex only hidden edges meet (the ends of a hidden loose line) is hidden with them.
-        for (auto& v : topo.vertices) {
-            v.hidden = !v.edges.empty() && std::ranges::all_of(v.edges, [&](std::uint32_t e) {
-                return m.edge(mesh::EdgeId{topo.edges[e].id})->hidden;
-            });
-        }
-    }
+    hideLoneVertices(topo, m, showHidden);
     const auto loopIndices = [&](const mesh::Loop& loop) {
         std::vector<std::uint32_t> out;
         for (const auto v : m.loopVertices(loop)) {

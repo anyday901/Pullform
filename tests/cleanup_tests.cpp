@@ -61,7 +61,9 @@ bool outwardShell(const mesh::Mesh& m) {
     double volume = 0.0;
     for (const auto& [id, f] : m.faces()) {
         for (const auto& t : mesh::triangulateFace(m, mesh::FaceId{id})) {
-            const Vec3 a = m.vertex(t[0])->position, b = m.vertex(t[1])->position, c = m.vertex(t[2])->position;
+            const Vec3 a = m.vertex(t[0])->position;
+            const Vec3 b = m.vertex(t[1])->position;
+            const Vec3 c = m.vertex(t[2])->position;
             volume += glm::dot(a, glm::cross(b, c)) / 6.0;
         }
     }

@@ -541,7 +541,9 @@ void migrateV2ToV3(json& file) {
 /// Version 3 -> 4: edges and faces can be hidden (edge flag 4, face "hidden").
 /// Nothing in a version 3 file is hidden, and its soft and smooth flags keep
 /// their meaning, so the file needs no change.
-void migrateV3ToV4(json& /*file*/) {}
+void migrateV3ToV4(json& /*file*/) {
+    // Nothing to rewrite: see above.
+}
 
 void migrateProject(json& file, int fromVersion) {
     switch (fromVersion) {
