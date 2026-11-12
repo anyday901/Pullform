@@ -605,22 +605,104 @@ Expected<OpResult> setEdgesSoft(const Document& doc, const std::vector<ElementRe
     return result;
 }
 
-Expected<OpResult> pushPullFace(const Document& doc, ObjectId id, mesh::FaceId face, double distance, mesh::FaceId* pushed) {
+Expected<OpResult> pushPullFace(const Document& doc, ObjectId id, mesh::FaceId face, double distance, mesh::FaceId* pushed,
+                                bool newFace) {
     const auto* o = doc.find(id);
     if (!o) return Error{"Object " + idString(id) + " no longer exists."};
-    if (!o->isMeshGroup()) return Error{"Only drawn faces are pushed this way; use the height for a rectangle or box."};
     if (!std::isfinite(distance) || std::abs(distance) < tol::kMinDimension) return Error{"Distance must be at least 0.1 mm."};
-    ProfileObject changed = *o;
+    // A rectangle or box becomes a mesh group (same face ids as meshFromProfile).
+    ProfileObject changed = asMeshGroup(*o);
     mesh::Mesh m = *changed.mesh;
     if (!m.face(face)) return Error{"That face no longer exists."};
-    const auto result = m.pushPull(face, distance);
-    if (!result) {
-        return Error{"Push/pull works on a face standing on its own, or on the end of a prism that keeps a positive "
-                     "length. Other faces are not supported yet."};
-    }
+    std::string why;
+    const auto result = m.pushPull(face, distance, newFace, &why);
+    if (!result) return Error{why.empty() ? std::string("This face cannot be pushed or pulled.") : why};
     if (pushed) *pushed = result->face;
     changed.mesh = std::make_shared<const mesh::Mesh>(std::move(m));
+    // Dimensions on corners that disappeared (an opening cut through) go with them.
+    Document partial = doc;
+    const ProfileObject& probe = changed;
+    std::erase_if(partial.dimensions, [id, &probe](const Dimension& d) {
+        for (const auto* anchor : {&d.a, &d.b}) {
+            if (anchor->object != id) continue;
+            for (int v : anchor->vertices) {
+                if (!objectVertex(probe, v)) return true;
+            }
+        }
+        return false;
+    });
+    return replaceObject(partial, std::move(changed));
+}
+
+namespace {
+
+/// Draws a planar shape (a rectangle, circle or polygon object, not in the
+/// document) into group `target` as edges, so it sticks to the faces there.
+Expected<OpResult> insertShape(const Document& doc, ObjectId target, const ProfileObject& shape, mesh::FaceId* face) {
+    const auto* o = doc.find(target);
+    if (!o) return Error{"Object " + idString(target) + " no longer exists."};
+    ProfileObject changed = asMeshGroup(*o);
+    mesh::Mesh m = *changed.mesh;
+    const mesh::Mesh outline = mesh::meshFromProfile(shape);
+    std::vector<Vec3> pts;
+    for (const auto& [id, v] : outline.vertices()) pts.push_back(worldToLocal(changed, localToWorld(shape, v.position)));
+    // Only a shape that lies on one face sticks to it; one hanging over the
+    // edge stays a shape of its own.
+    const auto onFace = [&m, &pts](const auto& entry) {
+        return std::ranges::all_of(pts, [&m, &entry](const Vec3& p) { return mesh::faceContains(m, mesh::FaceId{entry.first}, p); });
+    };
+    if (std::ranges::none_of(m.faces(), onFace)) return Error{""}; // the callers add the shape on its own
+    if (const auto* c = outline.curve(mesh::CurveId{1})) {
+        // A circle or polygon keeps its true shape beside the segments.
+        const Mat3 toLocal = glm::transpose(rotationMatrix(changed.transform)) * rotationMatrix(shape.transform);
+        mesh::Curve curve = *c;
+        curve.center = worldToLocal(changed, localToWorld(shape, c->center));
+        curve.normal = glm::normalize(toLocal * c->normal);
+        curve.xAxis = glm::normalize(toLocal * c->xAxis);
+        curve.edges.clear();
+        std::vector<Vec3> closed = pts;
+        closed.push_back(pts.front());
+        if (!m.addCurve(curve, closed)) return Error{"The shape is too small to draw."};
+    } else {
+        for (std::size_t i = 0; i < pts.size(); ++i) m.addEdge(pts[i], pts[(i + 1) % pts.size()]);
+    }
+    if (face) {
+        // The face the outline closed: exactly its corners.
+        *face = mesh::FaceId{0};
+        for (const auto& [fid, f] : m.faces()) {
+            const auto loop = m.loopPositions(f.loops[0]);
+            const bool same = loop.size() == pts.size() && std::ranges::all_of(pts, [&loop](const Vec3& p) {
+                return std::ranges::any_of(loop, [&p](const Vec3& q) { return glm::length(p - q) <= tol::kWeldDistance; });
+            });
+            if (same) {
+                *face = mesh::FaceId{fid};
+                break;
+            }
+        }
+    }
+    changed.mesh = std::make_shared<const mesh::Mesh>(std::move(m));
     return replaceObject(doc, std::move(changed));
+}
+
+} // namespace
+
+Expected<OpResult> drawRectangleOn(const Document& doc, ObjectId target, const RectanglePlacement& placement, mesh::FaceId* face) {
+    auto made = createRectangle(doc, placement);
+    if (!made) return Error{made.error()};
+    if (face) *face = mesh::FaceId{0};
+    auto inserted = insertShape(doc, target, *made->document.find(*made->objectId), face);
+    if (!inserted && inserted.error().empty()) return made; // not on one face: a rectangle of its own
+    return inserted;
+}
+
+Expected<OpResult> drawCircleOn(const Document& doc, ObjectId target, const CirclePlacement& placement, ProfileKind kind,
+                                mesh::FaceId* face) {
+    auto made = createCircle(doc, placement, kind);
+    if (!made) return Error{made.error()};
+    if (face) *face = mesh::FaceId{0};
+    auto inserted = insertShape(doc, target, *made->document.find(*made->objectId), face);
+    if (!inserted && inserted.error().empty()) return made; // not on one face: a shape of its own
+    return inserted;
 }
 
 Expected<Vec3> selectionBaseCenter(const Document& doc, const std::vector<ObjectId>& ids) {

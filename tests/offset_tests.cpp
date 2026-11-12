@@ -365,9 +365,9 @@ TEST_CASE("offset tool: Accept: offset a wall's top face by 20 mm and push the r
 }
 
 // The second half of the Accept check: pushing the ring up. A ring shares its
-// edges with the wall below and with the inner face, so it needs push/pull of
-// any face (roadmap item 14). Remove the skip when that lands.
-TEST_CASE("offset tool: Accept: the ring pushes up into a coping" * doctest::skip()) {
+// edges with the wall below and with the inner face, so this needs push/pull
+// of any planar face.
+TEST_CASE("offset tool: Accept: the ring pushes up into a coping") {
     Editor editor;
     ToolController tools(editor);
     const ObjectId wall = makeWall(editor, tools);

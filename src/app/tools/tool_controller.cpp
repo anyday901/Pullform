@@ -143,6 +143,9 @@ std::optional<std::string> ToolController::submitMeasure(std::string_view text) 
     return tools_[static_cast<std::size_t>(lastMeasure_)]->submit(text);
 }
 
+void ToolController::togglePushNewFace() { pushPull_->toggleNewFace(); }
+bool ToolController::pushNewFace() const { return pushPull_->newFace(); }
+
 void ToolController::toggleTapeGuides() { tape_->toggleGuides(); }
 bool ToolController::tapeGuides() const { return tape_->guides(); }
 

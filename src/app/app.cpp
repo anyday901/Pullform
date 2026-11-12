@@ -637,8 +637,9 @@ void App::handleMoveCopyTap() {
     constexpr ImGuiKey left = ImGuiKey_LeftCtrl;
     constexpr ImGuiKey right = ImGuiKey_RightCtrl;
 #endif
-    // The same tap toggles the tape measure's guide creation.
-    if (tools_.tool() != Tool::Move && tools_.tool() != Tool::TapeMeasure) {
+    // The same tap toggles the tape measure's guide creation and push/pull's
+    // new starting face.
+    if (tools_.tool() != Tool::Move && tools_.tool() != Tool::TapeMeasure && tools_.tool() != Tool::PushPull) {
         copyTapArmed_ = false;
         return;
     }
@@ -655,6 +656,7 @@ void App::handleMoveCopyTap() {
     if (ImGui::IsKeyReleased(left) || ImGui::IsKeyReleased(right)) {
         copyTapArmed_ = false;
         if (tools_.tool() == Tool::Move) tools_.toggleMoveCopy();
+        else if (tools_.tool() == Tool::PushPull) tools_.togglePushNewFace();
         else tools_.toggleTapeGuides();
         onActivity();
     }
