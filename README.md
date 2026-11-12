@@ -129,6 +129,7 @@ tree, configure with `-DFETCHCONTENT_FULLY_DISCONNECTED=ON`.
 | Select: a face with its edges / everything connected | Double-click / triple-click |
 | Rectangle tool | R |
 | Push/Pull tool | P |
+| Offset tool (click a face, move in or out; double-click repeats) | F |
 | Move tool | M |
 | Lock Move to an axis (again to release) | X / Y / Z, or Right / Left / Up arrow |
 | Move: place a copy instead (again to stop) | Tap Ctrl (Option on macOS) |
@@ -139,7 +140,7 @@ tree, configure with `-DFETCHCONTENT_FULLY_DISCONNECTED=ON`.
 | Tape Measure: add guides on or off | Tap Ctrl (Option on macOS) |
 | Protractor: lock its plane (again to release) | Right / Left / Up arrow (square to X / Y / Z) |
 | Dimension tool | D |
-| Fit view to model | F |
+| Fit view to model | Shift+Z |
 | Toggle grid snap | G |
 | Type an exact value | Start typing digits, then Enter (goes to the Measurements box) |
 | Cancel the current operation, or clear the selection | Esc |
@@ -164,6 +165,9 @@ with an explanation.
 - Rectangle tool: `width, depth` (for example `2000, 1000`). With a first corner placed,
   the rectangle is drawn from it toward the pointer; otherwise from the origin.
 - Push/Pull tool: a distance *relative to the face's current position* (incremental).
+- Offset tool: how far the face's edges move in its plane. While offsetting, the value
+  goes the way the pointer shows (inward before it has moved) and a negative value turns it
+  round; with no offset in progress it applies to the selected face, positive inward.
 - Move tool: a distance along the locked axis (for example press X, type `500`, Enter), or
   along the pointer's direction while a move is in progress; or `x, y, z` to move by that
   vector (for example `500, 0, -250`). With no move in progress it applies to the selected

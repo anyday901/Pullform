@@ -123,6 +123,7 @@ bool DrawingPlane::key(ToolKey key) {
     } else if (lastHovered_) {
         axis_.reset();
         faceLock_ = lastHovered_;
+        faceLockObject_ = lastHoveredObject_;
     } else {
         return false;
     }
@@ -141,23 +142,32 @@ std::optional<DrawingPlane::Hit> DrawingPlane::hover(ToolContext& ctx, const Poi
         }
         const PlaneBasis plane = axisPlane(*axis_, s.point, input.ray.direction);
         lastHovered_ = plane;
+        lastHoveredObject_.reset();
         ctx.indicator = s;
-        return Hit{s.point, plane};
+        return Hit{s.point, plane, std::nullopt};
     }
     PlaneBasis plane = groundPlane();
-    if (faceLock_) plane = *faceLock_;
-    else if (auto picked = pickedPlane(ctx.editor.document(), input)) plane = *picked;
+    std::optional<ObjectId> object;
+    if (faceLock_) {
+        plane = *faceLock_;
+        object = faceLockObject_; // a shape drawn there still goes into that face
+    } else if (auto picked = pickedPlane(ctx.editor.document(), input)) {
+        plane = *picked;
+        object = input.pick->objectId;
+    }
     auto s = snapOnPlane(ctx, input, plane);
     ctx.indicator = s;
     if (!s) return std::nullopt;
     lastHovered_ = plane;
-    return Hit{s->point, plane};
+    lastHoveredObject_ = object;
+    return Hit{s->point, plane, object};
 }
 
-void DrawingPlane::begin(const PlaneBasis& plane, const Vec3& anchor) {
+void DrawingPlane::begin(const PlaneBasis& plane, const Vec3& anchor, std::optional<ObjectId> object) {
     plane_ = plane;
     original_ = plane;
     anchor_ = anchor;
+    target_ = object;
 }
 
 std::optional<Vec3> DrawingPlane::point(ToolContext& ctx, const PointerInput& input, const std::optional<Vec3>& skip) {
@@ -171,6 +181,7 @@ std::optional<Vec3> DrawingPlane::point(ToolContext& ctx, const PointerInput& in
 
 void DrawingPlane::end() {
     plane_.reset();
+    target_.reset();
     original_.reset();
     axis_.reset();
     faceLock_.reset();

@@ -253,6 +253,9 @@ std::string Ui::measurementLive(const UiContext& ctx) const {
         return (p->delta >= 0 ? "+" : "") + formatLength(p->delta, u);
     }
     if (const auto* f = std::get_if<FreehandPreview>(&ctx.editor.preview())) return freehandLive(*f, u);
+    if (const auto* o = std::get_if<OffsetPreview>(&ctx.editor.preview())) {
+        return formatLength(std::abs(o->distance), u) + (o->distance < 0.0 ? "   (outward)" : "   (inward)");
+    }
     if (const auto* p = std::get_if<PushPullPreview>(&ctx.editor.preview())) {
         return (p->delta >= 0 ? "+" : "") + formatLength(p->delta, u) + "   (total height " + formatLength(p->height, u) + ")";
     }
@@ -365,6 +368,7 @@ void Ui::menuBar(UiContext& ctx) {
             ImGui::EndMenu();
         }
         if (ImGui::MenuItem("Push/Pull", shortcuts::kPushPull, t == Tool::PushPull)) ctx.tools.setTool(Tool::PushPull);
+        if (ImGui::MenuItem("Offset", shortcuts::kOffset, t == Tool::Offset)) ctx.tools.setTool(Tool::Offset);
         if (ImGui::MenuItem("Follow Me", nullptr, t == Tool::FollowMe)) ctx.tools.setTool(Tool::FollowMe);
         if (ImGui::MenuItem("Move", shortcuts::kMove, t == Tool::Move)) ctx.tools.setTool(Tool::Move);
         if (ImGui::MenuItem("Rotate", shortcuts::kRotate, t == Tool::Rotate)) ctx.tools.setTool(Tool::Rotate);
@@ -416,6 +420,8 @@ void Ui::toolbar(UiContext& ctx, float y, float height, float width) {
     ImGui::SameLine();
     if (toolButton("Push/Pull", t == Tool::PushPull, "Push/Pull (P)\nClick a rectangle, circle, polygon, a top cap or a drawn face and move, or type a distance.")) ctx.tools.setTool(Tool::PushPull);
     ImGui::SameLine();
+    if (toolButton("Offset", t == Tool::Offset, "Offset (F)\nClick a face and move into or out of it, or type a distance.\nThe face's edges are copied that far in or out. Double-click repeats the last offset.")) ctx.tools.setTool(Tool::Offset);
+    ImGui::SameLine();
     if (toolButton("Follow Me", t == Tool::FollowMe, "Follow Me\nSweep a profile face along a path: click the face, then an edge or a face for the path.\nOr select the path first, then click the face. A face's edge goes all the way round.")) ctx.tools.setTool(Tool::FollowMe);
     ImGui::SameLine();
     if (toolButton("Move", t == Tool::Move, "Move (M)\nClick an object and move it, or type a distance.\nX, Y, Z or the arrow keys lock an axis.\n" PF_COPY_KEY " (tap) places a copy instead.")) ctx.tools.setTool(Tool::Move);
@@ -434,7 +440,7 @@ void Ui::toolbar(UiContext& ctx, float y, float height, float width) {
     if (toolButton("Protractor", t == Tool::Protractor, "Protractor\nClick the centre, then the baseline, then the angle (or type degrees)\nto add an angled guide line. Arrow keys lock the plane.")) ctx.tools.setTool(Tool::Protractor);
     ImGui::SameLine(0, 18);
     if (ImGui::Button("Fit")) action(UiAction::FitView);
-    tooltip("Fit view to model (F)");
+    tooltip("Fit view to model (Shift+Z)");
     ImGui::SameLine(0, 18);
     ImGui::BeginDisabled(!ctx.editor.canUndo());
     if (ImGui::Button("Undo")) action(UiAction::Undo);

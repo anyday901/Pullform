@@ -418,6 +418,26 @@ resolved pick, screen position), so tests drive it with synthetic events and no 
   keys held at release decide. Soft edges are not drawn or picked; faces keep using them.
   There is no separate "hidden" edge flag (the file format has soft and smooth only), so
   hide and soften differ only in the smooth flag, which shading does not use yet.
+- Offset (`app/tools/offset_tool.*`, `core/geometry/offset.*`): a click on a face starts
+  the gesture; the pointer ray meets the face's plane and the distance is how much further
+  inside the face (`mesh::signedBoundaryDistance`: distance to the nearest edge, negative
+  outside or in a hole) that point is than the clicked one. A corner or midpoint snap gives
+  an exact distance, otherwise it snaps to the grid. `mesh::offsetLoops` moves every loop of
+  the face to its left (into the face, since outer loops are CCW and holes CW) in 2D plane
+  coordinates: each edge's line moves by the distance and each corner goes where its two
+  lines meet (mitred). Edges whose offset turns round are dropped and their neighbours meet
+  instead, until none does; the outer loop closing up, a loop crossing itself or another,
+  or a grown hole leaving the shrunken outer loop is an error ("too large"), and a hole
+  shrinking to nothing is left out (and `offsetFace` fills it). The `OffsetPreview` carries the loops (world space) or
+  the error. `offsetFace` (a rectangle or box becomes a mesh group first, same face ids)
+  draws the loops with `Mesh::addEdge`, so inward the island rule makes the face a ring
+  around a new inner face (and each grown hole a ring), and outward the closed loop takes
+  the face as a hole; a shrunken hole drawn in empty space would fill it, so that face is
+  turned into the ring between the hole and its offset. Faces made in the face's plane
+  are turned to face the same way. A run of offset edges along consecutive segments of one
+  curve is drawn with `addCurve` (same centre and plane, radius from its inner points), so
+  circles stay circles. Splitting a shape in two (a straight-skeleton split event) is not
+  handled: such distances are refused.
 - Follow Me (`app/tools/follow_me_tool.*`): with edges or a face already selected, a
   click on a face sweeps it along them; otherwise the first click picks the profile face
   (`faceUnder`, which ignores a nearer edge) and the second the path (`followMePath`: an
@@ -510,8 +530,12 @@ resolved pick, screen position), so tests drive it with synthetic events and no 
 
 ## Geometry boundaries (what this design does not do yet)
 
-The edge/face mesh exists in the core, but push/pull on a drawn group works only on a
-face standing on its own or the end of a prism, there are no booleans, and no healing of
-collinear edges left after an erase. Arcs are drawn by the Arc tools; a curve record gives
+The edge/face mesh exists in the core. Push/pull works on any planar face
+(`mesh::Mesh::pushPull`): a free face is extruded; otherwise each edge either stretches the
+one neighbouring face that contains the push direction or gets a new side face, the face
+lands on coplanar faces to cut an opening or fill a hole, and collinear edges left at the
+old outline are joined. It does not intersect the moved face with geometry it passes
+(that is refused) or with faces it lands on only partly. There are no booleans, and no
+healing of collinear edges left after an erase. Arcs are drawn by the Arc tools; a curve record gives
 centre snapping but is not yet used for selecting a whole curve. Dimension anchors still name corners by index
 (vertex id - 1) rather than by vertex id. See docs/GEOMETRY.md and the roadmap.

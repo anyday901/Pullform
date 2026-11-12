@@ -8,6 +8,7 @@
 #include "app/tools/freehand_tool.hpp"
 #include "app/tools/measure_tool.hpp"
 #include "app/tools/move_tool.hpp"
+#include "app/tools/offset_tool.hpp"
 #include "app/tools/orbit_tool.hpp"
 #include "app/tools/protractor_tool.hpp"
 #include "app/tools/push_pull_tool.hpp"
@@ -52,6 +53,7 @@ ToolController::ToolController(Editor& editor) : editor_(editor), snapper_(edito
     add<ArcTool>(Tool::Pie, ArcTool::Mode::Pie);
     add<ProtractorTool>(Tool::Protractor);
     add<FreehandTool>(Tool::Freehand);
+    add<OffsetTool>(Tool::Offset);
     add<FollowMeTool>(Tool::FollowMe);
     for ([[maybe_unused]] const auto& t : tools_) assert(t && "every Tool value needs a registered tool");
 }
@@ -142,6 +144,9 @@ std::optional<std::string> ToolController::submitMeasure(std::string_view text) 
     // Goes to whichever measuring tool was used last (the tape measure until either is picked).
     return tools_[static_cast<std::size_t>(lastMeasure_)]->submit(text);
 }
+
+void ToolController::togglePushNewFace() { pushPull_->toggleNewFace(); }
+bool ToolController::pushNewFace() const { return pushPull_->newFace(); }
 
 void ToolController::toggleTapeGuides() { tape_->toggleGuides(); }
 bool ToolController::tapeGuides() const { return tape_->guides(); }
