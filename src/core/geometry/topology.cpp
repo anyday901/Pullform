@@ -136,7 +136,19 @@ ElementTopology buildTopology(const std::vector<FacePolygon>& polygons, double t
     return topo;
 }
 
-ElementTopology buildTopology(const mesh::Mesh& m, const ProfileObject& object) {
+namespace {
+
+/// A vertex only hidden edges meet (the ends of a hidden loose line) is hidden
+/// with them, unless hidden geometry is shown.
+void hideLoneVertices(ElementTopology& topo, const mesh::Mesh& m, bool showHidden) {
+    if (showHidden) return;
+    const auto hiddenEdge = [&topo, &m](std::uint32_t e) { return m.edge(mesh::EdgeId{topo.edges[e].id})->hidden; };
+    for (auto& v : topo.vertices) v.hidden = !v.edges.empty() && std::ranges::all_of(v.edges, hiddenEdge);
+}
+
+} // namespace
+
+ElementTopology buildTopology(const mesh::Mesh& m, const ProfileObject& object, bool showHidden) {
     ElementTopology topo;
     const Mat3 rotation = rotationMatrix(object.transform);
     std::map<std::uint32_t, std::uint32_t> vertexIndex; // mesh id -> index
@@ -151,10 +163,12 @@ ElementTopology buildTopology(const mesh::Mesh& m, const ProfileObject& object) 
         if (a == vertexIndex.end() || b == vertexIndex.end()) continue;
         const auto index = static_cast<std::uint32_t>(topo.edges.size());
         edgeIndex.emplace(id, index);
-        topo.edges.push_back({id, a->second, b->second, {}, e.soft});
+        const bool concealed = e.soft || e.hidden;
+        topo.edges.push_back({id, a->second, b->second, {}, concealed && !showHidden, concealed && showHidden});
         topo.vertices[a->second].edges.push_back(index);
         topo.vertices[b->second].edges.push_back(index);
     }
+    hideLoneVertices(topo, m, showHidden);
     const auto loopIndices = [&](const mesh::Loop& loop) {
         std::vector<std::uint32_t> out;
         for (const auto v : m.loopVertices(loop)) {
@@ -172,8 +186,9 @@ ElementTopology buildTopology(const mesh::Mesh& m, const ProfileObject& object) 
         face.loop = loopIndices(f.loops[0]);
         for (std::size_t h = 1; h < f.loops.size(); ++h) face.holes.push_back(loopIndices(f.loops[h]));
         face.edges = faceEdgeIndices(f, edgeIndex);
+        face.hidden = f.hidden;
         for (const auto e : face.edges) topo.edges[e].faces.push_back(index);
-        appendTriangles(m, mesh::FaceId{id}, index, vertexIndex, topo.triangles);
+        if (!f.hidden || showHidden) appendTriangles(m, mesh::FaceId{id}, index, vertexIndex, topo.triangles);
         topo.faces.push_back(std::move(face));
     }
     for (auto& face : topo.faces) {
@@ -183,10 +198,10 @@ ElementTopology buildTopology(const mesh::Mesh& m, const ProfileObject& object) 
     return topo;
 }
 
-ElementTopology buildTopology(const ProfileObject& object) {
+ElementTopology buildTopology(const ProfileObject& object, bool showHidden) {
     const auto m = mesh::objectMesh(object);
     if (!m) return buildTopology(buildFaces(object));
-    return buildTopology(*m, object);
+    return buildTopology(*m, object, showHidden);
 }
 
 /// Profile edges are returned as indices (they are a drawing aid, not a selection).

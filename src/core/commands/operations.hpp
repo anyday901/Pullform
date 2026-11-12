@@ -196,6 +196,17 @@ Expected<OpResult> pushPullFace(const Document& doc, ObjectId id, mesh::FaceId f
 Expected<OpResult> offsetFace(const Document& doc, ObjectId id, mesh::FaceId face, double distance,
                               mesh::FaceId* ring = nullptr);
 
+/// Follow Me: sweeps face `profile` along `path` (mesh::followMe). The path is
+/// edges, and faces standing for their outer edges, all of one object (the
+/// profile's own or another); they must make one line or one loop. The sweep
+/// goes into the profile's group (a rectangle or box is converted first), so
+/// OpResult::objectId is that group. `created`, when given, receives the new faces.
+Expected<OpResult> followMe(const Document& doc, const ElementRef& profile, const std::vector<ElementRef>& path,
+                            std::vector<mesh::FaceId>* created = nullptr);
+/// The path a click on `element` picks for Follow Me: a face stands for its
+/// outer edges; an edge brings its whole arc or circle, or the run of edges it
+/// continues (mesh::pathThrough). Empty for a vertex or a missing element.
+std::vector<ElementRef> followMePath(const Document& doc, const ElementRef& element);
 
 /// What Intersect Faces cuts the chosen faces against.
 enum class IntersectMode {

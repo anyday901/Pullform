@@ -203,7 +203,8 @@ TEST_CASE("Eraser: Shift hides and Ctrl softens instead, keeping the faces") {
         const auto& m = meshOf(editor, id);
         CHECK(m.faces().size() == 2);
         REQUIRE(m.edge(middle));
-        CHECK(m.edge(middle)->soft);
+        CHECK(m.edge(middle)->hidden); // hidden, not softened: Unhide brings it back as it was
+        CHECK_FALSE(m.edge(middle)->soft);
         CHECK_FALSE(m.edge(middle)->smooth);
         CHECK(editor.undoLabel() == "Hide 1 edge");
         // A hidden edge is no longer picked, so the Eraser cannot reach it.

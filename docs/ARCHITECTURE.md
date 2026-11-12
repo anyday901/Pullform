@@ -475,6 +475,14 @@ resolved pick, screen position), so tests drive it with synthetic events and no 
   curve is drawn with `addCurve` (same centre and plane, radius from its inner points), so
   circles stay circles. Splitting a shape in two (a straight-skeleton split event) is not
   handled: such distances are refused.
+- Follow Me (`app/tools/follow_me_tool.*`): with edges or a face already selected, a
+  click on a face sweeps it along them; otherwise the first click picks the profile face
+  (`faceUnder`, which ignores a nearer edge) and the second the path (`followMePath`: an
+  edge brings its whole arc or circle, or its run of edges through vertices with two
+  edges; a face, its outer edge). Hovering shows a `FollowMePreview`: the path
+  highlighted and the profile's group as `followMe` would leave it, drawn in its place,
+  or the error in the hint. The profile and path may be in different groups; the sweep
+  goes into the profile's group. One commit, "Follow Me", selects that group.
 - Input ownership (`App::handleViewportInput`): Dear ImGui owns the pointer over panels,
   menus and popups (`WantCaptureMouse`); a drag that starts in the viewport belongs to the
   viewport until its button is released. Left button = active tool (or orbit with the
@@ -539,7 +547,10 @@ resolved pick, screen position), so tests drive it with synthetic events and no 
   `extrusion` is a profile group: the profile is the truth, and the stored mesh must be
   exactly the one `meshFromProfile` makes (ids, loops, positions within 1 um), or the file
   is rejected. A group without them is a mesh group whose mesh is the truth.
-- An unknown `format` or a version newer than 3 is rejected (a newer version asks the user
+- **Version 4** adds hidden geometry: edge flag 4 (`hidden`, beside 1 soft and 2 smooth)
+  and `"hidden": true` on a face, written only when set. **Version 3 -> 4** changes
+  nothing (no version 3 file has hidden geometry); saving writes version 4.
+- An unknown `format` or a version newer than 4 is rejected (a newer version asks the user
   to update). Older versions are migrated on the parsed JSON, one version at a time
   (`migrateProject`), before the reader runs, so the reader only knows the current schema.
   **Version 1 -> 2:** every object gains the identity rotation `[0,0,0,1]` (version 1

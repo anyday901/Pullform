@@ -1,7 +1,10 @@
 #include "core/commands/operations.hpp"
 
+#include "core/commands/object_edit.hpp"
+
 #include "core/document/tolerance.hpp"
 #include "core/document/validate.hpp"
+#include "core/geometry/follow_me.hpp"
 #include "core/geometry/measure.hpp"
 #include "core/geometry/intersect.hpp"
 #include "core/geometry/mesh.hpp"
@@ -49,8 +52,6 @@ Expected<OpResult> deleteGuides(const Document& doc) {
     return result;
 }
 
-namespace {
-
 Expected<OpResult> replaceObject(const Document& doc, ProfileObject changed) {
     const auto index = doc.indexOf(changed.id);
     if (index < 0) return Error{"Object " + idString(changed.id) + " no longer exists."};
@@ -59,8 +60,6 @@ Expected<OpResult> replaceObject(const Document& doc, ProfileObject changed) {
     result.document.objects[static_cast<std::size_t>(index)] = std::make_shared<const ProfileObject>(std::move(changed));
     return result;
 }
-
-} // namespace
 
 std::optional<std::string> checkHeight(double height) {
     if (!std::isfinite(height)) return "Height must be a finite number.";
@@ -431,10 +430,6 @@ Expected<OpResult> deleteDimension(const Document& doc, DimensionId id) {
     return result;
 }
 
-namespace {
-
-/// The object as a mesh group: a profile group becomes one (same ids as
-/// meshFromProfile, so corner anchors stay valid); a mesh group is unchanged.
 ProfileObject asMeshGroup(const ProfileObject& o) {
     if (o.isMeshGroup()) return o;
     ProfileObject changed = o;
@@ -450,6 +445,8 @@ ProfileObject asMeshGroup(const ProfileObject& o) {
     }
     return changed;
 }
+
+namespace {
 
 Vec3 worldToLocal(const ProfileObject& o, const Vec3& world) {
     return glm::transpose(rotationMatrix(o.transform)) * (world - o.transform.translation);
@@ -550,6 +547,27 @@ Expected<OpResult> eraseEdge(const Document& doc, ObjectId id, mesh::EdgeId edge
     return eraseEdges(doc, id, {edge});
 }
 
+namespace {
+
+/// Replaces the object, first dropping dimensions on its corners that no longer exist.
+Expected<OpResult> replaceDroppingDimensions(const Document& doc, ProfileObject changed) {
+    const ObjectId id = changed.id;
+    OpResult partial{doc, id, {}};
+    const ProfileObject& probe = changed;
+    std::erase_if(partial.document.dimensions, [id, &probe](const Dimension& d) {
+        for (const auto* anchor : {&d.a, &d.b}) {
+            if (anchor->object != id) continue;
+            for (int v : anchor->vertices) {
+                if (!objectVertex(probe, v)) return true;
+            }
+        }
+        return false;
+    });
+    return replaceObject(partial.document, std::move(changed));
+}
+
+} // namespace
+
 Expected<OpResult> eraseEdges(const Document& doc, ObjectId id, const std::vector<mesh::EdgeId>& edges) {
     const auto* o = doc.find(id);
     if (!o) return Error{"Object " + idString(id) + " no longer exists."};
@@ -563,19 +581,7 @@ Expected<OpResult> eraseEdges(const Document& doc, ObjectId id, const std::vecto
     if (!any) return Error{edges.size() == 1 ? "That edge no longer exists." : "Those edges no longer exist."};
     if (m.empty()) return deleteObject(doc, id); // nothing left: the group goes, with its dimensions
     changed.mesh = std::make_shared<const mesh::Mesh>(std::move(m));
-    // Dimensions on corners that disappeared go with them.
-    OpResult partial{doc, id, {}};
-    const ProfileObject& probe = changed;
-    std::erase_if(partial.document.dimensions, [id, &probe](const Dimension& d) {
-        for (const auto* anchor : {&d.a, &d.b}) {
-            if (anchor->object != id) continue;
-            for (int v : anchor->vertices) {
-                if (!objectVertex(probe, v)) return true;
-            }
-        }
-        return false;
-    });
-    return replaceObject(partial.document, std::move(changed));
+    return replaceDroppingDimensions(doc, std::move(changed));
 }
 
 namespace {
@@ -740,6 +746,96 @@ Expected<OpResult> drawCircleOn(const Document& doc, ObjectId target, const Circ
     auto inserted = insertShape(doc, target, *made->document.find(*made->objectId), face);
     if (!inserted && inserted.error().empty()) return made; // not on one face: a shape of its own
     return inserted;
+}
+
+namespace {
+
+/// The one group the path's edges and faces belong to (the profile face itself does not count).
+Expected<ObjectId> pathOwnerOf(const std::vector<ElementRef>& path, const ElementRef& profile) {
+    std::optional<ObjectId> owner;
+    for (const ElementRef& ref : path) {
+        if (ref.kind == ElementKind::Vertex || ref == profile) continue;
+        if (owner && *owner != ref.object) return Error{"The path must be edges of one group."};
+        owner = ref.object;
+    }
+    if (!owner) return Error{"Pick the path first: edges, or a face to go around its edge."};
+    return *owner;
+}
+
+/// The path's edges: edges as given, faces as their outer edges.
+Expected<std::vector<mesh::EdgeId>> pathEdges(const mesh::Mesh& m, const std::vector<ElementRef>& path, ObjectId owner,
+                                              const ElementRef& profile) {
+    using enum ElementKind;
+    std::vector<mesh::EdgeId> edges;
+    for (const ElementRef& ref : path) {
+        if (ref.object != owner || ref == profile || ref.kind == Vertex) continue;
+        if (ref.kind == Edge) {
+            edges.emplace_back(mesh::EdgeId{ref.id});
+            continue;
+        }
+        const auto* f = m.face(mesh::FaceId{ref.id});
+        if (!f) return Error{"A path face no longer exists."};
+        for (const auto& use : f->loops[0]) edges.push_back(use.edge);
+    }
+    return edges;
+}
+
+/// Sharing an edge is fine (a profile drawn on the corner of the face it goes
+/// round); only the profile's own edges are not a path.
+bool onlyProfileEdges(const mesh::Mesh& m, mesh::FaceId profile, const std::vector<mesh::EdgeId>& edges) {
+    const auto own = m.edgesOfFace(profile);
+    return std::ranges::all_of(edges, [&own](mesh::EdgeId e) { return std::ranges::find(own, e) != own.end(); });
+}
+
+} // namespace
+
+Expected<OpResult> followMe(const Document& doc, const ElementRef& profile, const std::vector<ElementRef>& path,
+                            std::vector<mesh::FaceId>* created) {
+    if (profile.kind != ElementKind::Face) return Error{"Pick a face as the profile to sweep."};
+    const auto* owner = doc.find(profile.object);
+    if (!owner) return Error{"Object " + idString(profile.object) + " no longer exists."};
+    const auto pathId = pathOwnerOf(path, profile);
+    if (!pathId) return Error{pathId.error()};
+    const auto* pathOwner = doc.find(*pathId);
+    if (!pathOwner) return Error{"Object " + idString(*pathId) + " no longer exists."};
+    const mesh::MeshPtr pathMesh = mesh::objectMesh(*pathOwner);
+    const auto edges = pathEdges(*pathMesh, path, *pathId, profile);
+    if (!edges) return Error{edges.error()};
+    const mesh::FaceId face{profile.id};
+    const mesh::MeshPtr ownMesh = mesh::objectMesh(*owner);
+    if (!ownMesh->face(face)) return Error{"The profile face no longer exists."};
+    if (*pathId == profile.object && onlyProfileEdges(*ownMesh, face, *edges)) {
+        return Error{"The path cannot use the profile's own edges. Pick edges away from the profile face."};
+    }
+    auto chain = mesh::chainPath(*pathMesh, *edges);
+    if (!chain) return Error{chain.error()};
+    ProfileObject changed = asMeshGroup(*owner);
+    mesh::SweepPath sweep = std::move(chain).value();
+    for (Vec3& p : sweep.points) p = worldToLocal(changed, localToWorld(*pathOwner, p));
+    mesh::Mesh m = *changed.mesh;
+    auto swept = mesh::followMe(m, face, sweep);
+    if (!swept) return Error{swept.error()};
+    if (created) *created = swept->createdFaces;
+    changed.mesh = std::make_shared<const mesh::Mesh>(std::move(m));
+    // A closed sweep can remove profile corners (a lathe profile's axis ends); their dimensions go too.
+    return replaceDroppingDimensions(doc, std::move(changed));
+}
+
+std::vector<ElementRef> followMePath(const Document& doc, const ElementRef& element) {
+    using enum ElementKind;
+    const auto* o = doc.find(element.object);
+    if (!o) return {};
+    const mesh::MeshPtr m = mesh::objectMesh(*o);
+    if (element.kind == Face) {
+        if (!m->face(mesh::FaceId{element.id})) return {};
+        return {element};
+    }
+    if (element.kind != Edge) return {};
+    std::vector<ElementRef> out;
+    for (const mesh::EdgeId e : mesh::pathThrough(*m, mesh::EdgeId{element.id})) {
+        out.emplace_back(ElementRef{element.object, Edge, e.value});
+    }
+    return out;
 }
 
 Expected<Vec3> selectionBaseCenter(const Document& doc, const std::vector<ObjectId>& ids) {

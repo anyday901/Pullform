@@ -1,0 +1,12 @@
+{
+  "format": "pullform-project", "version": 3, "generator": "Pullform 0.2.0",
+  "document": { "lengthUnit": "m", "displayUnit": "mm", "nextId": 2, "objects": [
+    { "id": "obj-1", "type": "group", "name": "Group 1",
+      "transform": { "translation": [1, 2, 0], "rotation": [0, 0, 0, 1] },
+      "mesh": {
+        "vertices": [[1, 0, 0, 0], [2, 1, 0, 0], [3, 1, 1, 0], [4, 0, 1, 0], [5, 2, 0, 0], [6, 2, 1, 0]],
+        "edges": [[1, 1, 2, 0], [2, 2, 3, 3], [3, 3, 4, 0], [4, 4, 1, 0], [5, 2, 5, 0], [6, 5, 6, 1], [7, 6, 3, 0]],
+        "faces": [{ "id": 1, "loops": [[1, 2, 3, 4]] }, { "id": 2, "loops": [[5, 6, 7, -2]] }],
+        "curves": [],
+        "next": [7, 8, 3, 1] } } ] }
+}

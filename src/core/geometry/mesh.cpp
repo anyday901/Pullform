@@ -940,6 +940,13 @@ void Mesh::scale(const Vec3& f) {
     transform(Mat3(Vec3{f.x, 0.0, 0.0}, Vec3{0.0, f.y, 0.0}, Vec3{0.0, 0.0, f.z}), Vec3{0.0});
 }
 
+void Mesh::removeCurve(CurveId id) {
+    if (curves_.erase(id.value) == 0) return;
+    for (auto& [eid, e] : edges_) {
+        if (e.curve == id) e.curve.reset();
+    }
+}
+
 void Mesh::translate(const Vec3& offset) {
     for (auto& [id, v] : vertices_) v.position += offset;
     for (auto& [id, c] : curves_) c.center += offset;
@@ -2287,11 +2294,18 @@ Mesh meshFromProfile(const ProfileObject& o) {
         baseLoop.push_back(EdgeUse{EdgeId{i + 1}, true});
     }
     base.loops.push_back(baseLoop);
+    // Normals from the loops, as a file read computes them, so a saved and
+    // reopened object compares equal bit for bit.
+    const auto exact = [&m](Face& face) {
+        if (const Vec3 ln = loopNormal(m.loopPositions(face.loops[0])); glm::length(ln) > 0.0) face.normal = ln;
+    };
+    exact(base);
     m.insertFace(FaceId{1}, base);
     Face cap{{}, n};
     Loop capLoop;
     for (std::uint32_t i = 0; i < count; ++i) capLoop.push_back(EdgeUse{EdgeId{count + i + 1}, false});
     cap.loops.push_back(capLoop);
+    exact(cap);
     m.insertFace(FaceId{2}, cap);
     for (std::uint32_t i = 0; i < count; ++i) {
         const std::uint32_t j = (i + 1) % count;
@@ -2300,6 +2314,7 @@ Mesh meshFromProfile(const ProfileObject& o) {
         Face side{{Loop{EdgeUse{EdgeId{i + 1}, false}, EdgeUse{EdgeId{2 * count + j + 1}, false}, EdgeUse{EdgeId{count + i + 1}, true},
                         EdgeUse{EdgeId{2 * count + i + 1}, true}}},
                   glm::normalize(glm::cross(b - a, n))};
+        exact(side);
         m.insertFace(FaceId{3 + i}, side);
     }
     return m;

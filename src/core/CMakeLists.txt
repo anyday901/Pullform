@@ -23,8 +23,10 @@ add_library(pullform_core STATIC
   geometry/measure.cpp
   geometry/region_select.cpp
   geometry/freehand.cpp
+  geometry/follow_me.cpp
   geometry/solid_boolean.cpp
   commands/operations.cpp
+  commands/cleanup.cpp
   commands/solid_tools.cpp
   commands/selection.cpp
   commands/editor.cpp)

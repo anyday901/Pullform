@@ -49,7 +49,8 @@ struct MeshData {
 /// this milestone). A planar profile is an explicit two-sided sheet: a front
 /// triangle set and a reversed back set, both mapped to the Profile face, so
 /// back-face culling stays on everywhere.
-MeshData buildMesh(const ProfileObject& object, std::optional<double> heightOverride = std::nullopt);
+/// A mesh group's hidden faces are left out unless `showHidden` (View > Hidden Geometry).
+MeshData buildMesh(const ProfileObject& object, std::optional<double> heightOverride = std::nullopt, bool showHidden = false);
 
 struct SolidCheck {
     bool closed = false;               ///< every directed edge has exactly one opposite twin

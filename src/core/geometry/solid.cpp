@@ -19,6 +19,7 @@ std::vector<FacePolygon> meshGroupFaces(const ProfileObject& o) {
     std::vector<FacePolygon> faces;
     const Mat3 r = rotationMatrix(o.transform);
     for (const auto& [id, f] : o.mesh->faces()) {
+        if (f.hidden) continue; // hidden geometry is not there for snapping and measuring
         FacePolygon poly{FaceId::meshFace(id), {}, glm::normalize(r * f.normal)};
         for (const auto& p : o.mesh->loopPositions(f.loops[0])) poly.loop.push_back(localToWorld(o, p));
         faces.push_back(std::move(poly));
@@ -45,12 +46,13 @@ Vec3 shadedNormal(const mesh::Mesh& m, std::uint32_t faceId, const mesh::Face& f
     return glm::normalize(sum);
 }
 
-MeshData meshGroupMesh(const ProfileObject& o) {
+MeshData meshGroupMesh(const ProfileObject& o, bool showHidden) {
     const mesh::Mesh& m = *o.mesh;
     const Mat3 r = rotationMatrix(o.transform);
     const bool anySmooth = std::ranges::any_of(m.edges(), [](const auto& entry) { return entry.second.smooth; });
     MeshData data;
     for (const auto& [id, f] : m.faces()) {
+        if (f.hidden && !showHidden) continue;
         const FaceId faceId = FaceId::meshFace(id);
         const Vec3 n = glm::normalize(r * f.normal);
         const auto tris = mesh::triangulateFace(m, mesh::FaceId{id});
@@ -107,8 +109,8 @@ std::vector<FacePolygon> buildFaces(const ProfileObject& o, std::optional<double
     return faces;
 }
 
-MeshData buildMesh(const ProfileObject& o, std::optional<double> heightOverride) {
-    if (o.mesh) return meshGroupMesh(o);
+MeshData buildMesh(const ProfileObject& o, std::optional<double> heightOverride, bool showHidden) {
+    if (o.mesh) return meshGroupMesh(o, showHidden);
     const auto faces = buildFaces(o, heightOverride);
     MeshData mesh;
     mesh.closed = faces.size() > 1;

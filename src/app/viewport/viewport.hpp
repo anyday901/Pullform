@@ -54,6 +54,11 @@ public:
     [[nodiscard]] bool& profileEdges() { return profileEdges_; }
     [[nodiscard]] bool profileEdges() const { return profileEdges_; }
 
+    /// View > Hidden Geometry: soft and hidden edges drawn dashed, hidden faces
+    /// drawn, and both picked, so they can be selected and unhidden. Off by default.
+    [[nodiscard]] bool& hiddenGeometry() { return hiddenGeometry_; }
+    [[nodiscard]] bool hiddenGeometry() const { return hiddenGeometry_; }
+
     static constexpr float kProfileWidthPx = 2.5f;   ///< profile edge width
     static constexpr float kHighlightWidthPx = 3.0f; ///< hovered and selected edge width
 
@@ -69,6 +74,8 @@ private:
                          const glm::vec4& color) const;
     /// A guide line (dashed, out to the far distance) or a guide point (a small cross).
     void appendGuide(std::vector<LineSegment>& lines, const Guide& guide, const glm::vec4& color) const;
+    /// A dashed segment, dashes about 4 pixels long where it is nearest the eye.
+    void appendDashed(std::vector<LineSegment>& lines, const Vec3& a, const Vec3& b, const glm::vec4& color) const;
     /// A protractor circle in the plane with unit `normal`, with 15-degree
     /// ticks, starting along `spoke` (its length is the radius).
     void appendProtractor(std::vector<LineSegment>& lines, const Vec3& center, const Vec3& normal,
@@ -105,6 +112,7 @@ private:
     int framebufferHeight_ = 1;
     double gridStep_ = 0.1;
     bool profileEdges_ = false;
+    bool hiddenGeometry_ = false;
 };
 
 } // namespace pf

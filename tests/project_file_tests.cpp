@@ -89,7 +89,7 @@ TEST_CASE("serialized file matches the documented v3 schema") {
     test::makeBox(editor, tools, "2000, 1000", "750");
     const auto text = serializeProject(editor.document(), std::nullopt);
     CHECK(text.find("\"format\": \"pullform-project\"") != std::string::npos);
-    CHECK(text.find("\"version\": 3") != std::string::npos);
+    CHECK(text.find("\"version\": 4") != std::string::npos);
     CHECK(text.find("\"type\": \"group\"") != std::string::npos);
     CHECK(text.find("\"mesh\": {") != std::string::npos);
     CHECK(text.find("\"rotation\": [") != std::string::npos);
@@ -139,9 +139,9 @@ TEST_CASE("scenario 9: invalid files are rejected and leave the open project int
         {"not json", "{ nope"},
         {"array", "[1,2,3]"},
         {"wrong format", replace("pullform-project", "other-app")},
-        {"newer version", replace("\"version\": 3", "\"version\": 4")},
-        {"older version", replace("\"version\": 3", "\"version\": 0")},
-        {"string version", replace("\"version\": 3", "\"version\": \"3\"")},
+        {"newer version", replace("\"version\": 4", "\"version\": 5")},
+        {"older version", replace("\"version\": 4", "\"version\": 0")},
+        {"string version", replace("\"version\": 4", "\"version\": \"4\"")},
         {"missing rotation", replace("\"rotation\"", "\"rotatio\"")},
         {"rotation not unit", replace("\"rotation\": [\n            0.0", "\"rotation\": [\n            2.0")},
         {"rotation wrong size", replace("\"rotation\": [", "\"rotation\": [1.0, ")},
@@ -170,7 +170,7 @@ TEST_CASE("scenario 9: invalid files are rejected and leave the open project int
             MESSAGE(label << ": " << r.error());
         }
     }
-    const auto newer = parseProject(replace("\"version\": 3", "\"version\": 4"));
+    const auto newer = parseProject(replace("\"version\": 4", "\"version\": 5"));
     CHECK(newer.error().find("newer") != std::string::npos);
 
     // Duplicate IDs.

@@ -184,7 +184,7 @@ TEST_CASE("roadmap check: a rotated object saves, reopens and picks correctly") 
     const auto r = rotateObject(doc, id, {0, 0, 0}, {0, 0, 1}, degrees(30));
     REQUIRE(r.ok());
     const std::string text = serializeProject(r->document, std::nullopt);
-    CHECK(text.find("\"version\": 3") != std::string::npos);
+    CHECK(text.find("\"version\": " + std::to_string(kProjectVersion)) != std::string::npos);
     const auto loaded = parseProject(text);
     REQUIRE_MESSAGE(loaded.ok(), (loaded.ok() ? "" : loaded.error()));
     CHECK(loaded->fileVersion == kProjectVersion);
@@ -234,7 +234,7 @@ TEST_CASE("version 1 files migrate to version 2 and save as version 2") {
     CHECK(c[2] == Vec3{3, 3, 0});
 
     const auto saved = serializeProject(r->document, std::nullopt);
-    CHECK(saved.find("\"version\": 3") != std::string::npos);
+    CHECK(saved.find("\"version\": " + std::to_string(kProjectVersion)) != std::string::npos);
     const auto again = parseProject(saved);
     REQUIRE(again.ok());
     CHECK(again->fileVersion == kProjectVersion);
@@ -514,6 +514,6 @@ TEST_CASE("a version 1 file with dimensions migrates and keeps them") {
     REQUIRE(r->document.dimensions.size() == 1);
     CHECK(*resolveAnchor(r->document, r->document.dimensions[0].b) == Vec3{3, 0, 0});
     const auto saved = serializeProject(r->document, std::nullopt);
-    CHECK(saved.find("\"version\": 3") != std::string::npos);
+    CHECK(saved.find("\"version\": " + std::to_string(kProjectVersion)) != std::string::npos);
     CHECK(saved.find("\"dimensions\"") != std::string::npos);
 }
