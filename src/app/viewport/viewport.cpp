@@ -419,11 +419,9 @@ void Viewport::drawElements(const Editor& editor, const std::vector<ObjectId>& p
 
 void Viewport::drawScaleGrips(std::vector<LineSegment>& lines, const ScalePreview& preview) const {
     // The selection's bounding box: its 12 edges, faint.
-    if (preview.box.size() == 8) {
-        for (std::size_t i = 0; i < 8; ++i) {
-            for (const std::size_t bit : {1U, 2U, 4U}) {
-                if ((i & bit) == 0) lines.emplace_back(preview.box[i], preview.box[i | bit], dim(kPreviewEdge, 0.6f));
-            }
+    for (std::size_t i = 0; preview.box.size() == 8 && i < 8; ++i) {
+        for (const std::size_t bit : {1U, 2U, 4U}) {
+            if ((i & bit) == 0) lines.emplace_back(preview.box[i], preview.box[i | bit], dim(kPreviewEdge, 0.6f));
         }
     }
     // Grips: small squares facing the camera, the one under the pointer (or
@@ -646,17 +644,14 @@ void Viewport::render(const Editor& editor, const ToolController& tools) {
         const bool valid = !movePreview->error.has_value();
         const std::vector<ObjectId> moving =
             movePreview->objectIds.empty() ? std::vector<ObjectId>{movePreview->objectId} : movePreview->objectIds;
-        std::vector<ProfileObject> shown;
-        if (movePreview->elements) {
-            shown = movePreview->results; // stretched around the moving elements
-        } else {
-            for (const ObjectId id : moving) {
-                const auto* obj = doc.find(id);
-                if (!obj) continue;
-                ProfileObject moved = *obj;
-                moved.transform.translation += movePreview->offset;
-                shown.push_back(std::move(moved));
-            }
+        // Elements: the owners stretched around them; whole objects: translated copies.
+        std::vector<ProfileObject> shown = movePreview->results;
+        for (const ObjectId id : movePreview->elements ? std::vector<ObjectId>{} : moving) {
+            const auto* obj = doc.find(id);
+            if (!obj) continue;
+            ProfileObject moved = *obj;
+            moved.transform.translation += movePreview->offset;
+            shown.push_back(std::move(moved));
         }
         for (const ProfileObject& moved : shown) {
             const MeshData mesh = buildMesh(moved);

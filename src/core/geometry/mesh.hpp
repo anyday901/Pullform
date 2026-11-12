@@ -8,6 +8,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -245,6 +246,15 @@ private:
     std::optional<std::vector<EdgeUse>> traceLeft(const EdgeUse& start, const Vec3& normal, const Vec3& origin,
                                                   const std::vector<EdgeId>& allowed) const;
     Loop makeLoop(const std::vector<VertexId>& vertices) const;
+    // transformVertices steps, on the moved copy.
+    /// Carries curves along a map that keeps them round, or drops them.
+    void mapCurves(const std::set<std::uint32_t>& moving, const Mat3& linear, const Vec3& translation);
+    /// A partly moved face: its new plane, or a fold; false when it cannot be kept valid.
+    bool settleFace(FaceId id, const std::vector<std::array<VertexId, 3>>& triangles, TransformResult& result);
+    /// Splits a bent face along its old `triangles` into planar pieces.
+    bool foldFace(FaceId id, const std::vector<std::array<VertexId, 3>>& triangles, TransformResult& result);
+    /// For each triangle, the group of neighbouring triangles it merges with on one plane.
+    [[nodiscard]] std::vector<std::size_t> coplanarGroups(const std::vector<std::array<VertexId, 3>>& triangles) const;
 
     std::map<std::uint32_t, Vertex> vertices_;
     std::map<std::uint32_t, Edge> edges_;

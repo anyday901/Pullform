@@ -9,6 +9,7 @@
 
 #include <glm/geometric.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <numbers>
 
@@ -67,10 +68,7 @@ bool nearVec(const Vec3& a, const Vec3& b, double eps = 1e-9) { return glm::leng
 bool hasVertexAt(const Document& doc, ObjectId id, const Vec3& p) {
     const auto& o = *doc.find(id);
     const auto m = mesh::objectMesh(o);
-    for (const auto& [vid, v] : m->vertices()) {
-        if (nearVec(localToWorld(o, v.position), p, 1e-9)) return true;
-    }
-    return false;
+    return std::ranges::any_of(m->vertices(), [&](const auto& entry) { return nearVec(localToWorld(o, entry.second.position), p); });
 }
 
 /// The group's faces as one-sided triangles (the render mesh of a group is

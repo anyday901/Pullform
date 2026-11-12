@@ -248,6 +248,37 @@ Vec3 objectBaseCenter(const ProfileObject& o) {
     return profileToWorld(o, c, 0.0);
 }
 
+namespace {
+
+/// The first-vertex angle of a regular shape mirrored by the signs of `f`
+/// (x: pi - a, y: -a, both: a + pi), which keeps the boundary counter-clockwise.
+double mirroredStart(double start, const Vec3& f) {
+    if (f.x < 0.0 && f.y < 0.0) start += std::numbers::pi;
+    else if (f.x < 0.0) start = std::numbers::pi - start;
+    else if (f.y < 0.0) start = -start;
+    return std::remainder(start, 2.0 * std::numbers::pi);
+}
+
+/// scaleObject of a rectangle, circle or polygon with a negative factor. A
+/// rectangle is symmetric across its width and depth about its base centre,
+/// so mirroring there gives the same shape; a circle or polygon turns its
+/// first vertex (mirroredStart). Mirroring the height flips the prism to the
+/// other side of the base.
+Expected<OpResult> mirrorProfile(const Document& doc, const ProfileObject& o, const Vec3& f) {
+    auto scaled = scaleObject(doc, o.id, Vec3{std::abs(f.x), std::abs(f.y), f.z == 0.0 ? 1.0 : std::abs(f.z)});
+    if (!scaled) return scaled;
+    ProfileObject flipped = *scaled->document.find(o.id);
+    if (o.profile.kind != ProfileKind::Rectangle && (f.x < 0.0 || f.y < 0.0)) {
+        const auto shape = regularShape(flipped.profile.boundary);
+        if (!shape) return Error{shape.error()};
+        flipped.profile.boundary = regularBoundary(shape->radius, shape->segments, mirroredStart(shape->start, f));
+    }
+    if (f.z < 0.0 && o.extrusion) flipped.transform.translation -= profileNormalWorld(flipped) * flipped.extrusion->height;
+    return replaceObject(scaled->document, std::move(flipped));
+}
+
+} // namespace
+
 Expected<OpResult> scaleObject(const Document& doc, ObjectId id, const Vec3& f) {
     const auto* o = doc.find(id);
     if (!o) return Error{"Object " + idString(id) + " no longer exists."};
@@ -257,27 +288,7 @@ Expected<OpResult> scaleObject(const Document& doc, ObjectId id, const Vec3& f) 
             return Error{"Scale factors must not be zero (a negative factor mirrors)."};
         }
     }
-    if (!o->isMeshGroup() && (f.x < 0.0 || f.y < 0.0 || f.z < 0.0)) {
-        // A rectangle is symmetric across its width and depth about its base
-        // centre, so mirroring there gives the same shape. A circle or polygon
-        // mirrors by turning its first vertex's angle (x: pi - a, y: -a, both:
-        // a + pi), which keeps the boundary counter-clockwise. Mirroring the
-        // height flips the prism to the other side of the base.
-        auto scaled = scaleObject(doc, id, Vec3{std::abs(f.x), std::abs(f.y), f.z == 0.0 ? 1.0 : std::abs(f.z)});
-        if (!scaled) return scaled;
-        ProfileObject flipped = *scaled->document.find(id);
-        if (o->profile.kind != ProfileKind::Rectangle && (f.x < 0.0 || f.y < 0.0)) {
-            const auto shape = regularShape(flipped.profile.boundary);
-            if (!shape) return Error{shape.error()};
-            double start = shape->start;
-            if (f.x < 0.0 && f.y < 0.0) start += std::numbers::pi;
-            else if (f.x < 0.0) start = std::numbers::pi - start;
-            else start = -start;
-            flipped.profile.boundary = regularBoundary(shape->radius, shape->segments, std::remainder(start, 2.0 * std::numbers::pi));
-        }
-        if (f.z < 0.0 && o->extrusion) flipped.transform.translation -= profileNormalWorld(flipped) * flipped.extrusion->height;
-        return replaceObject(scaled->document, std::move(flipped));
-    }
+    if (!o->isMeshGroup() && (f.x < 0.0 || f.y < 0.0 || f.z < 0.0)) return mirrorProfile(doc, *o, f);
     if (o->isMeshGroup()) {
         // Scale the local geometry about the centre of its base (lowest local z).
         const Vec3 c = meshBaseCenterLocal(*o->mesh);
@@ -663,50 +674,59 @@ Expected<OpResult> rotateObjects(const Document& doc, const std::vector<ObjectId
     });
 }
 
+namespace {
+
+/// The factors along `frame` as factors along the object's own axes, when each
+/// own axis lies along a frame axis (either way); nothing when a non-uniform
+/// scale would shear the object.
+std::optional<Vec3> ownFactors(const ProfileObject& o, const Vec3& factors, const Mat3& frame) {
+    if (factors.x == factors.y && factors.y == factors.z) return factors;
+    const Mat3 a = glm::transpose(frame) * objectAxes(o); // own axes in frame coordinates
+    Vec3 own = factors;
+    for (int i = 0; i < 3; ++i) {
+        int along = -1;
+        for (int j = 0; j < 3; ++j) {
+            if (std::abs(std::abs(a[i][j]) - 1.0) < 1e-9) along = j;
+        }
+        if (along < 0) return std::nullopt;
+        own[i] = factors[along];
+    }
+    return own;
+}
+
+/// One object of scaleObjects.
+Expected<OpResult> scaleOneObject(const Document& d, ObjectId id, const Vec3& factors, const Vec3& pivot, const Mat3& frame) {
+    const ProfileObject& before = *d.find(id);
+    const auto own = ownFactors(before, factors, frame);
+    if (!own) {
+        // A sheared object cannot stay a profile: map its geometry directly (it becomes a mesh group).
+        const mesh::MeshPtr m = mesh::objectMesh(before);
+        std::vector<ElementRef> all;
+        for (const auto& [vid, v] : m->vertices()) all.push_back(ElementRef{id, ElementKind::Vertex, vid});
+        return transformElements(d, all, AffineMap::scale(pivot, factors, frame));
+    }
+    const Vec3 centre = objectBaseCenter(before);
+    auto scaled = scaleObject(d, id, *own); // keeps `centre` fixed
+    if (!scaled) return scaled;
+    // The base centre goes where the scale about `pivot` (along `frame`) takes it.
+    const Vec3 shift = frame * ((glm::transpose(frame) * (centre - pivot)) * (factors - Vec3{1.0}));
+    if (glm::length(shift) < tol::kLengthEpsilon) return scaled;
+    const ProfileObject& after = *scaled->document.find(id);
+    if (auto e = checkMove(after, shift)) return Error{*e};
+    ProfileObject moved = after;
+    moved.transform.translation += shift;
+    return replaceObject(scaled->document, std::move(moved));
+}
+
+} // namespace
+
 Expected<OpResult> scaleObjects(const Document& doc, const std::vector<ObjectId>& ids, const Vec3& factors, const Vec3& pivot,
                                 const Mat3& frame) {
     if (!std::isfinite(pivot.x) || !std::isfinite(pivot.y) || !std::isfinite(pivot.z)) {
         return Error{"The scale centre is not valid."};
     }
-    const bool uniformFactors = factors.x == factors.y && factors.y == factors.z;
-    return forEachObject(doc, ids, [&](const Document& d, ObjectId id) -> Expected<OpResult> {
-        const ProfileObject& before = *d.find(id);
-        // The factors run along `frame`; scaleObject takes them along the
-        // object's own axes. Those match when each own axis lies along a frame
-        // axis (either way): the factors are then reordered. Otherwise a
-        // non-uniform scale would shear the object, so its geometry is mapped
-        // directly (it becomes a mesh group).
-        Vec3 own = factors;
-        if (!uniformFactors) {
-            const Mat3 a = glm::transpose(frame) * objectAxes(before); // own axes in frame coordinates
-            for (int i = 0; i < 3; ++i) {
-                int along = -1;
-                for (int j = 0; j < 3; ++j) {
-                    if (std::abs(std::abs(a[i][j]) - 1.0) < 1e-9) along = j;
-                }
-                if (along < 0) {
-                    const mesh::MeshPtr m = mesh::objectMesh(before);
-                    std::vector<ElementRef> all;
-                    for (const auto& [vid, v] : m->vertices()) all.push_back(ElementRef{id, ElementKind::Vertex, vid});
-                    return transformElements(d, all, AffineMap::scale(pivot, factors, frame));
-                }
-                own[i] = factors[along];
-            }
-        }
-        const Vec3 centre = objectBaseCenter(before);
-        auto scaled = scaleObject(d, id, own); // keeps `centre` fixed
-        if (!scaled) return scaled;
-        // The base centre goes where the scale about `pivot` (along `frame`) takes it.
-        const Vec3 shift = frame * ((glm::transpose(frame) * (centre - pivot)) * (factors - Vec3{1.0}));
-        if (std::abs(shift.x) < tol::kLengthEpsilon && std::abs(shift.y) < tol::kLengthEpsilon &&
-            std::abs(shift.z) < tol::kLengthEpsilon) {
-            return scaled;
-        }
-        const ProfileObject& after = *scaled->document.find(id);
-        if (auto e = checkMove(after, shift)) return Error{*e};
-        ProfileObject moved = after;
-        moved.transform.translation += shift;
-        return replaceObject(scaled->document, std::move(moved));
+    return forEachObject(doc, ids, [&factors, &pivot, &frame](const Document& d, ObjectId id) {
+        return scaleOneObject(d, id, factors, pivot, frame);
     });
 }
 
@@ -837,33 +857,28 @@ namespace {
 
 /// The mesh vertices an object's elements use, each once, in id order.
 std::vector<mesh::VertexId> elementVertices(const mesh::Mesh& m, const std::vector<ElementRef>& elements, ObjectId object) {
+    using enum ElementKind;
     std::vector<std::uint32_t> ids;
+    const auto addFace = [&m, &ids](const mesh::Face& face) {
+        for (const auto& loop : face.loops) {
+            for (const auto v : m.loopVertices(loop)) ids.push_back(v.value);
+        }
+    };
     for (const ElementRef& e : elements) {
         if (e.object != object) continue;
-        switch (e.kind) {
-        case ElementKind::Vertex:
-            if (m.vertex(mesh::VertexId{e.id})) ids.push_back(e.id);
-            break;
-        case ElementKind::Edge:
-            if (const auto* edge = m.edge(mesh::EdgeId{e.id})) {
-                ids.push_back(edge->v0.value);
-                ids.push_back(edge->v1.value);
-            }
-            break;
-        case ElementKind::Face:
-            if (const auto* face = m.face(mesh::FaceId{e.id})) {
-                for (const auto& loop : face->loops) {
-                    for (const auto v : m.loopVertices(loop)) ids.push_back(v.value);
-                }
-            }
-            break;
+        if (e.kind == Vertex && m.vertex(mesh::VertexId{e.id})) ids.push_back(e.id);
+        if (const auto* edge = e.kind == Edge ? m.edge(mesh::EdgeId{e.id}) : nullptr) {
+            ids.push_back(edge->v0.value);
+            ids.push_back(edge->v1.value);
         }
+        if (const auto* face = e.kind == Face ? m.face(mesh::FaceId{e.id}) : nullptr) addFace(*face);
     }
     std::ranges::sort(ids);
-    ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+    const auto [first, last] = std::ranges::unique(ids);
+    ids.erase(first, last);
     std::vector<mesh::VertexId> out;
     out.reserve(ids.size());
-    for (const auto v : ids) out.push_back(mesh::VertexId{v});
+    for (const auto v : ids) out.emplace_back(v);
     return out;
 }
 

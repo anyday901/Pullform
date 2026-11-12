@@ -7,6 +7,8 @@
 #include <glm/geometric.hpp>
 
 #include <algorithm>
+#include <format>
+#include <string_view>
 
 namespace pf {
 
@@ -174,10 +176,20 @@ std::string elementsLabel(const std::vector<ElementRef>& elements) {
     if (elements.empty()) return {};
     const ElementKind kind = elements.front().kind;
     const bool same = std::all_of(elements.begin(), elements.end(), [kind](const ElementRef& e) { return e.kind == kind; });
-    const char* name = !same ? "element" : kind == ElementKind::Vertex ? "vertex" : kind == ElementKind::Edge ? "edge" : "face";
-    if (elements.size() == 1) return name;
-    std::string plural = kind == ElementKind::Vertex && same ? "vertices" : std::string(name) + "s";
-    return std::to_string(elements.size()) + " " + plural;
+    std::string_view one = "element";
+    std::string_view many = "elements";
+    if (same && kind == ElementKind::Vertex) {
+        one = "vertex";
+        many = "vertices";
+    } else if (same && kind == ElementKind::Edge) {
+        one = "edge";
+        many = "edges";
+    } else if (same) {
+        one = "face";
+        many = "faces";
+    }
+    if (elements.size() == 1) return std::string(one);
+    return std::format("{} {}", elements.size(), many);
 }
 
 std::string groupSuffix(std::size_t count) { return count > 1 ? " (" + std::to_string(count) + " objects)" : std::string(); }

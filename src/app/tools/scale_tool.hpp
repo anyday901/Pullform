@@ -49,6 +49,7 @@ public:
         /// Each grip's side along each axis (-1, 0 or +1) and its world point.
         std::vector<std::pair<Vec3, Vec3>> grips;
         [[nodiscard]] Vec3 world(const Vec3& side) const; ///< box point at sides (-1..1) per axis
+        void show(ScalePreview& preview) const;           ///< puts the box's corners and grips on a preview
     };
     /// The current selection's box, or nothing when nothing is selected.
     [[nodiscard]] std::optional<Box> selectionBox() const;
@@ -74,7 +75,11 @@ private:
     /// The grip under the pointer, if any.
     [[nodiscard]] std::optional<std::size_t> gripAt(const Box& box, const PointerInput& input) const;
     /// Idle: shows the selection's box and grips (highlighting `hot`), or clears them.
-    void showGrips(std::optional<std::size_t> hot);
+    void showGrips(std::optional<std::size_t> hot) const;
+    /// Starts a grip drag when the pointer is on a grip.
+    bool startGrip(const PointerInput& input);
+    /// Starts a uniform scale about the base centre from a click off the grips.
+    void startRadial(const PointerInput& input);
     /// The factors a grip drag gives for the pointer ray (1 along axes the grip does not move).
     [[nodiscard]] std::optional<Vec3> gripFactors(const Ray& ray) const;
     /// The preview for `factors` (checked, with the result drawn in place).
