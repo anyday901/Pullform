@@ -925,6 +925,50 @@ Expected<OpResult> duplicateObjects(const Document& doc, const std::vector<Objec
     return result;
 }
 
+namespace {
+
+/// `count` sets of copies of `ids`; `place(doc, copy, i)` puts the i-th set's copy in place.
+template <class Place>
+Expected<OpResult> arrayOf(const Document& doc, const std::vector<ObjectId>& ids, int count, Place place) {
+    if (auto e = checkIds(doc, ids)) return Error{*e};
+    if (count < 1 || count > kMaxArrayCount) {
+        return Error{std::format("The number of copies must be from 1 to {}.", kMaxArrayCount)};
+    }
+    OpResult result{doc, std::nullopt, {}};
+    for (int i = 1; i <= count; ++i) {
+        for (const ObjectId id : ids) {
+            auto step = place(result.document, id, i);
+            if (!step) return Error{step.error()};
+            result.objectIds.push_back(*step->objectId);
+            result.document = std::move(step).value().document;
+        }
+    }
+    result.objectId = result.objectIds.back();
+    return result;
+}
+
+} // namespace
+
+Expected<OpResult> arrayObjects(const Document& doc, const std::vector<ObjectId>& ids, const Vec3& step, int count) {
+    return arrayOf(doc, ids, count, [&step](const Document& d, ObjectId id, int i) {
+        return duplicateObject(d, id, step * static_cast<double>(i));
+    });
+}
+
+Expected<OpResult> radialArrayObjects(const Document& doc, const std::vector<ObjectId>& ids, const Vec3& pivot, const Vec3& axis,
+                                      double stepRadians, int count) {
+    return arrayOf(doc, ids, count, [&pivot, &axis, stepRadians](const Document& d, ObjectId id, int i) -> Expected<OpResult> {
+        auto copy = duplicateObject(d, id, Vec3{0.0});
+        if (!copy) return copy;
+        const ObjectId copyId = *copy->objectId;
+        auto turned = rotateObject(copy->document, copyId, pivot, axis, stepRadians * static_cast<double>(i));
+        if (!turned) return turned;
+        OpResult r = std::move(turned).value();
+        r.objectId = copyId;
+        return r;
+    });
+}
+
 Expected<OpResult> deleteObjects(const Document& doc, const std::vector<ObjectId>& ids) {
     auto r = forEachObject(doc, ids, [](const Document& d, ObjectId id) { return deleteObject(d, id); });
     if (!r) return r;

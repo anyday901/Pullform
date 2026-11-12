@@ -12,6 +12,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <variant>
 #include <vector>
 
@@ -137,6 +138,7 @@ struct RotatePreview {
     std::vector<ProfileObject> group;
     /// With several objects selected: every object turning (includes objectId).
     std::vector<ObjectId> objectIds;
+    bool copy = false; ///< committing places turned copies; the originals stay drawn
 };
 
 /// Live scale preview: uniform factor from the ratio of pointer distances to
@@ -284,6 +286,13 @@ public:
     /// document, selection and history are unchanged and an error message is set.
     bool commit(const std::string& label, const Operation& op, const SelectAfter& selectAfter = {});
 
+    /// Replaces the last undo entry: runs `op` against the document as it was
+    /// before that entry and, if the result validates, makes it current under
+    /// `label` (still one undo entry; redo is cleared). Used to edit a copy into
+    /// an array until the next action. On failure nothing changes. Returns
+    /// false when there is no entry to amend.
+    bool amendLast(std::string_view label, const Operation& op, const SelectAfter& selectAfter = {});
+
     bool undo();
     bool redo();
     [[nodiscard]] bool canUndo() const { return !undo_.empty(); }
@@ -313,6 +322,10 @@ public:
 
     /// True when the document differs from the last saved (or opened) state.
     /// Undoing back to the saved state makes it clean again.
+    /// Identifies the current document state: it changes with every commit,
+    /// undo, redo and amend, and comes back with undo and redo.
+    [[nodiscard]] std::uint64_t stateId() const { return stateId_; }
+
     [[nodiscard]] bool isDirty() const { return stateId_ != savedStateId_; }
     void markSaved() { savedStateId_ = stateId_; }
 

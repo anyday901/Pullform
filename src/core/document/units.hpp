@@ -39,6 +39,20 @@ Expected<std::vector<double>> parseLengthList(std::string_view text, std::size_t
 /// Parses an angle in degrees ("45", "-90", "22.5deg", "30°") into radians.
 Expected<double> parseAngle(std::string_view text);
 
+/// An array typed after a Move or Rotate copy: `count` copies repeated at the
+/// copy's spacing ("5x", "x5" or "*5"), or spread evenly between the original
+/// and the copy ("/5").
+struct ArrayCount {
+    int count = 1;
+    bool divide = false;
+};
+inline constexpr int kMaxArrayCount = 1000;
+
+/// Parses array syntax. Nothing when `text` is not array syntax at all (it is
+/// a distance or an angle); an error when it is but the count is not a whole
+/// number from 1 to kMaxArrayCount.
+std::optional<Expected<ArrayCount>> parseArrayCount(std::string_view text);
+
 /// Formats radians as degrees, trimming insignificant zeros ("45°", "22.5°").
 std::string formatAngle(double radians);
 

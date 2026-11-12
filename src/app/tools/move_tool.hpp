@@ -1,6 +1,7 @@
 #pragma once
 
 #include "app/tools/tool.hpp"
+#include "app/tools/tool_support.hpp"
 
 #include <vector>
 
@@ -12,7 +13,9 @@ namespace pf {
 /// selected (Select tool), clicking one of their objects moves just those
 /// elements and the connected geometry stretches, folding faces that would
 /// bend. X, Y, Z or the arrow keys lock an axis; copy mode places a duplicate
-/// instead (whole objects only). One undo entry per move.
+/// instead (whole objects only). One undo entry per move. Right after a copy,
+/// typing "5x" makes five copies at that spacing, "/5" spreads five between,
+/// and a new distance re-spaces them, until the next action.
 class MoveTool final : public ToolBase {
 public:
     using ToolBase::ToolBase;
@@ -20,6 +23,7 @@ public:
     void toolChanged() override {
         axisLock_.reset();
         copy_ = false;
+        lastCopy_.reset();
     }
     void pointerDown(const PointerInput& input) override;
     void pointerMove(const PointerInput& input) override;
@@ -48,7 +52,17 @@ public:
     /// to the selected object.
     std::optional<std::string> submitDistance(std::string_view distance);
 
+    /// Whether the last copy can still be edited into an array.
+    [[nodiscard]] bool arrayEditable() const { return lastCopy_ && lastCopy_->copy.current(editor()); }
+
 private:
+    /// The last copy and the offset it was made with (the spacing, or the
+    /// whole span for "/n").
+    struct MoveCopy {
+        LastCopy copy;
+        Vec3 offset{0.0};
+    };
+
     struct Gesture {
         ObjectId objectId;
         Vec3 anchor{0.0};           ///< picked point the guide line starts from
@@ -79,10 +93,18 @@ private:
     /// `ids`. `primary` is the object the gesture picked (its copy keeps the face).
     bool commit(const std::vector<ObjectId>& ids, ObjectId primary, const Vec3& offset,
                 const std::vector<ElementRef>& elements = {});
+    /// Redoes the last copy as `array` copies of `offset`, replacing its undo entry.
+    std::optional<std::string> editCopy(const Vec3& offset, ArrayCount array);
+    /// "5x" or "/5": edits the last copy into an array.
+    std::optional<std::string> submitArray(const Expected<ArrayCount>& array);
+    /// A typed "x, y, z", or a length along `direction` (an error without one).
+    /// Never zero.
+    [[nodiscard]] Expected<Vec3> typedOffset(std::string_view text, const std::optional<Vec3>& direction) const;
 
     std::optional<Gesture> gesture_;
     std::optional<MoveAxis> axisLock_;
     bool copy_ = false;
+    std::optional<MoveCopy> lastCopy_;
 };
 
 } // namespace pf

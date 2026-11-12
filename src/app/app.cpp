@@ -427,9 +427,12 @@ void App::handleShortcuts() {
     if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, false)) tools_.key(ToolKey::ArrowUp);
     if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, false)) tools_.key(ToolKey::ArrowDown);
     const bool typing = ui_.hasMeasurementText();
+    // Move and Rotate also take "/5" and "*5" (array copies); "x5" needs the
+    // box, since X alone locks the Move axis, but "5x" works anywhere.
+    const bool arrays = tools_.tool() == Tool::Move || tools_.tool() == Tool::Rotate;
     for (int i = 0; i < io.InputQueueCharacters.Size; ++i) {
         const unsigned int c = io.InputQueueCharacters[i];
-        const bool starts = (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '+';
+        const bool starts = (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '+' || (arrays && (c == '/' || c == '*'));
         // Recheck per character: a digit earlier in this same batch starts the value.
         if (ui_.hasMeasurementText() || starts) {
             ui_.typeMeasurement(c);
@@ -634,7 +637,7 @@ void App::selectAllObjects() {
     onActivity();
 }
 
-// Move copy mode: tapping the copy modifier on its own (Ctrl, or Option on
+// Move and Rotate copy mode: tapping the copy modifier on its own (Ctrl, or Option on
 // macOS, as in other modelers) toggles it, also in the middle of a drag. It
 // fires on release, and only when no other key was pressed while it was held,
 // so shortcuts like Ctrl+Z never toggle it.
@@ -648,7 +651,8 @@ void App::handleMoveCopyTap() {
 #endif
     // The same tap toggles the tape measure's guide creation and push/pull's
     // new starting face.
-    if (tools_.tool() != Tool::Move && tools_.tool() != Tool::TapeMeasure && tools_.tool() != Tool::PushPull) {
+    if (tools_.tool() != Tool::Move && tools_.tool() != Tool::Rotate && tools_.tool() != Tool::TapeMeasure &&
+        tools_.tool() != Tool::PushPull) {
         copyTapArmed_ = false;
         return;
     }
@@ -665,6 +669,7 @@ void App::handleMoveCopyTap() {
     if (ImGui::IsKeyReleased(left) || ImGui::IsKeyReleased(right)) {
         copyTapArmed_ = false;
         if (tools_.tool() == Tool::Move) tools_.toggleMoveCopy();
+        else if (tools_.tool() == Tool::Rotate) tools_.toggleRotateCopy();
         else if (tools_.tool() == Tool::PushPull) tools_.togglePushNewFace();
         else tools_.toggleTapeGuides();
         onActivity();

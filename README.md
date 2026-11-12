@@ -132,7 +132,8 @@ tree, configure with `-DFETCHCONTENT_FULLY_DISCONNECTED=ON`.
 | Offset tool (click a face, move in or out; double-click repeats) | F |
 | Move tool | M |
 | Lock Move to an axis (again to release) | X / Y / Z, or Right / Left / Up arrow |
-| Move: place a copy instead (again to stop) | Tap Ctrl (Option on macOS) |
+| Move, Rotate: place a copy instead (again to stop) | Tap Ctrl (Option on macOS) |
+| Move, Rotate: array the copy just made (five at that spacing, or five spread between) | Type `5x` or `/5`, Enter |
 | Rotate tool | Q (arrow keys pick the axis: Right X, Left Y, Up Z) |
 | Scale tool | S |
 | Orbit tool | O |

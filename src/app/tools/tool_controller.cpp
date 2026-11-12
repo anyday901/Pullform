@@ -134,6 +134,8 @@ void ToolController::toggleAxisLock(MoveAxis axis) { move_->toggleAxisLock(axis)
 const std::optional<MoveAxis>& ToolController::axisLock() const { return move_->axisLock(); }
 void ToolController::toggleMoveCopy() { move_->toggleCopy(); }
 bool ToolController::moveCopy() const { return move_->copy(); }
+void ToolController::toggleRotateCopy() { rotate_->toggleCopy(); }
+bool ToolController::rotateCopy() const { return rotate_->copy(); }
 std::optional<std::string> ToolController::submitMoveDistance(std::string_view distance) { return move_->submitDistance(distance); }
 
 void ToolController::setRotateAxis(MoveAxis axis) { rotate_->setAxis(axis); }

@@ -48,6 +48,34 @@ std::vector<ObjectId> transformGroup(const Editor& editor, ObjectId primary);
 /// one, the base centre of the group's bounding box for several.
 Vec3 groupBaseCenter(const Document& doc, const std::vector<ObjectId>& ids);
 
+/// The last Move or Rotate copy, kept so that typing "5x", "/5" or a new
+/// distance or angle edits it into an array (SketchUp-style) until anything
+/// else happens: another edit, undo, a selection change or a tool change.
+struct LastCopy {
+    std::vector<ObjectId> originals; ///< what was copied
+    std::size_t primaryIndex = 0;    ///< the picked object among `originals` (its copies keep the face)
+    std::optional<FaceId> face;
+    ArrayCount array;                ///< one plain copy until an array is typed
+    std::uint64_t stateId = 0;       ///< editor state right after the copy (or its last edit)
+    SelectionSet selection;          ///< the selection then: the last set of copies
+
+    /// Nothing has happened since the copy (or its last edit).
+    [[nodiscard]] bool current(const Editor& editor) const {
+        return editor.stateId() == stateId && editor.selectionSet() == selection;
+    }
+    /// Selects the last set of copies of `r` (an array's farthest copies), the
+    /// picked object's copy with its face.
+    [[nodiscard]] SelectionSet lastSet(const OpResult& r) const;
+    /// Records the editor's state after a successful copy or edit.
+    void settle(const Editor& editor) {
+        stateId = editor.stateId();
+        selection = editor.selectionSet();
+    }
+};
+
+/// What to tell the user when "5x" or "/5" is typed with no copy to edit.
+std::string noCopyToArray(const char* tool);
+
 /// The objects that own the selection's vertices, edges and faces, in
 /// selection order (empty when none is selected).
 std::vector<ObjectId> elementOwners(const SelectionSet& selection);
