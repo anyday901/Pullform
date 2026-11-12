@@ -6,6 +6,10 @@
 
 #include <glm/geometric.hpp>
 
+#include <algorithm>
+#include <format>
+#include <string_view>
+
 namespace pf {
 
 std::string_view toolName(Tool tool) {
@@ -154,6 +158,40 @@ Vec3 groupBaseCenter(const Document& doc, const std::vector<ObjectId>& ids) {
     }
     const auto centre = selectionBaseCenter(doc, ids);
     return centre ? *centre : Vec3{0.0};
+}
+
+std::vector<ObjectId> elementOwners(const SelectionSet& selection) {
+    std::vector<ObjectId> owners;
+    for (const ElementRef& e : selection.elements()) {
+        if (std::find(owners.begin(), owners.end(), e.object) == owners.end()) owners.push_back(e.object);
+    }
+    return owners;
+}
+
+Vec3 elementsBaseCenter(const Document& doc, const std::vector<ElementRef>& elements) {
+    Bounds b;
+    for (const Vec3& p : elementPoints(doc, elements)) b.extend(p);
+    return Vec3{b.center().x, b.center().y, b.valid ? b.min.z : 0.0};
+}
+
+std::string elementsLabel(const std::vector<ElementRef>& elements) {
+    if (elements.empty()) return {};
+    const ElementKind kind = elements.front().kind;
+    const bool same = std::all_of(elements.begin(), elements.end(), [kind](const ElementRef& e) { return e.kind == kind; });
+    std::string_view one = "element";
+    std::string_view many = "elements";
+    if (same && kind == ElementKind::Vertex) {
+        one = "vertex";
+        many = "vertices";
+    } else if (same && kind == ElementKind::Edge) {
+        one = "edge";
+        many = "edges";
+    } else if (same) {
+        one = "face";
+        many = "faces";
+    }
+    if (elements.size() == 1) return std::string(one);
+    return std::format("{} {}", elements.size(), many);
 }
 
 std::string groupSuffix(std::size_t count) { return count > 1 ? " (" + std::to_string(count) + " objects)" : std::string(); }

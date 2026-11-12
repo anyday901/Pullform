@@ -50,8 +50,11 @@ constexpr const char* kLimitsText =
     "- A rectangle drawn on a face is its own object: pushing it into a wall overlaps the wall\n"
     "  rather than cutting it. Holes and cutting are not supported yet.\n"
     "- Touching or overlapping objects stay separate until joined with Tools > Solid Tools.\n"
-    "- Move, Duplicate, Rotate and Scale work on whole objects; Rotate turns about the X, Y or Z\n"
-    "  axis and Scale cannot mirror.\n"
+    "- Move, Duplicate, Rotate and Scale work on whole objects; Move, Rotate and Scale also on\n"
+    "  selected vertices, edges and faces (the connected geometry stretches; faces that would bend\n"
+    "  fold along soft edges). Rotate turns about the X, Y or Z axis, or about a line dragged from\n"
+    "  the centre (along an edge).\n"
+    "- Scale grips: drag a corner, edge or face grip; a negative factor (-1) mirrors.\n"
     "- Dimensions are deleted with their object and listed in this panel for deleting.";
 
 /// "30°" for a turn about the vertical axis, "none", or "tilted" for anything else.
@@ -293,8 +296,11 @@ std::string Ui::measurementLive(const UiContext& ctx) const {
     }
     if (const auto* r = std::get_if<RotatePreview>(&ctx.editor.preview()); r && r->reference) return formatAngle(r->angle);
     if (const auto* a = std::get_if<ArcPreview>(&ctx.editor.preview())) return arcLive(*a, u);
-    if (const auto* s = std::get_if<ScalePreview>(&ctx.editor.preview())) {
-        return formatLength(s->factor * 100.0, LengthUnit::Meter, false) + "%";
+    if (const auto* s = std::get_if<ScalePreview>(&ctx.editor.preview()); s && s->start) {
+        const auto pct = [](double f) { return formatLength(f * 100.0, LengthUnit::Meter, false) + "%"; };
+        const Vec3& f = s->factors;
+        if (f.x == f.y && f.y == f.z) return pct(f.x);
+        return pct(f.x) + ", " + pct(f.y) + ", " + pct(f.z);
     }
     if (ctx.tools.tool() == Tool::Select && ctx.editor.selection()) {
         if (const auto* o = ctx.editor.document().find(ctx.editor.selection()->objectId); o && o->extrusion) {

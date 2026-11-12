@@ -87,6 +87,8 @@ private:
     void appendVertexMarker(std::vector<LineSegment>& lines, const Vec3& p, double pixels, const glm::vec4& color) const;
     /// Draws a rotate/scale preview object (or the original in red when the
     /// current value is invalid).
+    /// The Scale tool's bounding box and grips.
+    void drawScaleGrips(std::vector<LineSegment>& lines, const ScalePreview& preview) const;
     void drawTransformResult(const std::optional<ProfileObject>& result, bool error, const ProfileObject* original,
                              std::vector<LineSegment>& lines);
 

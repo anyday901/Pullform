@@ -44,7 +44,7 @@ std::string formatAngle(double radians);
 
 /// Parses scale factors: one value for a uniform scale ("1.5", "150%") or three
 /// for width, depth and height ("2, 1, 0.5"). Always returns three factors.
-/// Factors must be positive.
+/// Factors must not be zero; a negative factor mirrors.
 Expected<std::vector<double>> parseScaleFactors(std::string_view text);
 
 double metersTo(double meters, LengthUnit unit);
