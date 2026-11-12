@@ -29,6 +29,14 @@ std::optional<Vec3> onFacePlane(const ProfileObject& o, const mesh::Mesh& m, std
     return intersectPlane(ray, point, normal);
 }
 
+/// Object-local points in world space.
+std::vector<Vec3> toWorld(const ProfileObject& o, const std::vector<Vec3>& local) {
+    std::vector<Vec3> world;
+    world.reserve(local.size());
+    for (const Vec3& q : local) world.push_back(localToWorld(o, q));
+    return world;
+}
+
 /// Projects a world point onto the plane of face `face`.
 Vec3 projectToFace(const ProfileObject& o, const mesh::Mesh& m, std::uint32_t face, const Vec3& world) {
     const auto* f = m.face(mesh::FaceId{face});
@@ -50,7 +58,7 @@ std::optional<std::pair<ObjectId, std::uint32_t>> OffsetTool::faceUnder(const Po
 }
 
 void OffsetTool::pointerDown(const PointerInput& input) {
-    if (gesture_ && input.clicks == 2 && last_) {
+    if (gesture_ && input.clicks == 2 && last_.has_value()) {
         // The second press of a double-click: its first press started a
         // gesture that has not moved yet. Drop it and repeat the last offset.
         const auto* preview = std::get_if<OffsetPreview>(&editor().preview());
@@ -71,7 +79,7 @@ void OffsetTool::pointerDown(const PointerInput& input) {
         return;
     }
     const auto [id, face] = *under;
-    if (input.clicks == 2 && last_) {
+    if (input.clicks == 2 && last_.has_value()) {
         // Double-click: the last offset again, on this face.
         commit(id, face, *last_);
         return;
@@ -123,13 +131,8 @@ void OffsetTool::setPreview(double distance) {
     const auto* o = editor().document().find(gesture_->objectId);
     if (!o) return;
     if (std::abs(distance) >= tol::kMinDimension) {
-        const auto loops = mesh::offsetLoops(*mesh::objectMesh(*o), mesh::FaceId{gesture_->face}, distance);
-        if (loops) {
-            for (const auto& loop : *loops) {
-                std::vector<Vec3> world;
-                for (const Vec3& q : loop.points) world.push_back(localToWorld(*o, q));
-                p.loops.push_back(std::move(world));
-            }
+        if (const auto loops = mesh::offsetLoops(*mesh::objectMesh(*o), mesh::FaceId{gesture_->face}, distance)) {
+            for (const auto& loop : *loops) p.loops.push_back(toWorld(*o, loop.points));
         } else {
             p.error = loops.error();
         }
@@ -177,8 +180,10 @@ std::optional<std::string> OffsetTool::submit(std::string_view text) {
     if (gesture_) {
         // The typed length goes the way the pointer shows; negative turns it round.
         const auto* preview = std::get_if<OffsetPreview>(&editor().preview());
-        const double sign = preview && preview->distance < 0.0 ? -1.0 : 1.0;
-        if (!commit(gesture_->objectId, gesture_->face, *parsed * sign)) return ctx_.lastError("Offset failed.");
+        if (const double sign = preview && preview->distance < 0.0 ? -1.0 : 1.0;
+            !commit(gesture_->objectId, gesture_->face, *parsed * sign)) {
+            return ctx_.lastError("Offset failed.");
+        }
         return std::nullopt;
     }
     const auto& sel = editor().selection();

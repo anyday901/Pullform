@@ -30,7 +30,9 @@ struct PlaneFrame {
 };
 
 PlaneFrame frameFor(const Vec3& origin, const Vec3& n) {
-    const Vec3 ax = std::abs(n.x) < 0.6 ? Vec3{1, 0, 0} : (std::abs(n.y) < 0.6 ? Vec3{0, 1, 0} : Vec3{0, 0, 1});
+    Vec3 ax{0, 0, 1};
+    if (std::abs(n.x) < 0.6) ax = Vec3{1, 0, 0};
+    else if (std::abs(n.y) < 0.6) ax = Vec3{0, 1, 0};
     const Vec3 u = glm::normalize(glm::cross(ax, n));
     return {origin, u, glm::cross(n, u)};
 }
@@ -77,10 +79,8 @@ struct Offset2d {
     std::vector<std::size_t> edges;
 };
 
-/// Offsets a closed polygon by `d` to the left of each edge. Edges that turn
-/// round (shrink past nothing) are dropped and their neighbours meet instead,
-/// until none does. Nothing when fewer than three edges are left.
-std::optional<Offset2d> offsetPolygon(const std::vector<Vec2>& poly, double d) {
+/// Every edge of a closed polygon moved by `d` to its left.
+std::vector<OffsetLine> movedEdges(const std::vector<Vec2>& poly, double d) {
     const std::size_t n = poly.size();
     std::vector<OffsetLine> lines;
     for (std::size_t i = 0; i < n; ++i) {
@@ -88,33 +88,48 @@ std::optional<Offset2d> offsetPolygon(const std::vector<Vec2>& poly, double d) {
         const double len = glm::length(e);
         if (len <= 0.0) continue;
         const Vec2 dir = e / len;
-        lines.push_back({poly[i] + Vec2{-dir.y, dir.x} * d, dir, i});
+        lines.emplace_back(OffsetLine{poly[i] + Vec2{-dir.y, dir.x} * d, dir, i});
     }
-    for (std::size_t round = 0; round <= n; ++round) {
-        const std::size_t m = lines.size();
-        if (m < 3) return std::nullopt;
-        std::vector<Vec2> corners(m);
-        for (std::size_t i = 0; i < m; ++i) {
-            const auto c = meet(lines[(i + m - 1) % m], lines[i]);
-            if (!c) return std::nullopt;
-            corners[i] = *c;
-        }
-        std::vector<bool> collapsed(m, false);
-        bool any = false;
-        for (std::size_t i = 0; i < m; ++i) {
-            if (glm::dot(corners[(i + 1) % m] - corners[i], lines[i].dir) <= tol::kWeldDistance) {
-                collapsed[i] = true;
-                any = true;
-            }
-        }
-        if (!any) {
-            Offset2d out{std::move(corners), {}};
+    return lines;
+}
+
+/// The corners where consecutive lines meet (corner i starts line i), or
+/// nothing when two neighbours fold back on each other.
+std::optional<std::vector<Vec2>> cornersOf(const std::vector<OffsetLine>& lines) {
+    const std::size_t m = lines.size();
+    std::vector<Vec2> corners(m);
+    for (std::size_t i = 0; i < m; ++i) {
+        const auto c = meet(lines[(i + m - 1) % m], lines[i]);
+        if (!c) return std::nullopt;
+        corners[i] = *c;
+    }
+    return corners;
+}
+
+/// The lines whose edge between its two corners still runs forward.
+std::vector<OffsetLine> forwardLines(const std::vector<OffsetLine>& lines, const std::vector<Vec2>& corners) {
+    const std::size_t m = lines.size();
+    std::vector<OffsetLine> kept;
+    for (std::size_t i = 0; i < m; ++i) {
+        if (glm::dot(corners[(i + 1) % m] - corners[i], lines[i].dir) > tol::kWeldDistance) kept.push_back(lines[i]);
+    }
+    return kept;
+}
+
+/// Offsets a closed polygon by `d` to the left of each edge. Edges that turn
+/// round (shrink past nothing) are dropped and their neighbours meet instead,
+/// until none does. Nothing when fewer than three edges are left.
+std::optional<Offset2d> offsetPolygon(const std::vector<Vec2>& poly, double d) {
+    std::vector<OffsetLine> lines = movedEdges(poly, d);
+    for (std::size_t round = 0; round <= poly.size(); ++round) {
+        if (lines.size() < 3) return std::nullopt;
+        auto corners = cornersOf(lines);
+        if (!corners) return std::nullopt;
+        std::vector<OffsetLine> kept = forwardLines(lines, *corners);
+        if (kept.size() == lines.size()) {
+            Offset2d out{std::move(*corners), {}};
             for (const auto& l : lines) out.edges.push_back(l.edge);
             return out;
-        }
-        std::vector<OffsetLine> kept;
-        for (std::size_t i = 0; i < m; ++i) {
-            if (!collapsed[i]) kept.push_back(lines[i]);
         }
         lines = std::move(kept);
     }
@@ -131,11 +146,8 @@ bool segmentsMeet(const Vec2& a, const Vec2& b, const Vec2& c, const Vec2& d) {
         const double t = len2 > 0.0 ? std::clamp(glm::dot(p - s0, e) / len2, 0.0, 1.0) : 0.0;
         return glm::length(p - (s0 + e * t));
     };
-    const double d1 = side(c, d, a);
-    const double d2 = side(c, d, b);
-    const double d3 = side(a, b, c);
-    const double d4 = side(a, b, d);
-    if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return true;
+    const auto opposite = [](double s, double t) { return (s > 0 && t < 0) || (s < 0 && t > 0); };
+    if (opposite(side(c, d, a), side(c, d, b)) && opposite(side(a, b, c), side(a, b, d))) return true;
     return distToSeg(a, c, d) <= eps || distToSeg(b, c, d) <= eps || distToSeg(c, a, b) <= eps || distToSeg(d, a, b) <= eps;
 }
 
@@ -230,8 +242,7 @@ void drawLoop(Mesh& m, const Loop& source, const OffsetLoop& loop) {
     };
     std::size_t start = 0;
     while (start < n && continues(start)) ++start;
-    const bool wholeCurve = start == n; // a full circle or polygon
-    if (wholeCurve) start = 0;
+    if (start == n) start = 0; // a full circle or polygon: one run all the way round
 
     std::size_t i = 0;
     while (i < n) {
@@ -241,14 +252,39 @@ void drawLoop(Mesh& m, const Loop& source, const OffsetLoop& loop) {
         std::vector<Vec3> points;
         for (std::size_t j = 0; j <= k; ++j) points.push_back(loop.points[(first + j) % n]);
         const Curve* original = tags[first] ? m.curve(*tags[first]) : nullptr;
-        const auto curve = original && k >= 2 ? offsetCurve(*original, points) : std::nullopt;
-        if (curve) {
+        if (const auto curve = original && k >= 2 ? offsetCurve(*original, points) : std::nullopt; curve.has_value()) {
             m.addCurve(*curve, points);
         } else {
             for (std::size_t j = 0; j < k; ++j) m.addEdge(points[j], points[j + 1]);
         }
         i += k;
     }
+}
+
+/// One loop offset in 2D: its corners and source edges, nothing when it
+/// closed up or turned inside out (its winding flipped).
+std::optional<Offset2d> offsetShape(const std::vector<Vec2>& poly, double distance) {
+    auto moved = offsetPolygon(poly, distance);
+    if (!moved) return std::nullopt;
+    const double before = area2d(poly);
+    if (const double after = area2d(moved->points); std::abs(after) <= tol::kMinArea || (after > 0.0) != (before > 0.0)) {
+        return std::nullopt;
+    }
+    return moved;
+}
+
+/// Why offset loops (outer first) cannot be drawn together, if they cannot.
+std::optional<std::string> loopsConflict(const std::vector<std::vector<Vec2>>& shapes) {
+    for (std::size_t a = 0; a < shapes.size(); ++a) {
+        for (std::size_t b = a + 1; b < shapes.size(); ++b) {
+            if (loopsCross(shapes[a], shapes[b])) return "The offset is too large for this face: its loops would cross.";
+        }
+    }
+    // Inward, the holes grow: each must stay inside the shrunken outer loop.
+    for (std::size_t h = 1; h < shapes.size(); ++h) {
+        if (!inside2d(shapes[h].front(), shapes[0])) return "The offset is too large for this face.";
+    }
+    return std::nullopt;
 }
 
 } // namespace
@@ -265,36 +301,18 @@ Expected<std::vector<OffsetLoop>> offsetLoops(const Mesh& mesh, FaceId id, doubl
     for (std::size_t l = 0; l < f->loops.size(); ++l) {
         std::vector<Vec2> poly;
         for (const Vec3& p : mesh.loopPositions(f->loops[l])) poly.push_back(frame.to2d(p));
-        const double before = area2d(poly);
-        auto moved = offsetPolygon(poly, distance);
-        if (!moved) {
-            if (l == 0) return Error{"The offset is too large for this face."};
-            continue; // a hole shrinking to nothing is simply gone
-        }
-        std::vector<Vec2> points = std::move(moved->points);
-        const double after = area2d(points);
-        // The loop closed up, or turned inside out (its winding flipped).
-        if (std::abs(after) <= tol::kMinArea || (after > 0.0) != (before > 0.0)) {
-            if (l == 0) return Error{"The offset is too large for this face."};
-            continue;
-        }
-        if (selfCrossing(points)) return Error{"The offset is too large for this face: its edges would cross."};
+        auto moved = offsetShape(poly, distance);
+        if (!moved && l == 0) return Error{"The offset is too large for this face."};
+        if (!moved) continue; // a hole shrinking to nothing is simply gone
+        if (selfCrossing(moved->points)) return Error{"The offset is too large for this face: its edges would cross."};
         OffsetLoop loop;
         loop.source = l;
-        for (const Vec2& p : points) loop.points.push_back(frame.to3d(p));
+        for (const Vec2& p : moved->points) loop.points.push_back(frame.to3d(p));
         loop.sourceEdges = std::move(moved->edges);
-        shapes.push_back(std::move(points));
+        shapes.push_back(std::move(moved->points));
         out.push_back(std::move(loop));
     }
-    for (std::size_t a = 0; a < shapes.size(); ++a) {
-        for (std::size_t b = a + 1; b < shapes.size(); ++b) {
-            if (loopsCross(shapes[a], shapes[b])) return Error{"The offset is too large for this face: its loops would cross."};
-        }
-    }
-    // Inward, the holes grow: each must stay inside the shrunken outer loop.
-    for (std::size_t h = 1; h < shapes.size(); ++h) {
-        if (!inside2d(shapes[h].front(), shapes[0])) return Error{"The offset is too large for this face."};
-    }
+    if (auto e = loopsConflict(shapes)) return Error{*e};
     return out;
 }
 
@@ -322,11 +340,60 @@ double signedBoundaryDistance(const Mesh& mesh, FaceId id, const Vec3& point) {
     return inside ? nearest : -nearest;
 }
 
+namespace {
+
+/// Faces in the plane of `normal` made since face id `since`.
+std::vector<FaceId> facesSince(const Mesh& m, std::uint32_t since, const Vec3& normal) {
+    std::vector<FaceId> made;
+    for (const auto& [fid, f] : m.faces()) {
+        if (fid >= since && coplanar(f, normal)) made.push_back(FaceId{fid});
+    }
+    return made;
+}
+
+/// Whether any face has `loop` as its outer loop (a hole with a face in it).
+bool filledBy(const Mesh& m, const Loop& loop) {
+    return std::ranges::any_of(m.faces(), [&](const auto& kv) { return sameEdges(kv.second.loops[0], loop); });
+}
+
+/// The face among `made` that holds `loop` as one of its loops.
+std::optional<FaceId> faceHolding(const Mesh& m, const std::vector<FaceId>& made, const Loop& loop) {
+    for (const FaceId fid : made) {
+        const Face& f = *m.face(fid);
+        if (std::ranges::any_of(f.loops, [&](const Loop& l) { return sameEdges(l, loop); })) return fid;
+    }
+    return std::nullopt;
+}
+
+/// Drawing a shrunken hole in empty space filled it with a face; that face
+/// belongs between the hole and its offset instead.
+void ringInsideHole(Mesh& m, const std::vector<FaceId>& made, const Loop& hole, const Vec3& normal) {
+    const auto fill = std::ranges::find_if(made, [&](FaceId fid) { return m.face(fid)->loops.size() == 1; });
+    if (fill == made.end()) return;
+    const Face& f = *m.face(*fill);
+    Loop inner = f.loops[0];
+    if (glm::dot(f.normal, normal) > 0.0) inner = reversed(inner);
+    m.insertFace(*fill, Face{{reversed(hole), inner}, normal});
+}
+
+/// Fills each hole of `original` whose offset closed up (no loop came from it)
+/// and that has no face in it already, as a smaller offset would have filled
+/// all but its middle.
+void fillClosedHoles(Mesh& m, const Face& original, const std::vector<OffsetLoop>& loops) {
+    for (std::size_t h = 1; h < original.loops.size(); ++h) {
+        if (std::ranges::any_of(loops, [h](const OffsetLoop& l) { return l.source == h; })) continue;
+        if (!filledBy(m, original.loops[h])) m.insertFace(FaceId{m.nextFaceId()}, Face{{reversed(original.loops[h])}, original.normal});
+    }
+}
+
+} // namespace
+
 Expected<OffsetResult> offsetFace(Mesh& mesh, FaceId id, double distance) {
     auto loops = offsetLoops(mesh, id, distance);
     if (!loops) return Error{loops.error()};
     const Face original = *mesh.face(id);
     const Vec3 normal = original.normal;
+    const bool outward = distance < 0.0;
     Mesh m = mesh;
     const std::uint32_t firstEdge = m.nextEdgeId();
     const std::uint32_t firstFace = m.nextFaceId();
@@ -335,46 +402,16 @@ Expected<OffsetResult> offsetFace(Mesh& mesh, FaceId id, double distance) {
     for (const OffsetLoop& loop : *loops) {
         const Loop& source = original.loops[loop.source];
         // A hole with no face in it (on an outward offset, the shrunken hole is drawn there).
-        const bool emptyHole = loop.source > 0 && std::ranges::none_of(m.faces(), [&](const auto& kv) {
-            return sameEdges(kv.second.loops[0], source);
-        });
+        const bool emptyHole = loop.source > 0 && !filledBy(m, source);
         const std::uint32_t facesBefore = m.nextFaceId();
         drawLoop(m, source, loop);
-        std::vector<FaceId> made;
-        for (const auto& [fid, f] : m.faces()) {
-            if (fid >= facesBefore && coplanar(f, normal)) made.push_back(FaceId{fid});
-        }
-        if (distance < 0.0 && loop.source == 0) {
-            // The ring around the face holds the face's outer loop as a hole.
-            for (const FaceId fid : made) {
-                const Face& f = *m.face(fid);
-                if (std::ranges::any_of(f.loops, [&](const Loop& l) { return sameEdges(l, source); })) result.ring = fid;
-            }
-        }
-        if (distance < 0.0 && emptyHole) {
-            // Drawing the shrunken hole in empty space filled it with a face;
-            // the face belongs between the hole and its offset instead.
-            for (const FaceId fid : made) {
-                const Face& f = *m.face(fid);
-                if (f.loops.size() != 1) continue;
-                Loop inner = f.loops[0];
-                if (glm::dot(f.normal, normal) > 0.0) inner = reversed(inner);
-                m.insertFace(fid, Face{{reversed(source), inner}, normal});
-                break;
-            }
-        }
+        const std::vector<FaceId> made = facesSince(m, facesBefore, normal);
+        // Outward, the ring around the face holds the face's outer loop as a hole.
+        if (outward && loop.source == 0) result.ring = faceHolding(m, made, source);
+        if (outward && emptyHole) ringInsideHole(m, made, source, normal);
     }
-    if (distance > 0.0 && m.face(id)) result.ring = id;
-    if (distance < 0.0) {
-        // A hole that closed up on the way out is filled, as a smaller offset
-        // would have filled all but its middle. A hole with a face in it already is left as it is.
-        for (std::size_t h = 1; h < original.loops.size(); ++h) {
-            if (std::ranges::any_of(*loops, [h](const OffsetLoop& l) { return l.source == h; })) continue;
-            const Loop& hole = original.loops[h];
-            const bool filled = std::ranges::any_of(m.faces(), [&](const auto& kv) { return sameEdges(kv.second.loops[0], hole); });
-            if (!filled) m.insertFace(FaceId{m.nextFaceId()}, Face{{reversed(hole)}, normal});
-        }
-    }
+    if (!outward && m.face(id)) result.ring = id;
+    if (outward) fillClosedHoles(m, original, *loops);
 
     // Faces made in the face's plane face the same way as it.
     for (const auto& [fid, f] : m.faces()) {
