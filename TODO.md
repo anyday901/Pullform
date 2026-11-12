@@ -131,13 +131,14 @@ with selection, not item 14).
 
 ## Phase 3: Editing geometry
 
-- [ ] **14. Push/pull any planar face.** Side faces, faces of any shape, negative distances
+- [x] **14. Push/pull any planar face.** Side faces, faces of any shape, negative distances
       that cut back, cutting all the way through to make an opening, Ctrl to create a new
       starting face instead of moving the existing one, double-click to repeat the last
       distance. Replaces today's cap-only push/pull. *Depends on:* 4, 5. *Accept:* push a
       window rectangle on a 200 mm wall in by 200 mm and get a hole; Ctrl-pull a cap twice
       to make a stepped block. *Started:* #18 added push/pull of a face drawn with the
-      Line tool.
+      Line tool. *Done:* rectangles and circles drawn on a face now go into it; pushing
+      past the far side of a solid is refused rather than intersected.
 - [ ] **15. Move, Rotate and Scale on sub-elements.** Moving a vertex, edge or face stretches
       the connected geometry (with auto-fold when faces would go non-planar); Rotate a face
       about an edge; Scale with grip handles on the bounding box, mirrored with negative
@@ -149,18 +150,20 @@ with selection, not item 14).
 - [ ] **17. Offset tool (F).** Offset a face's boundary in or out by a typed distance,
       including concave shapes and faces with holes. *Depends on:* 4, 7. *Accept:* offset a
       wall's top face by 20 mm and push the ring up to make a coping.
-- [ ] **18. Follow Me.** Sweep a profile face along a selected path of edges (open or
+- [x] **18. Follow Me.** Sweep a profile face along a selected path of edges (open or
       closed), including around a face's perimeter. *Depends on:* 6, 10. *Accept:* a crown
       moulding profile swept around a rectangular room; a lathe-turned vase from a profile
       swept around a circle.
 - [ ] **19. Intersect Faces.** With Model, With Selection, With Context: add edges where
       faces cross so they can be split and erased. *Depends on:* 4. *Accept:* intersecting
       two overlapping boxes adds the shared edges and erasing gives the union outline.
-- [ ] **20. Solid tools.** Union, Subtract, Intersect, Trim, Split and Outer Shell on
+- [x] **20. Solid tools.** Union, Subtract, Intersect, Trim, Split and Outer Shell on
       closed solids (groups or components), probably through Manifold if item 3 picks it.
       *Depends on:* 3, 22. *Accept:* subtracting a cylinder from a box gives a closed solid
-      with a round hole that passes `checkSolid`.
-- [ ] **21. Edge and face cleanup.** Soften/smooth edges with an angle slider, Reverse
+      with a round hole that passes `checkSolid`. *Done:* written on our own edge/face mesh
+      (no kernel), working on today's closed objects, which groups and components can use
+      once item 22 lands.
+- [x] **21. Edge and face cleanup.** Soften/smooth edges with an angle slider, Reverse
       Faces and Orient Faces, Hide/Unhide geometry, Flip Along an axis. *Depends on:* 5.
       *Accept:* a 48-sided cylinder can be shown smooth with no visible segment edges.
 

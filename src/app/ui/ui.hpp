@@ -1,6 +1,7 @@
 #pragma once
 
 #include "app/tools/tool_controller.hpp"
+#include "app/ui/cleanup_ui.hpp"
 #include "app/viewport/labels.hpp"
 #include "core/commands/editor.hpp"
 
@@ -12,7 +13,7 @@
 namespace pf {
 
 /// Commands the interface asks the application to perform.
-enum class UiAction { New, Open, Save, SaveAs, Quit, Undo, Redo, Delete, Duplicate, SelectAll, FitView, ResetView, DeleteGuides };
+enum class UiAction { New, Open, Save, SaveAs, Quit, Undo, Redo, Delete, Duplicate, SelectAll, FitView, ResetView, DeleteGuides, IntersectModel, IntersectSelection, IntersectContext };
 
 /// What the interface needs to know about the application each frame.
 struct UiContext {
@@ -22,6 +23,7 @@ struct UiContext {
     bool dirty = false;
     double gridStep = 0.1;
     bool* profileEdges = nullptr; ///< viewport "profiles" edge style toggle, if offered
+    bool* hiddenGeometry = nullptr; ///< viewport View > Hidden Geometry toggle, if offered
 };
 
 /// Rectangle (window coordinates) left for the 3D viewport after laying out panels.
@@ -95,6 +97,7 @@ private:
     std::string errorTitle_, errorText_;
     bool openControls_ = false;
     bool openAbout_ = false;
+    CleanupUi cleanup_;
 };
 
 } // namespace pf

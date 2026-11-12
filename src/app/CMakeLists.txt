@@ -14,6 +14,8 @@ add_library(pullform_app_logic STATIC
   tools/line_tool.cpp
   tools/freehand_tool.cpp
   tools/push_pull_tool.cpp
+  tools/offset_tool.cpp
+  tools/follow_me_tool.cpp
   tools/move_tool.cpp
   tools/rotate_tool.cpp
   tools/scale_tool.cpp
@@ -47,6 +49,7 @@ add_executable(pullform WIN32
   viewport/gl_renderer.cpp
   viewport/viewport.cpp
   ui/ui.cpp
+  ui/cleanup_ui.cpp
   platform/file_dialog.cpp)
 if(WIN32)
   target_sources(pullform PRIVATE ${PROJECT_SOURCE_DIR}/packaging/windows/pullform.rc)

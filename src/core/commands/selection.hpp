@@ -108,4 +108,8 @@ SelectionSet applyElementClick(const SelectionSet& current, const std::vector<El
 /// selects exactly those, Add adds them, Toggle flips each one.
 SelectionSet applyRegion(const SelectionSet& current, const std::vector<ObjectId>& ids, SelectModifier modifier);
 
+/// The faces a face command (Intersect Faces) acts on: the selected faces, and
+/// every face of each object selected as a whole, in selection order.
+std::vector<ElementRef> selectedFaces(const Document& doc, const SelectionSet& selection);
+
 } // namespace pf

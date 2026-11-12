@@ -8,6 +8,7 @@ std::optional<ObjectId> replacedObject(const Preview& preview) {
     if (const auto* p = std::get_if<PushPullPreview>(&preview)) return p->objectId;
     if (const auto* r = std::get_if<RotatePreview>(&preview); r && r->result && !r->copy) return r->objectId;
     if (const auto* s = std::get_if<ScalePreview>(&preview); s && s->result) return s->objectId;
+    if (const auto* f = std::get_if<FollowMePreview>(&preview); f && f->result) return f->profile.object;
     return std::nullopt;
 }
 

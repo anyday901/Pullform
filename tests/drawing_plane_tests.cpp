@@ -10,6 +10,7 @@
 #include "app/tools/rectangle_tool.hpp"
 #include "core/commands/operations.hpp"
 #include "core/document/project_file.hpp"
+#include "core/document/validate.hpp"
 #include "core/geometry/measure.hpp"
 #include "core/geometry/plane.hpp"
 #include "core/geometry/solid.hpp"
@@ -40,6 +41,17 @@ void click(ToolController& tools, const PointerInput& in) {
 }
 
 bool nearVec(const Vec3& a, const Vec3& b, double eps = 1e-9) { return glm::length(a - b) <= eps; }
+
+/// World bounds of one mesh face of an object (its outer loop).
+Bounds faceBounds(const ProfileObject& o, std::optional<FaceId> face) {
+    Bounds b;
+    REQUIRE(face);
+    REQUIRE(face->kind == FaceKind::Mesh);
+    const auto* f = o.mesh->face(mesh::FaceId{static_cast<std::uint32_t>(face->side)});
+    REQUIRE(f);
+    for (const Vec3& p : o.mesh->loopPositions(f->loops[0])) b.extend(localToWorld(o, p));
+    return b;
+}
 
 /// A 4 m long, 200 mm thick, 3 m high wall from the origin.
 ObjectId makeWall(Editor& editor, ToolController& tools) { return test::makeBox(editor, tools, "4000, 200", "3000"); }
@@ -93,7 +105,7 @@ TEST_CASE("plane frames: axes line up with the model and round-trip points") {
     CHECK(facingViewer(wall, {0.0, 1.0, 0.0}) == wall);
 }
 
-TEST_CASE("acceptance: draw a window rectangle on a wall and push it in 100 mm") {
+TEST_CASE("acceptance: draw a window rectangle on a wall, push it in 100 mm, then through to a hole") {
     Editor editor;
     ToolController tools(editor);
     const ObjectId wall = makeWall(editor, tools);
@@ -116,20 +128,24 @@ TEST_CASE("acceptance: draw a window rectangle on a wall and push it in 100 mm")
     CHECK(near(preview->depth, 1.2, 1e-12));
     click(tools, atWall(editor, 2.02, 2.08, {200, 200}));
     REQUIRE_FALSE(tools.active());
-    REQUIRE(editor.document().objects.size() == 2);
 
-    const ProfileObject& window = *editor.document().objects[1];
-    CHECK(window.extrusion == std::nullopt);
-    CHECK(nearVec(profileNormalWorld(window), {0.0, -1.0, 0.0}, 1e-15));
-    const Bounds b = objectBounds(window);
+    // The rectangle went into the wall: a hole in its front face and a face
+    // filling it, which is now selected.
+    REQUIRE(editor.document().objects.size() == 1);
+    const ProfileObject& drawn = *editor.document().find(wall);
+    REQUIRE(drawn.isMeshGroup());
+    CHECK(drawn.mesh->faces().size() == 7);
+    REQUIRE(editor.selection());
+    const auto window = editor.selection()->face;
+    const Bounds b = faceBounds(drawn, window);
     CHECK(nearVec(b.min, {1.0, 0.0, 0.9}, 1e-12));
     CHECK(nearVec(b.max, {2.0, 0.0, 2.1}, 1e-12));
 
-    // The rectangle lies on the wall, so it, not the wall, is under the pointer.
+    // The window, not the rest of the wall, is under the pointer.
     const auto onWindow = atWall(editor, 1.5, 1.5, {150, 250});
     REQUIRE(onWindow.pick);
-    CHECK(onWindow.pick->objectId == window.id);
-    CHECK(onWindow.pick->faceId == FaceId::profile());
+    CHECK(onWindow.pick->objectId == wall);
+    CHECK(onWindow.pick->faceId == *window);
 
     // Push it into the wall: the pointer behind the face (at y = +0.1).
     tools.setTool(Tool::PushPull);
@@ -140,24 +156,33 @@ TEST_CASE("acceptance: draw a window rectangle on a wall and push it in 100 mm")
     tools.pointerMove(behind);
     const auto* push = std::get_if<PushPullPreview>(&editor.preview());
     REQUIRE(push);
-    CHECK(near(push->height, -0.1, 1e-12));
+    CHECK(near(push->delta, -0.1, 1e-12));
     CHECK_FALSE(push->error.has_value());
     tools.pointerUp(behind);
     REQUIRE_FALSE(tools.active());
 
-    const ProfileObject& recess = *editor.document().find(window.id);
-    REQUIRE(recess.extrusion);
-    CHECK(near(recess.extrusion->height, 0.1, 1e-12));
-    CHECK(nearVec(profileNormalWorld(recess), {0.0, 1.0, 0.0}, 1e-15)); // extruded into the wall
-    const Bounds rb = objectBounds(recess);
-    CHECK(nearVec(rb.min, {1.0, 0.0, 0.9}, 1e-12));
+    const ProfileObject& recess = *editor.document().find(wall);
+    CHECK(recess.mesh->faces().size() == 11); // 6 walls, 4 sides of the recess, its bottom
+    const Bounds rb = faceBounds(recess, editor.selection()->face);
+    CHECK(nearVec(rb.min, {1.0, 0.1, 0.9}, 1e-12));
     CHECK(nearVec(rb.max, {2.0, 0.1, 2.1}, 1e-12));
-    CHECK(checkSolid(buildMesh(recess)).ok());
-    CHECK(editor.document().find(wall)->extrusion->height == 3.0); // the wall itself is untouched
+    CHECK_FALSE(validateDocument(editor.document()));
 
-    // Undo brings back the flat window on the wall; the round trip through a file keeps the box.
+    // Another 100 mm reaches the back of the wall and cuts a hole.
+    REQUIRE_FALSE(tools.submitPushDistance("-100").has_value());
+    const ProfileObject& opened = *editor.document().find(wall);
+    CHECK(opened.mesh->faces().size() == 10);
+    PointerInput through;
+    through.ray = Ray{{1.5, -10.0, 1.5}, {0.0, 1.0, 0.0}};
+    CHECK_FALSE(pickDocument(through.ray, editor.document()).has_value()); // you can see through it
+    CHECK_FALSE(validateDocument(editor.document()));
+
+    // Undo brings back the recess, then the flat window; a file round trip keeps the opening.
     editor.undo();
-    CHECK_FALSE(editor.document().find(window.id)->extrusion.has_value());
+    CHECK(editor.document().find(wall)->mesh->faces().size() == 11);
+    editor.undo();
+    CHECK(editor.document().find(wall)->mesh->faces().size() == 7);
+    editor.redo();
     editor.redo();
     const auto loaded = parseProject(serializeProject(editor.document(), std::nullopt));
     REQUIRE(loaded);
@@ -167,31 +192,27 @@ TEST_CASE("acceptance: draw a window rectangle on a wall and push it in 100 mm")
 TEST_CASE("typed sizes on a wall follow the pointer and stay exact; typed push back") {
     Editor editor;
     ToolController tools(editor);
-    makeWall(editor, tools);
+    const ObjectId wall = makeWall(editor, tools);
     tools.setTool(Tool::Rectangle);
     click(tools, atWall(editor, 3.0, 2.0, {300, 100}));
     tools.pointerMove(atWall(editor, 2.5, 1.0, {250, 200})); // left and down
     REQUIRE_FALSE(tools.submitRectangleSize("600, 400").has_value());
-    const ProfileObject& r = *editor.document().objects.back();
-    CHECK(r.profile.boundary[1].x == 0.6);
-    CHECK(r.profile.boundary[3].y == 0.4);
-    const Bounds b = objectBounds(r);
+    const Bounds b = faceBounds(*editor.document().find(wall), editor.selection()->face);
     CHECK(nearVec(b.min, {2.4, 0.0, 1.6}, 1e-12));
     CHECK(nearVec(b.max, {3.0, 0.0, 2.0}, 1e-12));
 
     // With it selected, a typed negative distance pushes it back.
     tools.setTool(Tool::PushPull);
     REQUIRE_FALSE(tools.submitPushDistance("-100").has_value());
-    const ProfileObject& pushed = *editor.document().objects.back();
-    REQUIRE(pushed.extrusion);
-    CHECK(pushed.extrusion->height == 0.1);
-    CHECK(nearVec(objectBounds(pushed).max, {3.0, 0.1, 2.0}, 1e-12));
+    const Bounds pushed = faceBounds(*editor.document().find(wall), editor.selection()->face);
+    CHECK(nearVec(pushed.min, {2.4, 0.1, 1.6}, 1e-12));
+    CHECK(nearVec(pushed.max, {3.0, 0.1, 2.0}, 1e-12));
 }
 
 TEST_CASE("the plane stays fixed once the first corner is placed") {
     Editor editor;
     ToolController tools(editor);
-    test::makeBox(editor, tools, "1000, 1000", "800");
+    const ObjectId box = test::makeBox(editor, tools, "1000, 1000", "800");
     tools.setTool(Tool::Rectangle);
     // First corner on the box's top...
     click(tools, downAt(editor, 0.2, 0.3, {100, 100}));
@@ -199,10 +220,10 @@ TEST_CASE("the plane stays fixed once the first corner is placed") {
     const PointerInput off = toward(editor, {2.0, 1.5, 0.8}, {2.0, -8.5, 10.8}, {300, 300});
     CHECK_FALSE(off.pick.has_value());
     click(tools, off);
+    // Hanging over the box's edge, it is a rectangle of its own; the box is untouched.
     REQUIRE(editor.document().objects.size() == 2);
+    CHECK_FALSE(editor.document().find(box)->isMeshGroup());
     const Bounds b = objectBounds(*editor.document().objects[1]);
-    CHECK(near(b.min.z, 0.8, 1e-12));
-    CHECK(near(b.max.z, 0.8, 1e-12));
     CHECK(nearVec(b.min, {0.2, 0.3, 0.8}, 1e-12));
     CHECK(nearVec(b.max, {2.0, 1.5, 0.8}, 1e-12));
 }
@@ -271,6 +292,16 @@ TEST_CASE("Up locks a horizontal plane through a box corner; Down locks the hove
         const Bounds b = objectBounds(*editor.document().objects[1]);
         CHECK(nearVec(b.min, {5.0, 0.0, 2.0}, 1e-12));
         CHECK(nearVec(b.max, {6.0, 0.0, 3.0}, 1e-12));
+    }
+    SUBCASE("Down, then a rectangle inside the wall: it goes into the wall") {
+        tools.pointerMove(atWall(editor, 3.5, 2.5));
+        CHECK(tools.key(ToolKey::ArrowDown));
+        click(tools, atWall(editor, 1.0, 1.0, {100, 100}));
+        click(tools, atWall(editor, 2.0, 2.0, {200, 50}));
+        REQUIRE(editor.document().objects.size() == 1);
+        CHECK(editor.document().objects[0]->isMeshGroup());
+        const Bounds b = faceBounds(*editor.document().objects[0], editor.selection()->face);
+        CHECK(nearVec(b.min, {1.0, 0.0, 1.0}, 1e-12));
     }
     SUBCASE("Up over the wall's front: a horizontal plane at the pointer's height") {
         CHECK(tools.key(ToolKey::ArrowUp));
@@ -350,12 +381,20 @@ TEST_CASE("rotated rectangle on the other side of its first side and on a wall")
     click(tools, atWall(editor, 1.0, 1.0, {100, 300}));
     click(tools, atWall(editor, 2.0, 2.0, {200, 200})); // a diagonal first side on the wall
     click(tools, atWall(editor, 0.5, 1.5, {80, 250}));
-    REQUIRE(editor.document().objects.size() == 2);
-    const ProfileObject& d = *editor.document().objects[1];
-    CHECK(nearVec(profileNormalWorld(d), {0.0, -1.0, 0.0}, 1e-12));
-    CHECK(near(d.profile.boundary[1].x, std::sqrt(2.0), 1e-12));
-    CHECK(near(d.profile.boundary[3].y, std::sqrt(0.5), 1e-12));
-    for (const auto& p : d.profile.boundary) CHECK(near(profileToWorld(d, p).y, 0.0, 1e-12));
+    REQUIRE(editor.document().objects.size() == 1); // drawn into the wall
+    const ProfileObject& w = *editor.document().objects[0];
+    REQUIRE(editor.selection());
+    REQUIRE(editor.selection()->face);
+    const auto* f = w.mesh->face(mesh::FaceId{static_cast<std::uint32_t>(editor.selection()->face->side)});
+    REQUIRE(f);
+    const auto pts = w.mesh->loopPositions(f->loops[0]);
+    REQUIRE(pts.size() == 4);
+    double perimeter = 0.0;
+    for (std::size_t i = 0; i < 4; ++i) {
+        CHECK(near(localToWorld(w, pts[i]).y, 0.0, 1e-12));
+        perimeter += glm::length(pts[(i + 1) % 4] - pts[i]);
+    }
+    CHECK(near(perimeter, 2.0 * (std::sqrt(2.0) + std::sqrt(0.5)), 1e-12));
 }
 
 TEST_CASE("pushing a rectangle backwards keeps its dimensions on the same points") {

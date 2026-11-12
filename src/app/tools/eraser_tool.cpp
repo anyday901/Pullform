@@ -1,5 +1,6 @@
 #include "app/tools/eraser_tool.hpp"
 
+#include "core/commands/cleanup.hpp"
 #include "core/commands/operations.hpp"
 #include "core/geometry/pick.hpp"
 #include "core/geometry/topology.hpp"
@@ -161,7 +162,7 @@ void EraserTool::pointerUp(const PointerInput& input) {
         done = countText(n, "Erased");
         break;
     case EraseMode::Hide:
-        ok = editor().commit(countText(n, "Hide"), [&edges](const Document& d) { return setEdgesSoft(d, edges, true, false); });
+        ok = editor().commit(countText(n, "Hide"), [&edges](const Document& d) { return setHidden(d, CleanupScope{edges, {}}, true); });
         done = countText(n, "Hid");
         break;
     case EraseMode::Soften:
