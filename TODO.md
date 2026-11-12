@@ -131,13 +131,14 @@ with selection, not item 14).
 
 ## Phase 3: Editing geometry
 
-- [ ] **14. Push/pull any planar face.** Side faces, faces of any shape, negative distances
+- [x] **14. Push/pull any planar face.** Side faces, faces of any shape, negative distances
       that cut back, cutting all the way through to make an opening, Ctrl to create a new
       starting face instead of moving the existing one, double-click to repeat the last
       distance. Replaces today's cap-only push/pull. *Depends on:* 4, 5. *Accept:* push a
       window rectangle on a 200 mm wall in by 200 mm and get a hole; Ctrl-pull a cap twice
       to make a stepped block. *Started:* #18 added push/pull of a face drawn with the
-      Line tool.
+      Line tool. *Done:* rectangles and circles drawn on a face now go into it; pushing
+      past the far side of a solid is refused rather than intersected.
 - [x] **15. Move, Rotate and Scale on sub-elements.** Moving a vertex, edge or face stretches
       the connected geometry (with auto-fold when faces would go non-planar); Rotate a face
       about an edge; Scale with grip handles on the bounding box, mirrored with negative

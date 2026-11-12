@@ -134,10 +134,10 @@ TEST_CASE("invalid numeric input and degenerate clicks do not commit") {
     CHECK(tools.submitPushDistance("100").has_value()); // nothing selected
 }
 
-TEST_CASE("side and base faces explain that push/pull is not supported yet") {
+TEST_CASE("side faces of a box push and pull too; the box becomes a group of faces") {
     Editor editor;
     ToolController tools(editor);
-    test::makeBox(editor, tools, "1000, 1000", "500");
+    const ObjectId box = test::makeBox(editor, tools, "1000, 1000", "500");
     const auto depth = editor.undoDepth();
     tools.setTool(Tool::PushPull);
     PointerInput side;
@@ -146,10 +146,15 @@ TEST_CASE("side and base faces explain that push/pull is not supported yet") {
     REQUIRE(side.pick);
     CHECK(side.pick->faceId == FaceId::sideAt(0));
     tools.pointerDown(side);
-    CHECK_FALSE(tools.active());
-    CHECK(editor.message()->text.find("not supported") != std::string::npos);
-    CHECK(tools.submitPushDistance("100").has_value()); // selection targets a side face
-    CHECK(editor.undoDepth() == depth);
+    CHECK(tools.active());
+    tools.cancel();
+    editor.cancelPreview();
+    CHECK_FALSE(tools.submitPushDistance("100").has_value()); // the selected side face moves out 100 mm
+    CHECK(editor.undoDepth() == depth + 1);
+    const ProfileObject& o = *editor.document().find(box);
+    CHECK(o.isMeshGroup());
+    CHECK(objectBounds(o).min.y == doctest::Approx(-0.1));
+    CHECK(objectBounds(o).size().y == doctest::Approx(1.1));
 }
 
 TEST_CASE("push/pull of a cap below the base is rejected during the drag and the gesture survives") {

@@ -29,7 +29,22 @@ include breaking changes, but project files will keep a migration path.
   the opposite side, or typing a negative factor, mirrors: `-1` on a grip mirrors across
   that grip's axis, and the faces stay facing outwards. Typed factors no longer have to be
   positive, only non-zero.
-
+- **Push/pull any planar face.** Side and base faces of a box, faces drawn on a wall, and
+  faces of any shape now push and pull. Each edge of the face either stretches the face
+  beside it, when that face runs along the push (a box's wall grows or shrinks), or gets a
+  new side face (a recess pushed into a wall, a boss pulled out of it). A face pushed all
+  the way to the far side of a wall cuts an opening through it (a window, or a doorway that
+  splits the floor of the wall in two), and a recess pulled back flush mends the wall.
+  Pushing past the far side is refused with a message instead of passing through it.
+  Tap Ctrl (Option on macOS) with Push/Pull, or hold Ctrl while clicking the face, for a new
+  starting face: no wall stretches, the old outline stays as edges, so pulling a cap twice
+  gives a block of three bands that can be pushed back into steps. Double-clicking a face
+  repeats the last distance. Circles keep a true circle on the far end and a smooth side.
+- **Rectangles and circles drawn on a face become part of it.** A rectangle, circle or
+  polygon drawn entirely on one face of a box or group goes into that object's edges and
+  faces (a hole in the face plus the inner face), like lines drawn there, so push/pull makes
+  a recess or an opening instead of a separate box. One hanging over the face's edge is
+  still a shape of its own.
 - **Freehand tool** (Tools > Freehand, or the toolbar). Press and drag to draw a curve; on
   release it is smoothed (within 3 screen pixels of the stroke) into a polyline of straight
   edges and committed as one undo entry. It draws on the horizontal plane through the press
@@ -43,8 +58,8 @@ include breaking changes, but project files will keep a migration path.
   the renderer does not smooth shading across edges yet); faces are kept. A fast drag
   also takes the visible edges passed over between two pointer events, and near a corner
   the Eraser takes the corner's edge nearest the pointer.
-  Erasing, hiding or softening an edge of a rectangle or box turns it into a mesh group
-  (Push/Pull then no longer applies to it).
+  Erasing, hiding or softening an edge of a rectangle or box turns it into a mesh group,
+  whose faces Push/Pull works on like any other.
 - **Inference engine.** Besides endpoints, midpoints and axis guides, the pointer now
   infers On Edge, On Face, Intersection (edge with edge, or with an inference line), Center
   of a true arc or circle, Parallel and Perpendicular to an edge (magenta guides, with the
