@@ -13,6 +13,12 @@ std::optional<ObjectId> replacedObject(const Preview& preview) {
 }
 
 std::vector<ObjectId> replacedObjects(const Preview& preview) {
+    if (const auto* m = std::get_if<MovePreview>(&preview); m && m->elements) {
+        // The owners are drawn stretched, or as they are while the move is refused.
+        std::vector<ObjectId> ids;
+        for (const auto& o : m->results) ids.push_back(o.id);
+        return ids;
+    }
     if (const auto* m = std::get_if<MovePreview>(&preview); m && !m->copy) {
         return m->objectIds.empty() ? std::vector<ObjectId>{m->objectId} : m->objectIds;
     }

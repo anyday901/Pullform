@@ -10,11 +10,14 @@ namespace pf {
 
 /// Rotate: pick the object, click the centre, click a reference direction,
 /// then move to turn and click (or type an angle). The arrow keys pick the
-/// world axis. With several objects selected, the whole selection turns about
-/// the same centre. Commits one "Rotate" entry. In copy mode (tap Ctrl) a
-/// turned copy is placed instead; right after it, typing "6x" makes six copies
-/// at that angle (a radial array), "/6" spreads six between, and a new angle
-/// re-spaces them, until the next action.
+/// world axis; pressing on the centre and dragging along an edge before
+/// releasing turns about that line instead (a face about one of its edges).
+/// With several objects selected, the whole selection turns about the same
+/// centre. With vertices, edges or faces selected, just those turn and the
+/// connected geometry stretches. Commits one "Rotate" entry. In copy mode (tap
+/// Ctrl; whole objects only) a turned copy is placed instead; right after it,
+/// typing "6x" makes six copies at that angle (a radial array), "/6" spreads
+/// six between, and a new angle re-spaces them, until the next action.
 class RotateTool final : public ToolBase {
 public:
     static constexpr double kSnapRadians = std::numbers::pi / 12.0; ///< 15 degrees with grid snap on
@@ -27,6 +30,7 @@ public:
     }
     void pointerDown(const PointerInput& input) override;
     void pointerMove(const PointerInput& input) override;
+    void pointerUp(const PointerInput& input) override;
     bool key(ToolKey key) override;
     std::optional<std::string> submit(std::string_view text) override { return submitAngle(text); }
     [[nodiscard]] std::string_view measurementLabel() const override { return "Angle (degrees)"; }
@@ -69,10 +73,17 @@ private:
         Vec3 axis{0.0, 0.0, 1.0};
         std::optional<Vec3> reference;
         std::vector<ObjectId> ids; ///< every object that turns (objectId and the rest of a multi-selection)
+        std::vector<ElementRef> elements; ///< the selected vertices, edges and faces that turn, if any (ids: their owners)
+        Vec2 pressScreen{0.0};
+        bool pressed = false; ///< the centre's press is still down: a drag sets the axis
     };
 
-    /// One undo entry for all of `ids`.
-    bool commit(const std::vector<ObjectId>& ids, const Vec3& pivot, const Vec3& axis, double angle);
+    /// The centre under the pointer: a snapped corner, midpoint or edge point,
+    /// else the face hit, else the ground.
+    std::optional<Vec3> pointAt(const PointerInput& input);
+    /// One undo entry for all of `ids` (or for `elements`, when set).
+    bool commit(const std::vector<ObjectId>& ids, const Vec3& pivot, const Vec3& axis, double angle,
+                const std::vector<ElementRef>& elements = {});
     /// Redoes the last copy as `array` copies of `angle`, replacing its undo entry.
     std::optional<std::string> editCopy(double angle, ArrayCount array);
     /// "6x" or "/6": edits the last copy into a radial array.

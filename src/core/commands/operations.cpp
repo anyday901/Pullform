@@ -14,6 +14,7 @@
 #include <algorithm>
 
 #include <glm/geometric.hpp>
+#include <glm/matrix.hpp>
 
 #include <algorithm>
 #include <array>
@@ -250,14 +251,47 @@ Vec3 objectBaseCenter(const ProfileObject& o) {
     return profileToWorld(o, c, 0.0);
 }
 
+namespace {
+
+/// The first-vertex angle of a regular shape mirrored by the signs of `f`
+/// (x: pi - a, y: -a, both: a + pi), which keeps the boundary counter-clockwise.
+double mirroredStart(double start, const Vec3& f) {
+    if (f.x < 0.0 && f.y < 0.0) start += std::numbers::pi;
+    else if (f.x < 0.0) start = std::numbers::pi - start;
+    else if (f.y < 0.0) start = -start;
+    return std::remainder(start, 2.0 * std::numbers::pi);
+}
+
+/// scaleObject of a rectangle, circle or polygon with a negative factor. A
+/// rectangle is symmetric across its width and depth about its base centre,
+/// so mirroring there gives the same shape; a circle or polygon turns its
+/// first vertex (mirroredStart). Mirroring the height flips the prism to the
+/// other side of the base.
+Expected<OpResult> mirrorProfile(const Document& doc, const ProfileObject& o, const Vec3& f) {
+    auto scaled = scaleObject(doc, o.id, Vec3{std::abs(f.x), std::abs(f.y), f.z == 0.0 ? 1.0 : std::abs(f.z)});
+    if (!scaled) return scaled;
+    ProfileObject flipped = *scaled->document.find(o.id);
+    if (o.profile.kind != ProfileKind::Rectangle && (f.x < 0.0 || f.y < 0.0)) {
+        const auto shape = regularShape(flipped.profile.boundary);
+        if (!shape) return Error{shape.error()};
+        flipped.profile.boundary = regularBoundary(shape->radius, shape->segments, mirroredStart(shape->start, f));
+    }
+    if (f.z < 0.0 && o.extrusion) flipped.transform.translation -= profileNormalWorld(flipped) * flipped.extrusion->height;
+    return replaceObject(scaled->document, std::move(flipped));
+}
+
+} // namespace
+
 Expected<OpResult> scaleObject(const Document& doc, ObjectId id, const Vec3& f) {
     const auto* o = doc.find(id);
     if (!o) return Error{"Object " + idString(id) + " no longer exists."};
     for (int i = 0; i < 3; ++i) {
-        if (!std::isfinite(f[i]) || f[i] <= 0.0) {
-            return Error{"Scale factors must be positive numbers. Mirroring (negative factors) is not supported."};
+        if (!std::isfinite(f[i])) return Error{"Scale factors must be finite numbers."};
+        if (f[i] == 0.0 && (i < 2 || o->extrusion || o->isMeshGroup())) {
+            return Error{"Scale factors must not be zero (a negative factor mirrors)."};
         }
     }
+    if (!o->isMeshGroup() && (f.x < 0.0 || f.y < 0.0 || f.z < 0.0)) return mirrorProfile(doc, *o, f);
     if (o->isMeshGroup()) {
         // Scale the local geometry about the centre of its base (lowest local z).
         const Vec3 c = meshBaseCenterLocal(*o->mesh);
@@ -822,25 +856,59 @@ Expected<OpResult> rotateObjects(const Document& doc, const std::vector<ObjectId
     });
 }
 
-Expected<OpResult> scaleObjects(const Document& doc, const std::vector<ObjectId>& ids, const Vec3& factors, const Vec3& pivot) {
+namespace {
+
+/// The factors along `frame` as factors along the object's own axes, when each
+/// own axis lies along a frame axis (either way); nothing when a non-uniform
+/// scale would shear the object.
+std::optional<Vec3> ownFactors(const ProfileObject& o, const Vec3& factors, const Mat3& frame) {
+    if (factors.x == factors.y && factors.y == factors.z) return factors;
+    const Mat3 a = glm::transpose(frame) * objectAxes(o); // own axes in frame coordinates
+    Vec3 own = factors;
+    for (int i = 0; i < 3; ++i) {
+        int along = -1;
+        for (int j = 0; j < 3; ++j) {
+            if (std::abs(std::abs(a[i][j]) - 1.0) < 1e-9) along = j;
+        }
+        if (along < 0) return std::nullopt;
+        own[i] = factors[along];
+    }
+    return own;
+}
+
+/// One object of scaleObjects.
+Expected<OpResult> scaleOneObject(const Document& d, ObjectId id, const Vec3& factors, const Vec3& pivot, const Mat3& frame) {
+    const ProfileObject& before = *d.find(id);
+    const auto own = ownFactors(before, factors, frame);
+    if (!own) {
+        // A sheared object cannot stay a profile: map its geometry directly (it becomes a mesh group).
+        const mesh::MeshPtr m = mesh::objectMesh(before);
+        std::vector<ElementRef> all;
+        for (const auto& [vid, v] : m->vertices()) all.push_back(ElementRef{id, ElementKind::Vertex, vid});
+        return transformElements(d, all, AffineMap::scale(pivot, factors, frame));
+    }
+    const Vec3 centre = objectBaseCenter(before);
+    auto scaled = scaleObject(d, id, *own); // keeps `centre` fixed
+    if (!scaled) return scaled;
+    // The base centre goes where the scale about `pivot` (along `frame`) takes it.
+    const Vec3 shift = frame * ((glm::transpose(frame) * (centre - pivot)) * (factors - Vec3{1.0}));
+    if (glm::length(shift) < tol::kLengthEpsilon) return scaled;
+    const ProfileObject& after = *scaled->document.find(id);
+    if (auto e = checkMove(after, shift)) return Error{*e};
+    ProfileObject moved = after;
+    moved.transform.translation += shift;
+    return replaceObject(scaled->document, std::move(moved));
+}
+
+} // namespace
+
+Expected<OpResult> scaleObjects(const Document& doc, const std::vector<ObjectId>& ids, const Vec3& factors, const Vec3& pivot,
+                                const Mat3& frame) {
     if (!std::isfinite(pivot.x) || !std::isfinite(pivot.y) || !std::isfinite(pivot.z)) {
         return Error{"The scale centre is not valid."};
     }
-    return forEachObject(doc, ids, [&factors, &pivot](const Document& d, ObjectId id) -> Expected<OpResult> {
-        const ProfileObject& before = *d.find(id);
-        const Vec3 centre = objectBaseCenter(before);
-        auto scaled = scaleObject(d, id, factors); // keeps `centre` fixed
-        if (!scaled) return scaled;
-        const Vec3 shift = (centre - pivot) * (factors - Vec3{1.0});
-        if (std::abs(shift.x) < tol::kLengthEpsilon && std::abs(shift.y) < tol::kLengthEpsilon &&
-            std::abs(shift.z) < tol::kLengthEpsilon) {
-            return scaled;
-        }
-        const ProfileObject& after = *scaled->document.find(id);
-        if (auto e = checkMove(after, shift)) return Error{*e};
-        ProfileObject moved = after;
-        moved.transform.translation += shift;
-        return replaceObject(scaled->document, std::move(moved));
+    return forEachObject(doc, ids, [&factors, &pivot, &frame](const Document& d, ObjectId id) {
+        return scaleOneObject(d, id, factors, pivot, frame);
     });
 }
 
@@ -989,6 +1057,188 @@ Expected<OpResult> drawArc(const Document& doc, std::optional<ObjectId> target, 
     return result;
 }
 
+// ---- Moving, rotating and scaling vertices, edges and faces ------------------------
+
+AffineMap AffineMap::shift(const Vec3& offset) { return AffineMap{Mat3(1.0), offset}; }
+
+AffineMap AffineMap::rotation(const Vec3& pivot, const Vec3& axis, double radians) {
+    const Mat3 r = rotationMatrix(Transform{Vec3{0.0}, axisAngle(glm::normalize(axis), radians)});
+    return AffineMap{r, pivot - r * pivot};
+}
+
+AffineMap AffineMap::scale(const Vec3& pivot, const Vec3& factors, const Mat3& frame) {
+    const Mat3 f(Vec3{factors.x, 0.0, 0.0}, Vec3{0.0, factors.y, 0.0}, Vec3{0.0, 0.0, factors.z});
+    const Mat3 m = frame * f * glm::transpose(frame);
+    return AffineMap{m, pivot - m * pivot};
+}
+
+Mat3 objectAxes(const ProfileObject& object) {
+    const Mat3 r = rotationMatrix(object.transform);
+    if (object.isMeshGroup()) return r;
+    const auto& plane = object.profile.plane;
+    return r * Mat3(glm::normalize(plane.xAxis), glm::normalize(plane.yAxis), glm::normalize(glm::cross(plane.xAxis, plane.yAxis)));
+}
+
+namespace {
+
+/// The mesh vertices an object's elements use, each once, in id order.
+std::vector<mesh::VertexId> elementVertices(const mesh::Mesh& m, const std::vector<ElementRef>& elements, ObjectId object) {
+    using enum ElementKind;
+    std::vector<std::uint32_t> ids;
+    const auto addFace = [&m, &ids](const mesh::Face& face) {
+        for (const auto& loop : face.loops) {
+            for (const auto v : m.loopVertices(loop)) ids.push_back(v.value);
+        }
+    };
+    for (const ElementRef& e : elements) {
+        if (e.object != object) continue;
+        if (e.kind == Vertex && m.vertex(mesh::VertexId{e.id})) ids.push_back(e.id);
+        if (const auto* edge = e.kind == Edge ? m.edge(mesh::EdgeId{e.id}) : nullptr) {
+            ids.push_back(edge->v0.value);
+            ids.push_back(edge->v1.value);
+        }
+        if (const auto* face = e.kind == Face ? m.face(mesh::FaceId{e.id}) : nullptr) addFace(*face);
+    }
+    std::ranges::sort(ids);
+    const auto [first, last] = std::ranges::unique(ids);
+    ids.erase(first, last);
+    std::vector<mesh::VertexId> out;
+    out.reserve(ids.size());
+    for (const auto v : ids) out.emplace_back(v);
+    return out;
+}
+
+/// The owners of `elements`, in order of first appearance.
+std::vector<ObjectId> elementOwners(const std::vector<ElementRef>& elements) {
+    std::vector<ObjectId> owners;
+    for (const ElementRef& e : elements) {
+        if (std::ranges::find(owners, e.object) == owners.end()) owners.push_back(e.object);
+    }
+    return owners;
+}
+
+/// Signed volume enclosed by a mesh whose every edge borders exactly two
+/// faces (a closed shell); nothing for an open mesh, where it means nothing.
+std::optional<double> closedVolume(const mesh::Mesh& m) {
+    for (const auto& [eid, e] : m.edges()) {
+        if (m.facesOfEdge(mesh::EdgeId{eid}).size() != 2) return std::nullopt;
+    }
+    if (m.faces().empty()) return std::nullopt;
+    const mesh::Triangulation t = mesh::triangulate(m);
+    double volume = 0.0;
+    for (std::size_t i = 0; i + 2 < t.indices.size(); i += 3) {
+        const Vec3& a = t.positions[t.indices[i]];
+        const Vec3& b = t.positions[t.indices[i + 1]];
+        const Vec3& c = t.positions[t.indices[i + 2]];
+        volume += glm::dot(a, glm::cross(b, c)) / 6.0;
+    }
+    return volume;
+}
+
+/// A user-facing reason for a mesh that fails validation after a transform.
+std::string transformProblem(const std::string& detail) {
+    if (detail.find("zero length") != std::string::npos) return "That would shrink an edge to nothing.";
+    if (detail.find("counter-clockwise") != std::string::npos || detail.find("clockwise") != std::string::npos) {
+        return "That would turn a face inside out.";
+    }
+    if (detail.find("10 km") != std::string::npos) return "That would place geometry outside the supported range of +/-10 km.";
+    if (detail.find("too small") != std::string::npos) return "That would shrink a face to nothing.";
+    return "That would make invalid geometry (" + detail + ").";
+}
+
+} // namespace
+
+std::vector<Vec3> elementPoints(const Document& doc, const std::vector<ElementRef>& elements) {
+    std::vector<Vec3> points;
+    for (const ObjectId id : elementOwners(elements)) {
+        const auto* o = doc.find(id);
+        if (!o) continue;
+        const mesh::MeshPtr m = mesh::objectMesh(*o);
+        for (const auto v : elementVertices(*m, elements, id)) points.push_back(localToWorld(*o, m->vertex(v)->position));
+    }
+    return points;
+}
+
+Expected<OpResult> transformElements(const Document& doc, const std::vector<ElementRef>& elements, const AffineMap& map) {
+    for (int c = 0; c < 3; ++c) {
+        for (int r = 0; r < 3; ++r) {
+            if (!std::isfinite(map.linear[c][r])) return Error{"The transform is not valid."};
+        }
+        if (!std::isfinite(map.translation[c])) return Error{"The transform is not valid."};
+    }
+    if (std::abs(glm::determinant(map.linear)) < 1e-12) return Error{"Scale factors must not be zero (a negative factor mirrors)."};
+    const std::vector<ObjectId> owners = elementOwners(elements);
+    if (owners.empty()) return Error{"Select vertices, edges or faces first."};
+    OpResult result{doc, std::nullopt, {}};
+    for (const ObjectId id : owners) {
+        const auto* o = result.document.find(id);
+        if (!o) return Error{"Object " + idString(id) + " no longer exists."};
+        ProfileObject changed = asMeshGroup(*o);
+        mesh::Mesh m = *changed.mesh;
+        const auto vertices = elementVertices(m, elements, id);
+        if (vertices.empty()) return Error{"The selected geometry no longer exists."};
+        // World p -> M p + t becomes local q -> R^T M R q + R^T (M x + t - x),
+        // with the object placed at x + R q.
+        const Mat3 r = rotationMatrix(changed.transform);
+        const Mat3 rt = glm::transpose(r);
+        const Vec3 x = changed.transform.translation;
+        const Mat3 linear = rt * map.linear * r;
+        const Vec3 translation = rt * (map.linear * x + map.translation - x);
+        const auto volumeBefore = closedVolume(m);
+        if (!m.transformVertices(vertices, linear, translation)) {
+            return Error{"That would make a face cross itself, or bend a face with holes (which cannot be folded yet)."};
+        }
+        if (auto e = mesh::validateMesh(m, "mesh")) return Error{transformProblem(*e)};
+        // Faces stay valid one by one when a solid is pushed through itself;
+        // its volume changing sign gives it away.
+        if (const auto after = closedVolume(m); volumeBefore && after && (*volumeBefore > 0.0) != (*after > 0.0)) {
+            return Error{"That would turn the solid inside out."};
+        }
+        changed.mesh = std::make_shared<const mesh::Mesh>(std::move(m));
+        auto step = replaceObject(result.document, std::move(changed));
+        if (!step) return Error{step.error()};
+        result.document = std::move(step).value().document;
+        result.objectIds.push_back(id);
+    }
+    result.objectId = result.objectIds.back();
+    return result;
+}
+
+Expected<OpResult> moveElements(const Document& doc, const std::vector<ElementRef>& elements, const Vec3& offset) {
+    if (!std::isfinite(offset.x) || !std::isfinite(offset.y) || !std::isfinite(offset.z)) {
+        return Error{"Move distance must be a finite number."};
+    }
+    if (glm::length(offset) < tol::kLengthEpsilon) return Error{"Move distance must not be zero."};
+    return transformElements(doc, elements, AffineMap::shift(offset));
+}
+
+Expected<OpResult> rotateElements(const Document& doc, const std::vector<ElementRef>& elements, const Vec3& pivot,
+                                  const Vec3& axis, double radians) {
+    if (!std::isfinite(radians)) return Error{"Angle must be a finite number."};
+    const double len = glm::length(axis);
+    if (!std::isfinite(len) || len < 1e-12) return Error{"The rotation axis is not valid."};
+    if (!std::isfinite(pivot.x) || !std::isfinite(pivot.y) || !std::isfinite(pivot.z)) {
+        return Error{"The rotation centre is not valid."};
+    }
+    return transformElements(doc, elements, AffineMap::rotation(pivot, axis / len, std::remainder(radians, 2.0 * std::numbers::pi)));
+}
+
+Expected<OpResult> scaleElements(const Document& doc, const std::vector<ElementRef>& elements, const Vec3& factors,
+                                 const Vec3& pivot, const Mat3& frame) {
+    for (int i = 0; i < 3; ++i) {
+        if (!std::isfinite(factors[i])) return Error{"Scale factors must be finite numbers."};
+        if (factors[i] == 0.0) return Error{"Scale factors must not be zero (a negative factor mirrors)."};
+    }
+    if (!std::isfinite(pivot.x) || !std::isfinite(pivot.y) || !std::isfinite(pivot.z)) {
+        return Error{"The scale centre is not valid."};
+    }
+    return transformElements(doc, elements, AffineMap::scale(pivot, factors, frame));
+}
+
+} // namespace pf
+
+namespace pf {
+
 Expected<OpResult> offsetFace(const Document& doc, ObjectId id, mesh::FaceId face, double distance, mesh::FaceId* ring) {
     const auto* o = doc.find(id);
     if (!o) return Error{"Object " + idString(id) + " no longer exists."};
@@ -1123,5 +1373,6 @@ Expected<OpResult> intersectFaces(const Document& doc, const std::vector<Element
     result.objectId = result.objectIds.back();
     return result;
 }
+
 
 } // namespace pf

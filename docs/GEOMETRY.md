@@ -161,8 +161,9 @@ Notes:
   for rendering and the snap feature list are rebuilt from the elements.
 - **Faces are planar polygons.** No face is ever non-planar. If moving vertices would make
   a face non-planar, the operation either triangulates it (SketchUp's behaviour, marking
-  the new diagonals soft) or is refused. Phase 1 refuses; auto-folding comes with the
-  vertex-move tool.
+  the new diagonals soft) or is refused. Moving vertices, edges and faces (roadmap item
+  15, `Mesh::transformVertices`) folds: the face splits along soft edges into the
+  largest planar pieces of its triangulation. A face with holes is still refused.
 - **Rendering** triangulates each face with holes (ear clipping on the face plane, or a
   constrained triangulation if ear clipping proves fragile) and keeps the existing
   `MeshData` contract: triangles map to a face id, a face has a contiguous index range, and
@@ -333,8 +334,10 @@ All operations are pure functions over an immutable mesh that return a new mesh 
   lip). Edges along a profile curve or across a path curve are made soft and smooth. New
   faces do not intersect existing ones (a moulding's back lies over a wall face without
   splitting it) until Intersect Faces exists.
-- **moveVertices / transformVertices**: the general case behind scale and later the move of
-  edges and faces; refuses to produce non-planar faces in Phase 1.
+- **transformVertices**: maps a set of vertices by an affine map: the general case behind
+  scale, mirroring and the move, rotate and scale of vertices, edges and faces. Faces that
+  would bend fold along soft edges (above); a mirror reverses the loops of the faces that
+  move whole.
 - **validate(mesh)**: the load checks above, also usable in tests and as a debug assert
   after every operation.
 

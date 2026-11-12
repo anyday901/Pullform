@@ -296,7 +296,7 @@ Expected<std::vector<double>> parseScaleFactors(std::string_view text) {
         auto v = plainNumber(part);
         if (!v.has_value()) return hint();
         if (percent) *v /= 100.0;
-        if (!(*v > 0.0)) return Error{"Scale factors must be positive. Mirroring (negative factors) is not supported."};
+        if (!std::isfinite(*v) || *v == 0.0) return Error{"Scale factors must not be zero. A negative factor mirrors (for example -1)."};
         factors.push_back(*v);
     }
     if (factors.size() == 1) factors = {factors[0], factors[0], factors[0]};

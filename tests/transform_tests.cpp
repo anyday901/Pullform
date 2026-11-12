@@ -172,7 +172,7 @@ TEST_CASE("scaling a rotated object scales along its own axes") {
 TEST_CASE("invalid scales are rejected") {
     auto [doc, id] = boxDoc(1.0, 1.0, 1.0);
     CHECK_FALSE(scaleObject(doc, id, Vec3{0.0}).ok());
-    CHECK_FALSE(scaleObject(doc, id, {-1.0, 1.0, 1.0}).ok()); // no mirroring
+    CHECK(scaleObject(doc, id, {-1.0, 1.0, 1.0}).ok()); // mirroring is allowed (item 15)
     CHECK_FALSE(scaleObject(doc, id, Vec3{std::nan("")}).ok());
     CHECK_FALSE(scaleObject(doc, id, Vec3{1e-5}).ok());       // below 0.1 mm
     CHECK_FALSE(scaleObject(doc, id, Vec3{1e5}).ok());        // beyond 10 km
@@ -276,7 +276,7 @@ TEST_CASE("angle and scale factor input") {
     CHECK(*parseScaleFactors("150%") == std::vector<double>{1.5, 1.5, 1.5});
     CHECK(*parseScaleFactors("2, 1; 0.5") == std::vector<double>{2, 1, 0.5});
     CHECK_FALSE(parseScaleFactors("2, 1").ok());
-    CHECK_FALSE(parseScaleFactors("-1").ok());
+    CHECK(*parseScaleFactors("-1") == std::vector<double>{-1, -1, -1}); // mirrors (item 15)
     CHECK_FALSE(parseScaleFactors("0").ok());
     CHECK_FALSE(parseScaleFactors("2m").ok());
     CHECK_FALSE(parseScaleFactors("").ok());
@@ -418,7 +418,7 @@ TEST_CASE("Scale tool: mouse gesture and typed factors") {
 
     // No-ops and invalid factors add no history.
     CHECK(tools.submitScaleFactors("1").has_value());
-    CHECK(tools.submitScaleFactors("-2").has_value());
+    CHECK(tools.submitScaleFactors("0").has_value());
     CHECK(tools.submitScaleFactors("0.00001").has_value());
     CHECK(editor.undoDepth() == depth + 3);
 

@@ -3,6 +3,7 @@
 #include "core/document/tolerance.hpp"
 
 #include <glm/geometric.hpp>
+#include <glm/matrix.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -935,15 +936,8 @@ void Mesh::pruneCurves() {
 }
 
 void Mesh::scale(const Vec3& f) {
-    for (auto& [id, v] : vertices_) v.position *= f;
-    for (auto& [id, face] : faces_) {
-        const Vec3 n = loopNormal(loopPositions(face.loops[0]));
-        if (glm::length(n) > 0.0) face.normal = n;
-    }
-    for (auto& [id, c] : curves_) {
-        c.center *= f; // curves only survive uniform scales meaningfully; radius follows x
-        c.radius *= std::abs(f.x);
-    }
+    if (vertices_.empty()) return;
+    transform(Mat3(Vec3{f.x, 0.0, 0.0}, Vec3{0.0, f.y, 0.0}, Vec3{0.0, 0.0, f.z}), Vec3{0.0});
 }
 
 void Mesh::removeCurve(CurveId id) {
@@ -956,6 +950,310 @@ void Mesh::removeCurve(CurveId id) {
 void Mesh::translate(const Vec3& offset) {
     for (auto& [id, v] : vertices_) v.position += offset;
     for (auto& [id, c] : curves_) c.center += offset;
+}
+
+namespace {
+
+/// Whether `linear` maps circles to circles (a rotation, mirror or uniform
+/// scale, possibly combined): its columns are orthogonal with equal lengths.
+/// `scale` receives that length.
+bool isSimilarity(const Mat3& m, double& scale) {
+    const double a = glm::length(m[0]);
+    const double b = glm::length(m[1]);
+    const double c = glm::length(m[2]);
+    scale = a;
+    const double eps = 1e-9 * std::max({a, b, c, 1e-300});
+    return std::abs(a - b) <= eps && std::abs(a - c) <= eps && std::abs(glm::dot(m[0], m[1])) <= eps * a &&
+           std::abs(glm::dot(m[0], m[2])) <= eps * a && std::abs(glm::dot(m[1], m[2])) <= eps * a;
+}
+
+/// Whether any two non-adjacent sides of the loops (2D, closed) cross or touch.
+bool loopsCross(const std::vector<std::vector<Vec2>>& loops) {
+    struct Side {
+        Vec2 a;
+        Vec2 b;
+        std::size_t loop;
+        std::size_t index;
+    };
+    std::vector<Side> sides;
+    for (std::size_t l = 0; l < loops.size(); ++l) {
+        const auto& pts = loops[l];
+        for (std::size_t i = 0; i < pts.size(); ++i) sides.emplace_back(Side{pts[i], pts[(i + 1) % pts.size()], l, i});
+    }
+    const auto orient = [](const Vec2& p, const Vec2& q, const Vec2& r) { return cross2(q - p, r - p); };
+    const auto adjacent = [&loops](const Side& s, const Side& t) {
+        if (s.loop != t.loop) return false;
+        const std::size_t n = loops[s.loop].size();
+        return (s.index + 1) % n == t.index || (t.index + 1) % n == s.index; // share a corner
+    };
+    const auto cross = [&orient](const Side& s, const Side& t) {
+        const double w = tol::kWeldDistance;
+        if (segmentDistance2d(s.a, t.a, t.b) <= w || segmentDistance2d(s.b, t.a, t.b) <= w ||
+            segmentDistance2d(t.a, s.a, s.b) <= w || segmentDistance2d(t.b, s.a, s.b) <= w) {
+            return true; // touching
+        }
+        return ((orient(s.a, s.b, t.a) > 0.0) != (orient(s.a, s.b, t.b) > 0.0)) &&
+               ((orient(t.a, t.b, s.a) > 0.0) != (orient(t.a, t.b, s.b) > 0.0));
+    };
+    for (std::size_t i = 0; i < sides.size(); ++i) {
+        for (std::size_t j = i + 1; j < sides.size(); ++j) {
+            if (!adjacent(sides[i], sides[j]) && cross(sides[i], sides[j])) return true;
+        }
+    }
+    return false;
+}
+
+/// Disjoint-set forest over triangle indices.
+struct Groups {
+    std::vector<std::size_t> parent;
+    explicit Groups(std::size_t n) : parent(n) {
+        for (std::size_t i = 0; i < n; ++i) parent[i] = i;
+    }
+    std::size_t find(std::size_t i) {
+        while (parent[i] != i) {
+            parent[i] = parent[parent[i]];
+            i = parent[i];
+        }
+        return i;
+    }
+};
+
+} // namespace
+
+std::optional<TransformResult> Mesh::transform(const Mat3& linear, const Vec3& translation) {
+    std::vector<VertexId> all;
+    all.reserve(vertices_.size());
+    for (const auto& [id, v] : vertices_) all.push_back(VertexId{id});
+    return transformVertices(all, linear, translation);
+}
+
+std::optional<TransformResult> Mesh::transformVertices(const std::vector<VertexId>& ids, const Mat3& linear,
+                                                       const Vec3& translation) {
+    const double det = glm::determinant(linear);
+    if (!std::isfinite(det) || std::abs(det) < 1e-18) return std::nullopt;
+    std::set<std::uint32_t> moving;
+    for (const VertexId v : ids) {
+        if (vertices_.contains(v.value)) moving.insert(v.value);
+    }
+    if (moving.empty()) return std::nullopt;
+
+    // Faces only partly moved may bend: triangulate them on their old plane
+    // first, so they can be folded along those diagonals afterwards.
+    std::vector<FaceId> whole;
+    std::vector<std::pair<FaceId, std::vector<std::array<VertexId, 3>>>> partial;
+    for (const auto& [fid, face] : faces_) {
+        std::size_t count = 0;
+        std::size_t total = 0;
+        for (const Loop& loop : face.loops) {
+            const auto vs = loopVertices(loop);
+            total += vs.size();
+            count += static_cast<std::size_t>(std::ranges::count_if(vs, [&moving](VertexId v) { return moving.contains(v.value); }));
+        }
+        if (count == 0) continue;
+        if (count == total) whole.emplace_back(fid);
+        else partial.emplace_back(FaceId{fid}, triangulateFace(*this, FaceId{fid}));
+    }
+
+    Mesh next = *this; // work on a copy so a refusal leaves this mesh unchanged
+    for (const std::uint32_t v : moving) {
+        Vec3& p = next.vertices_.at(v).position;
+        p = linear * p + translation;
+    }
+    next.mapCurves(moving, linear, translation);
+    for (const FaceId fid : whole) {
+        Face& face = next.faces_.at(fid.value);
+        if (det < 0.0) {
+            for (Loop& loop : face.loops) loop = reversedLoop(loop);
+        }
+        const Vec3 n = loopNormal(next.loopPositions(face.loops[0]));
+        if (glm::length(n) > 0.0) face.normal = n;
+    }
+    TransformResult result;
+    for (const auto& [fid, triangles] : partial) {
+        if (!next.settleFace(fid, triangles, result)) return std::nullopt;
+    }
+    *this = std::move(next);
+    return result;
+}
+
+void Mesh::mapCurves(const std::set<std::uint32_t>& moving, const Mat3& linear, const Vec3& translation) {
+    const double det = glm::determinant(linear);
+    double scale = 1.0;
+    const bool similar = isSimilarity(linear, scale);
+    for (auto it = curves_.begin(); it != curves_.end();) {
+        Curve& c = it->second;
+        bool all = true;
+        bool any = false;
+        for (const EdgeId e : c.edges) {
+            const Edge* edge = this->edge(e);
+            if (!edge) continue;
+            const bool a = moving.contains(edge->v0.value);
+            const bool b = moving.contains(edge->v1.value);
+            any = any || a || b;
+            all = all && a && b;
+        }
+        if (!any) {
+            ++it;
+        } else if (all && similar) {
+            c.center = linear * c.center + translation;
+            c.xAxis = glm::normalize(linear * c.xAxis);
+            // A mirror reverses the turning direction about the mapped normal;
+            // flipping the normal keeps start and sweep valid.
+            c.normal = glm::normalize(linear * c.normal) * (det < 0.0 ? -1.0 : 1.0);
+            c.radius *= scale;
+            ++it;
+        } else {
+            // Moved off its circle: keep the segments as plain edges.
+            for (auto& [eid, edge] : edges_) {
+                if (edge.curve && edge.curve->value == it->first) edge.curve.reset();
+            }
+            it = curves_.erase(it);
+        }
+    }
+}
+
+namespace {
+
+/// Whether every point is within kPlanarity of the plane through `origin` with unit `normal`.
+bool allOnPlane(const std::vector<Vec3>& points, const Vec3& normal, const Vec3& origin) {
+    return std::ranges::all_of(points, [&](const Vec3& p) { return std::abs(glm::dot(p - origin, normal)) <= tol::kPlanarity; });
+}
+
+/// The plane of a set of triangles (three points each), from its best-conditioned triangle.
+bool trianglesPlane(const std::vector<Vec3>& points, Vec3& normal, Vec3& origin) {
+    double best = 0.0;
+    for (std::size_t i = 0; i + 2 < points.size(); i += 3) {
+        const Vec3 c = glm::cross(points[i + 1] - points[i], points[i + 2] - points[i]);
+        if (const double len = glm::length(c); len > best) {
+            best = len;
+            normal = c / len;
+            origin = points[i];
+        }
+    }
+    return best > 0.0;
+}
+
+/// The closed loop made by `sides` (directed vertex pairs, one per vertex), or
+/// nothing when they do not form exactly one loop.
+std::optional<std::vector<VertexId>> chainLoop(const std::map<std::uint32_t, VertexId>& nextOf) {
+    if (nextOf.size() < 3) return std::nullopt;
+    std::vector<VertexId> loop;
+    VertexId at{nextOf.begin()->first};
+    for (std::size_t guard = 0; guard <= nextOf.size(); ++guard) {
+        loop.push_back(at);
+        const auto it = nextOf.find(at.value);
+        if (it == nextOf.end()) return std::nullopt;
+        at = it->second;
+        if (at == loop.front()) break;
+    }
+    if (loop.size() != nextOf.size()) return std::nullopt;
+    return loop;
+}
+
+} // namespace
+
+bool Mesh::settleFace(FaceId fid, const std::vector<std::array<VertexId, 3>>& triangles, TransformResult& result) {
+    Face& face = faces_.at(fid.value);
+    const Vec3 n = loopNormal(loopPositions(face.loops[0]));
+    const Vec3 origin = vertices_.at(useStart(face.loops[0].front()).value).position;
+    bool planar = glm::length(n) > 0.0;
+    for (const Loop& loop : face.loops) planar = planar && allOnPlane(loopPositions(loop), n, origin);
+    if (!planar) return foldFace(fid, triangles, result);
+    // Still flat, but the boundary may now cross itself.
+    const PlaneAxes axes = axesFor(n);
+    std::vector<std::vector<Vec2>> flat;
+    for (const Loop& loop : face.loops) {
+        auto& pts = flat.emplace_back();
+        for (const Vec3& p : loopPositions(loop)) pts.push_back(project(axes, origin, p));
+    }
+    if (loopsCross(flat)) return false;
+    face.normal = n;
+    return true;
+}
+
+std::vector<std::size_t> Mesh::coplanarGroups(const std::vector<std::array<VertexId, 3>>& triangles) const {
+    // Merge neighbouring triangles (sharing two vertices: a diagonal) while
+    // the merged set stays on one plane.
+    const auto pos = [this](VertexId v) { return vertices_.at(v.value).position; };
+    Groups groups(triangles.size());
+    std::vector<std::vector<Vec3>> members(triangles.size());
+    for (std::size_t i = 0; i < triangles.size(); ++i) {
+        for (const VertexId v : triangles[i]) members[i].push_back(pos(v));
+    }
+    const auto neighbours = [&triangles](std::size_t i, std::size_t j) {
+        return std::ranges::count_if(triangles[i], [&](VertexId a) { return std::ranges::find(triangles[j], a) != triangles[j].end(); }) == 2;
+    };
+    for (std::size_t i = 0; i < triangles.size(); ++i) {
+        for (std::size_t j = i + 1; j < triangles.size(); ++j) {
+            const std::size_t gi = groups.find(i);
+            const std::size_t gj = groups.find(j);
+            if (gi == gj || !neighbours(i, j)) continue;
+            std::vector<Vec3> joined = members[gi];
+            joined.insert(joined.end(), members[gj].begin(), members[gj].end());
+            Vec3 normal{0.0};
+            Vec3 origin{0.0};
+            if (!trianglesPlane(joined, normal, origin) || !allOnPlane(joined, normal, origin)) continue;
+            groups.parent[gj] = gi;
+            members[gi] = std::move(joined);
+            members[gj].clear();
+        }
+    }
+    std::vector<std::size_t> out(triangles.size());
+    for (std::size_t i = 0; i < triangles.size(); ++i) out[i] = groups.find(i);
+    return out;
+}
+
+bool Mesh::foldFace(FaceId fid, const std::vector<std::array<VertexId, 3>>& triangles, TransformResult& result) {
+    // Auto-fold. Each connected set of triangles of a simple polygon's
+    // triangulation is itself a simple polygon, so merging neighbouring
+    // triangles while they stay on one plane gives valid planar pieces.
+    if (faces_.at(fid.value).loops.size() > 1 || triangles.empty()) return false;
+    const std::vector<std::size_t> group = coplanarGroups(triangles);
+    // Each group's boundary: its triangles' directed sides whose reverse is not in the group.
+    std::map<std::size_t, std::set<std::pair<std::uint32_t, std::uint32_t>>> sides;
+    for (std::size_t i = 0; i < triangles.size(); ++i) {
+        for (int k = 0; k < 3; ++k) sides[group[i]].emplace(triangles[i][k].value, triangles[i][(k + 1) % 3].value);
+    }
+    struct Piece {
+        std::vector<VertexId> loop;
+        double area = 0.0;
+    };
+    std::vector<Piece> pieces;
+    for (const auto& [g, list] : sides) {
+        std::map<std::uint32_t, VertexId> nextOf;
+        for (const auto& [a, b] : list) {
+            if (!list.contains({b, a})) nextOf[a] = VertexId{b};
+        }
+        auto loop = chainLoop(nextOf);
+        if (!loop) return false;
+        std::vector<Vec3> pts;
+        for (const VertexId v : *loop) pts.push_back(vertices_.at(v.value).position);
+        const Vec3 pn = loopNormal(pts);
+        if (glm::length(pn) == 0.0) return false;
+        pieces.push_back(Piece{std::move(*loop), signedArea(pts, pn)});
+    }
+    if (pieces.size() < 2) return false; // cannot happen for a non-planar face
+    std::ranges::sort(pieces, [](const Piece& a, const Piece& b) { return a.area > b.area; });
+    faces_.erase(fid.value);
+    result.folded.push_back(fid);
+    for (std::size_t i = 0; i < pieces.size(); ++i) {
+        const auto& loop = pieces[i].loop;
+        for (std::size_t k = 0; k < loop.size(); ++k) {
+            const VertexId a = loop[k];
+            const VertexId b = loop[(k + 1) % loop.size()];
+            if (findEdge(a, b)) continue;
+            const EdgeId e = appendEdge(a, b);
+            edges_.at(e.value).soft = true;
+            result.foldEdges.push_back(e);
+        }
+        Face piece;
+        piece.loops.push_back(makeLoop(loop));
+        piece.normal = loopNormal(loopPositions(piece.loops[0]));
+        const FaceId id = i == 0 ? fid : FaceId{nextFace_};
+        insertFace(id, piece);
+        if (i > 0) result.createdFaces.push_back(id);
+    }
+    return true;
 }
 
 namespace {
@@ -1996,11 +2294,18 @@ Mesh meshFromProfile(const ProfileObject& o) {
         baseLoop.push_back(EdgeUse{EdgeId{i + 1}, true});
     }
     base.loops.push_back(baseLoop);
+    // Normals from the loops, as a file read computes them, so a saved and
+    // reopened object compares equal bit for bit.
+    const auto exact = [&m](Face& face) {
+        if (const Vec3 ln = loopNormal(m.loopPositions(face.loops[0])); glm::length(ln) > 0.0) face.normal = ln;
+    };
+    exact(base);
     m.insertFace(FaceId{1}, base);
     Face cap{{}, n};
     Loop capLoop;
     for (std::uint32_t i = 0; i < count; ++i) capLoop.push_back(EdgeUse{EdgeId{count + i + 1}, false});
     cap.loops.push_back(capLoop);
+    exact(cap);
     m.insertFace(FaceId{2}, cap);
     for (std::uint32_t i = 0; i < count; ++i) {
         const std::uint32_t j = (i + 1) % count;
@@ -2009,6 +2314,7 @@ Mesh meshFromProfile(const ProfileObject& o) {
         Face side{{Loop{EdgeUse{EdgeId{i + 1}, false}, EdgeUse{EdgeId{2 * count + j + 1}, false}, EdgeUse{EdgeId{count + i + 1}, true},
                         EdgeUse{EdgeId{2 * count + i + 1}, true}}},
                   glm::normalize(glm::cross(b - a, n))};
+        exact(side);
         m.insertFace(FaceId{3 + i}, side);
     }
     return m;

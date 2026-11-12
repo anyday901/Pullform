@@ -139,7 +139,7 @@ with selection, not item 14).
       to make a stepped block. *Started:* #18 added push/pull of a face drawn with the
       Line tool. *Done:* rectangles and circles drawn on a face now go into it; pushing
       past the far side of a solid is refused rather than intersected.
-- [ ] **15. Move, Rotate and Scale on sub-elements.** Moving a vertex, edge or face stretches
+- [x] **15. Move, Rotate and Scale on sub-elements.** Moving a vertex, edge or face stretches
       the connected geometry (with auto-fold when faces would go non-planar); Rotate a face
       about an edge; Scale with grip handles on the bounding box, mirrored with negative
       factors. *Depends on:* 5. *Accept:* move a box's top edge sideways to make a sloped

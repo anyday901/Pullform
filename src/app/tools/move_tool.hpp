@@ -9,10 +9,13 @@ namespace pf {
 
 /// Move: click an object and move it (click-move-click or press-drag-release),
 /// or type a distance or "x, y, z". Clicking one of several selected objects
-/// moves (or copies) the whole selection. X, Y, Z or the arrow keys lock an axis;
-/// copy mode places a duplicate instead. One undo entry per move. Right after
-/// a copy, typing "5x" makes five copies at that spacing, "/5" spreads five
-/// between, and a new distance re-spaces them, until the next action.
+/// moves (or copies) the whole selection. With vertices, edges or faces
+/// selected (Select tool), clicking one of their objects moves just those
+/// elements and the connected geometry stretches, folding faces that would
+/// bend. X, Y, Z or the arrow keys lock an axis; copy mode places a duplicate
+/// instead (whole objects only). One undo entry per move. Right after a copy,
+/// typing "5x" makes five copies at that spacing, "/5" spreads five between,
+/// and a new distance re-spaces them, until the next action.
 class MoveTool final : public ToolBase {
 public:
     using ToolBase::ToolBase;
@@ -69,6 +72,7 @@ private:
         std::optional<Ray> lastRay; ///< re-evaluates the preview when the axis lock changes
         std::optional<Vec3> lastSnap; ///< snapped offset of the last pointer event
         std::vector<ObjectId> ids;  ///< every object that moves (objectId and the rest of a multi-selection)
+        std::vector<ElementRef> elements; ///< the selected vertices, edges and faces that move, if any (ids: their owners)
     };
 
     void finish();
@@ -81,11 +85,14 @@ private:
     /// an axis or an edge. Shows the marker; nothing when there is none.
     std::optional<Vec3> snappedOffset(const PointerInput& input);
     [[nodiscard]] MovePreview preview(const Vec3& offset, std::optional<std::string> error) const;
+    /// The preview for the current gesture at `offset`, checked.
+    [[nodiscard]] MovePreview checkedPreview(const Vec3& offset) const;
     /// First reason the offset cannot be applied to every moving object.
     [[nodiscard]] std::optional<std::string> checkGroup(const std::vector<ObjectId>& ids, const Vec3& offset) const;
     /// Every move (mouse or typed) commits here: one undo entry for all of
     /// `ids`. `primary` is the object the gesture picked (its copy keeps the face).
-    bool commit(const std::vector<ObjectId>& ids, ObjectId primary, const Vec3& offset);
+    bool commit(const std::vector<ObjectId>& ids, ObjectId primary, const Vec3& offset,
+                const std::vector<ElementRef>& elements = {});
     /// Redoes the last copy as `array` copies of `offset`, replacing its undo entry.
     std::optional<std::string> editCopy(const Vec3& offset, ArrayCount array);
     /// "5x" or "/5": edits the last copy into an array.

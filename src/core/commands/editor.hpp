@@ -115,6 +115,11 @@ struct MovePreview {
     /// Every object that moves when several are selected (includes objectId);
     /// empty when only objectId moves.
     std::vector<ObjectId> objectIds;
+    /// Moving selected vertices, edges or faces: the objects that own them as
+    /// they would be after the move (stretched), drawn in place of the
+    /// originals. Empty for a whole-object move, and while `error` is set.
+    std::vector<ProfileObject> results;
+    bool elements = false; ///< the selected vertices, edges or faces move, not whole objects
 };
 
 /// Live rotate preview. `reference` and `current` are offsets from `pivot` in
@@ -144,6 +149,17 @@ struct ScalePreview {
     std::optional<Vec3> start;
     std::optional<Vec3> current;
     double factor = 1.0;
+    /// Per-axis factors along `frame` (a grip drag, or typed width, depth,
+    /// height factors); `factor` is their uniform value when they agree.
+    Vec3 factors{1.0};
+    /// The selection's bounding box, drawn with its grips: its corners in
+    /// `frame` (columns: the box's axes in world space), and one world point
+    /// per grip (corners, edge midpoints and face centres; fewer when the box
+    /// is flat). Empty when nothing is selected.
+    Mat3 frame{1.0};
+    std::vector<Vec3> box; ///< 8 world corners: bit 0 = +x, bit 1 = +y, bit 2 = +z (in frame axes)
+    std::vector<Vec3> grips;
+    std::optional<std::size_t> hotGrip; ///< the grip under the pointer, or being dragged
     std::optional<ProfileObject> result;
     std::optional<std::string> error;
     /// With several objects selected: every scaled object (includes `result`).

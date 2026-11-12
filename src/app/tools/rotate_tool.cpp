@@ -63,17 +63,40 @@ void RotateTool::toggleCopy() {
     }
 }
 
+std::optional<Vec3> RotateTool::pointAt(const PointerInput& input) {
+    if (ctx_.snapper.active(input)) {
+        if (const auto res = ctx_.snapper.infer(input); res && res->kind >= SnapKind::OnEdge) {
+            ctx_.indicator = res;
+            return res->point;
+        }
+    }
+    ctx_.indicator.reset();
+    if (input.pick) return input.pick->point;
+    return ctx_.groundPoint(input);
+}
+
 void RotateTool::pointerDown(const PointerInput& input) {
     if (!gesture_) {
-        const auto* o = ctx_.transformTarget(input);
+        // Selected vertices, edges or faces turn on their own; otherwise the
+        // selected object (a first click on an object selects it).
+        const SelectionSet& set = editor().selectionSet();
+        std::vector<ElementRef> elements = set.elements();
+        std::vector<ObjectId> ids;
+        const ProfileObject* o = nullptr;
+        if (!elements.empty()) {
+            ids = elementOwners(set);
+            const auto& primary = set.primary();
+            o = editor().document().find(primary && set.hasElements(primary->objectId) ? primary->objectId : ids.front());
+        } else {
+            o = ctx_.transformTarget(input);
+            if (o) ids = transformGroup(editor(), o->id);
+        }
         if (!o) return;
-        // First click: the centre of rotation, on a face or on the ground.
-        std::optional<Vec3> pivot;
-        if (input.pick) pivot = input.pick->point;
-        else pivot = ctx_.groundPoint(input);
+        // First click: the centre of rotation, on the model or on the ground.
+        const auto pivot = pointAt(input);
         if (!pivot) return;
         lastCopy_.reset(); // a new rotation ends editing the last copy
-        gesture_ = Gesture{o->id, *pivot, axisVector(axis_), std::nullopt, transformGroup(editor(), o->id)};
+        gesture_ = Gesture{o->id, *pivot, axisVector(axis_), std::nullopt, std::move(ids), std::move(elements), input.screen, true};
         RotatePreview first = rotatePreview(o->id, *pivot, gesture_->axis);
         first.copy = copy_;
         editor().setPreview(std::move(first));
@@ -105,7 +128,19 @@ void RotateTool::pointerDown(const PointerInput& input) {
         editor().notify(Message{Message::Kind::Error, *preview->error});
         return;
     }
-    commit(gesture_->ids, gesture_->pivot, gesture_->axis, preview->angle);
+    commit(gesture_->ids, gesture_->pivot, gesture_->axis, preview->angle, gesture_->elements);
+}
+
+void RotateTool::pointerUp(const PointerInput& input) {
+    if (!gesture_ || !gesture_->pressed) return;
+    gesture_->pressed = false;
+    if (gesture_->reference || !isDrag(gesture_->pressScreen, input.screen)) return;
+    // Dragged from the centre: the axis runs to where the drag ended (along
+    // an edge, to turn a face about that edge).
+    const auto end = pointAt(input);
+    if (!end || glm::length(*end - gesture_->pivot) < 1e-6) return;
+    gesture_->axis = glm::normalize(*end - gesture_->pivot);
+    editor().setPreview(rotatePreview(gesture_->objectId, gesture_->pivot, gesture_->axis));
 }
 
 void RotateTool::pointerMove(const PointerInput& input) {
@@ -124,7 +159,14 @@ void RotateTool::pointerMove(const PointerInput& input) {
         double angle = std::atan2(glm::dot(glm::cross(a, b), gesture_->axis), glm::dot(a, b));
         if (ctx_.snap.enabled) angle = snapValue(angle, kSnapRadians);
         preview.angle = angle;
-        if (auto result = rotateObjects(editor().document(), gesture_->ids, gesture_->pivot, gesture_->axis, angle); result) {
+        const Document& doc = editor().document();
+        auto result = gesture_->elements.empty() ? rotateObjects(doc, gesture_->ids, gesture_->pivot, gesture_->axis, angle)
+                                                 : rotateElements(doc, gesture_->elements, gesture_->pivot, gesture_->axis, angle);
+        if (std::abs(angle) < 1e-12 && !gesture_->elements.empty()) {
+            // Nothing turns yet: draw the owners as they are.
+            result = OpResult{doc, gesture_->objectId, {}};
+        }
+        if (result) {
             if (const auto* o = result->document.find(gesture_->objectId)) preview.result = *o;
             if (gesture_->ids.size() > 1) preview.group = groupResult(result->document, gesture_->ids);
         } else {
@@ -134,7 +176,13 @@ void RotateTool::pointerMove(const PointerInput& input) {
     editor().setPreview(std::move(preview));
 }
 
-bool RotateTool::commit(const std::vector<ObjectId>& ids, const Vec3& pivot, const Vec3& axis, double angle) {
+bool RotateTool::commit(const std::vector<ObjectId>& ids, const Vec3& pivot, const Vec3& axis, double angle,
+                        const std::vector<ElementRef>& elements) {
+    if (copy_ && !elements.empty()) {
+        editor().notify(Message{Message::Kind::Error,
+                                "Copies of vertices, edges or faces are not supported yet: turn copy mode off to rotate them."});
+        return false;
+    }
     if (copy_) {
         // The copies take over the selection, so they can be arrayed or turned again.
         const ObjectId primary = gesture_ ? gesture_->objectId : ids.back();
@@ -155,11 +203,15 @@ bool RotateTool::commit(const std::vector<ObjectId>& ids, const Vec3& pivot, con
         return ok;
     }
     // One object keeps the selection without a face (a turned face is no
-    // longer the one that was clicked); a group keeps the whole selection.
-    const SelectionSet after = ids.size() == 1 ? SelectionSet{Selection{ids.front(), std::nullopt}} : editor().selectionSet();
+    // longer the one that was clicked); a group, or elements, keep the whole selection.
+    const SelectionSet after = ids.size() == 1 && elements.empty() ? SelectionSet{Selection{ids.front(), std::nullopt}}
+                                                                   : editor().selectionSet();
+    const std::string what = elements.empty() ? std::string() : elementsLabel(elements) + " ";
     const bool ok = editor().commit(
-        "Rotate " + formatAngle(angle) + groupSuffix(ids.size()),
-        [&ids, &pivot, &axis, angle](const Document& doc) { return rotateObjects(doc, ids, pivot, axis, angle); },
+        "Rotate " + what + formatAngle(angle) + groupSuffix(ids.size()),
+        [&ids, &pivot, &axis, angle, &elements](const Document& doc) {
+            return elements.empty() ? rotateObjects(doc, ids, pivot, axis, angle) : rotateElements(doc, elements, pivot, axis, angle);
+        },
         [&after](const OpResult&) { return after; });
     if (ok) {
         gesture_.reset();
@@ -213,10 +265,12 @@ std::optional<std::string> RotateTool::submitAngle(std::string_view text) {
     if (!parsed) return parsed.error();
     double angle = *parsed;
     std::vector<ObjectId> ids;
+    std::vector<ElementRef> elements;
     Vec3 pivot{0.0};
     Vec3 axis = axisVector(axis_);
     if (gesture_) {
         ids = gesture_->ids;
+        elements = gesture_->elements;
         pivot = gesture_->pivot;
         axis = gesture_->axis;
         // Typed values follow the direction the pointer is turning.
@@ -225,11 +279,17 @@ std::optional<std::string> RotateTool::submitAngle(std::string_view text) {
         const auto& sel = editor().selection();
         const auto* o = sel ? editor().document().find(sel->objectId) : nullptr;
         if (!o) return std::string("Select an object to rotate first.");
-        ids = transformGroup(editor(), o->id);
-        pivot = groupBaseCenter(editor().document(), ids);
+        if (!editor().selectionSet().elements().empty()) {
+            elements = editor().selectionSet().elements();
+            ids = elementOwners(editor().selectionSet());
+            pivot = elementsBaseCenter(editor().document(), elements);
+        } else {
+            ids = transformGroup(editor(), o->id);
+            pivot = groupBaseCenter(editor().document(), ids);
+        }
     }
     if (std::abs(angle) < 1e-12) return std::string("Angle must not be zero.");
-    if (!commit(ids, pivot, axis, angle)) return ctx_.lastError("Could not rotate the object.");
+    if (!commit(ids, pivot, axis, angle, elements)) return ctx_.lastError("Could not rotate the object.");
     return std::nullopt;
 }
 
@@ -247,7 +307,8 @@ std::string RotateTool::hint() const {
     }
     if (!gesture_) {
         if (!editor().selection()) return "Rotate: click the object to rotate." + axis;
-        return "Rotate: click the centre of rotation, or type an angle in degrees to turn about the base centre." + axis;
+        return "Rotate: click the centre of rotation (or press there and drag along an edge to turn about it), or type "
+               "an angle in degrees to turn about the base centre." + axis;
     }
     if (!gesture_->reference) return "Rotate: click to set the reference direction, or type an angle. Esc cancels." + axis;
     return "Rotate: move to turn (15° steps with grid snap) and click, or type an angle. Esc cancels." + copy;
