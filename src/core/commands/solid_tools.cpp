@@ -253,13 +253,14 @@ Expected<OpResult> applySolidTool(const Document& doc, SolidTool tool, const std
     if (!solidToolAccepts(tool, ids.size())) return Error{countProblem(tool)};
     auto objects = solidObjects(doc, ids);
     if (!objects) return Error{objects.error()};
+    using enum SolidTool;
     switch (tool) {
-    case SolidTool::Union:
-    case SolidTool::Intersect:
-    case SolidTool::OuterShell: return combine(doc, tool, *objects);
-    case SolidTool::Subtract:
-    case SolidTool::Trim: return cut(doc, tool, *objects->at(0), *objects->at(1));
-    case SolidTool::Split: return split(doc, *objects->at(0), *objects->at(1));
+    case Union:
+    case Intersect:
+    case OuterShell: return combine(doc, tool, *objects);
+    case Subtract:
+    case Trim: return cut(doc, tool, *objects->at(0), *objects->at(1));
+    case Split: return split(doc, *objects->at(0), *objects->at(1));
     }
     return Error{"Unknown solid tool."};
 }

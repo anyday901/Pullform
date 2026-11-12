@@ -157,7 +157,7 @@ public:
     std::uint32_t add(const Vec3& p) {
         const Key k = keyOf(p);
         for (std::int64_t n = 0; n < 27; ++n) {
-            if (const auto i = findIn(Key{k.x + n % 3 - 1, k.y + n / 3 % 3 - 1, k.z + n / 9 - 1}, p)) return *i;
+            if (const auto i = findIn(Key{k.x + n % 3 - 1, k.y + n / 3 % 3 - 1, k.z + n / 9 - 1}, p); i.has_value()) return *i;
         }
         const auto index = static_cast<std::uint32_t>(points_.size());
         points_.push_back(p);
@@ -473,7 +473,7 @@ std::set<std::uint32_t> arrangementPoints(const std::vector<PointPair>& segs, Fl
         for (std::size_t j = i + 1; j < segs.size(); ++j) {
             const auto [ic, id] = segs[j];
             if (ic == ia || ic == ib || id == ia || id == ib) continue;
-            if (const auto s = crossingParam(flat(ia), flat(ib), flat(ic), flat(id))) {
+            if (const auto s = crossingParam(flat(ia), flat(ib), flat(ic), flat(id)); s.has_value()) {
                 const Vec3 pa = pool.point(ia);
                 const Vec3 pb = pool.point(ib);
                 points.insert(pool.add(pa + (pb - pa) * *s));
@@ -812,6 +812,19 @@ std::vector<std::uint32_t> loopWithJunctions(const std::vector<std::uint32_t>& s
     return loop;
 }
 
+/// `loop` (pool indices) as a loop of `out`.
+Loop builtLoop(MeshBuilder& out, const std::vector<std::uint32_t>& loop, const PointPool& pool) {
+    Loop uses;
+    for (std::size_t i = 0; i < loop.size(); ++i) {
+        const std::uint32_t a = loop[i];
+        const std::uint32_t b = loop[(i + 1) % loop.size()];
+        out.vertex(a, pool.point(a));
+        out.vertex(b, pool.point(b));
+        uses.push_back(out.use(a, b));
+    }
+    return uses;
+}
+
 /// The kept regions as a mesh. Loops get every kept point that lies on one of
 /// their edges (T-junctions where a neighbour was cut), so shared edges match.
 Expected<Mesh> assemble(const std::vector<std::pair<Region, bool>>& kept, const std::vector<SourceFace>& faces, const PointPool& pool) {
@@ -830,16 +843,10 @@ Expected<Mesh> assemble(const std::vector<std::pair<Region, bool>>& kept, const 
         for (const auto& source : r.loops) {
             std::vector<std::uint32_t> loop = loopWithJunctions(source, used, pool);
             if (flip) std::ranges::reverse(loop);
-            Loop uses;
-            for (std::size_t i = 0; i < loop.size(); ++i) {
-                if (!visited.insert(loop[i]).second) return Error{"a face of the result would touch itself at a corner"};
-                const std::uint32_t a = loop[i];
-                const std::uint32_t b = loop[(i + 1) % loop.size()];
-                out.vertex(a, pool.point(a));
-                out.vertex(b, pool.point(b));
-                uses.push_back(out.use(a, b));
+            if (!std::ranges::all_of(loop, [&visited](std::uint32_t k) { return visited.insert(k).second; })) {
+                return Error{"a face of the result would touch itself at a corner"};
             }
-            face.loops.push_back(std::move(uses));
+            face.loops.push_back(builtLoop(out, loop, pool));
         }
         out.mesh().insertFace(FaceId{out.mesh().nextFaceId()}, face);
     }
@@ -965,6 +972,37 @@ std::set<std::uint32_t> straightRunVertices(const Mesh& m) {
     return drop;
 }
 
+/// The vertices of `loop` not in `drop`, each with the edge that leaves it along the loop.
+std::vector<std::pair<std::uint32_t, const Edge*>> keptCorners(const Mesh& m, const Loop& loop, const std::set<std::uint32_t>& drop) {
+    std::vector<std::pair<std::uint32_t, const Edge*>> vs;
+    for (const auto& use : loop) {
+        if (const VertexId v = m.useStart(use); !drop.contains(v.value)) vs.emplace_back(v.value, m.edge(use.edge));
+    }
+    return vs;
+}
+
+/// The kept corners as a loop of `out`. A joined edge takes the flags of the
+/// edges it replaces (they match), here those of the edge leaving its start.
+Loop joinedLoop(MeshBuilder& out, const Mesh& m, const std::vector<std::pair<std::uint32_t, const Edge*>>& vs) {
+    Loop uses;
+    for (std::size_t i = 0; i < vs.size(); ++i) {
+        const std::uint32_t a = vs[i].first;
+        const std::uint32_t b = vs[(i + 1) % vs.size()].first;
+        out.vertex(a, m.vertex(VertexId{a})->position);
+        out.vertex(b, m.vertex(VertexId{b})->position);
+        bool created = false;
+        const EdgeUse use = out.use(a, b, &created);
+        if (created) {
+            Edge flagged = *out.mesh().edge(use.edge);
+            flagged.soft = vs[i].second->soft;
+            flagged.smooth = vs[i].second->smooth;
+            out.mesh().insertEdge(use.edge, flagged);
+        }
+        uses.push_back(use);
+    }
+    return uses;
+}
+
 /// `m` with the `drop` vertices removed and the edges on either side of each
 /// joined; `m` unchanged when a loop would be left with fewer than three corners.
 Mesh withoutVertices(const Mesh& m, const std::set<std::uint32_t>& drop) {
@@ -973,30 +1011,9 @@ Mesh withoutVertices(const Mesh& m, const std::set<std::uint32_t>& drop) {
         Face face;
         face.normal = f.normal;
         for (const auto& loop : f.loops) {
-            // Kept vertices, each with the edge that leaves it along the loop (a
-            // joined edge takes the flags of the edges it replaces; they match).
-            std::vector<std::pair<std::uint32_t, const Edge*>> vs;
-            for (const auto& use : loop) {
-                if (const VertexId v = m.useStart(use); !drop.contains(v.value)) vs.emplace_back(v.value, m.edge(use.edge));
-            }
+            const auto vs = keptCorners(m, loop, drop);
             if (vs.size() < 3) return m;
-            Loop uses;
-            for (std::size_t i = 0; i < vs.size(); ++i) {
-                const std::uint32_t a = vs[i].first;
-                const std::uint32_t b = vs[(i + 1) % vs.size()].first;
-                out.vertex(a, m.vertex(VertexId{a})->position);
-                out.vertex(b, m.vertex(VertexId{b})->position);
-                bool created = false;
-                const EdgeUse use = out.use(a, b, &created);
-                if (created) {
-                    Edge flagged = *out.mesh().edge(use.edge);
-                    flagged.soft = vs[i].second->soft;
-                    flagged.smooth = vs[i].second->smooth;
-                    out.mesh().insertEdge(use.edge, flagged);
-                }
-                uses.push_back(use);
-            }
-            face.loops.push_back(std::move(uses));
+            face.loops.push_back(joinedLoop(out, m, vs));
         }
         out.mesh().insertFace(FaceId{out.mesh().nextFaceId()}, face);
     }
