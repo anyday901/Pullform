@@ -21,9 +21,9 @@ namespace {
 /// Whether a face is pushed through the mesh (drawn faces, a box's sides and
 /// base, and any face with Ctrl) rather than by changing a profile's height.
 bool meshPush(const ProfileObject& o, FaceKind face, bool newFace) {
-    if (face == FaceKind::Mesh) return true;
-    if (face == FaceKind::Side || face == FaceKind::Base) return true;
-    return newFace && face == FaceKind::Cap && o.extrusion.has_value();
+    using enum FaceKind;
+    if (face == Mesh || face == Side || face == Base) return true;
+    return newFace && face == Cap && o.extrusion.has_value();
 }
 
 } // namespace
@@ -68,8 +68,8 @@ bool PushPullTool::route() {
 
 void PushPullTool::pointerDown(const PointerInput& input) {
     if (gesture_) {
-        const auto* preview = std::get_if<PushPullPreview>(&editor().preview());
-        if (input.clicks == 2 && lastDistance_ && (!preview || std::abs(preview->delta) < 1e-12)) {
+        if (const auto* preview = std::get_if<PushPullPreview>(&editor().preview());
+            input.clicks == 2 && lastDistance_.has_value() && (!preview || std::abs(preview->delta) < 1e-12)) {
             // Double-click: the same distance as the last push/pull.
             repeatLast();
             return;
@@ -97,15 +97,14 @@ void PushPullTool::pointerDown(const PointerInput& input) {
 }
 
 void PushPullTool::repeatLast() {
-    if (!gesture_ || !lastDistance_) return;
+    if (!gesture_ || !lastDistance_.has_value()) return;
     const double d = *lastDistance_;
     if (gesture_->face == FaceKind::Mesh) {
         commitMeshFace(gesture_->objectId, gesture_->meshFace, d, gesture_->newFace);
         return;
     }
     const double height = gesture_->startHeight + d;
-    const auto error = gesture_->face == FaceKind::Profile ? checkProfileHeight(height) : checkHeight(height);
-    if (error) {
+    if (const auto error = gesture_->face == FaceKind::Profile ? checkProfileHeight(height) : checkHeight(height)) {
         editor().notify(Message{Message::Kind::Error, *error});
         return;
     }

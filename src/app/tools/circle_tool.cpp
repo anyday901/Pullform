@@ -89,8 +89,8 @@ bool CircleTool::commit(const CirclePlacement& placement) {
         // Drawn on a face: into that object's edges and faces (see RectangleTool).
         mesh::FaceId face{0};
         ok = editor().commit(
-            label, [&](const Document& doc) { return drawCircleOn(doc, *target, placement, kind, &face); },
-            [&](const OpResult& res) -> std::optional<Selection> {
+            label, [&target, &placement, kind, &face](const Document& doc) { return drawCircleOn(doc, *target, placement, kind, &face); },
+            [&target, &face](const OpResult& res) -> std::optional<Selection> {
                 if (res.objectId && *res.objectId != *target) return Selection{*res.objectId, FaceId::profile()}; // a shape of its own
                 if (face.value == 0) return Selection{*target, std::nullopt};
                 return Selection{*target, FaceId::meshFace(face.value)};

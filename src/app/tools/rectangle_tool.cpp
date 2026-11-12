@@ -159,8 +159,8 @@ bool RectangleTool::commit(const RectanglePlacement& placement) {
         // faces, so push/pull makes a recess or an opening in it.
         mesh::FaceId face{0};
         ok = editor().commit(
-            "Draw rectangle", [&](const Document& doc) { return drawRectangleOn(doc, *target, placement, &face); },
-            [&](const OpResult& res) -> std::optional<Selection> {
+            "Draw rectangle", [&target, &placement, &face](const Document& doc) { return drawRectangleOn(doc, *target, placement, &face); },
+            [&target, &face](const OpResult& res) -> std::optional<Selection> {
                 if (res.objectId && *res.objectId != *target) return Selection{*res.objectId, FaceId::profile()}; // a shape of its own
                 if (face.value == 0) return Selection{*target, std::nullopt};
                 return Selection{*target, FaceId::meshFace(face.value)};

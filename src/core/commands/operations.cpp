@@ -647,10 +647,10 @@ Expected<OpResult> insertShape(const Document& doc, ObjectId target, const Profi
     for (const auto& [id, v] : outline.vertices()) pts.push_back(worldToLocal(changed, localToWorld(shape, v.position)));
     // Only a shape that lies on one face sticks to it; one hanging over the
     // edge stays a shape of its own.
-    const bool onFace = std::ranges::any_of(m.faces(), [&](const auto& entry) {
-        return std::ranges::all_of(pts, [&](const Vec3& p) { return mesh::faceContains(m, mesh::FaceId{entry.first}, p); });
-    });
-    if (!onFace) return Error{""}; // the callers add the shape on its own
+    const auto onFace = [&m, &pts](const auto& entry) {
+        return std::ranges::all_of(pts, [&m, &entry](const Vec3& p) { return mesh::faceContains(m, mesh::FaceId{entry.first}, p); });
+    };
+    if (std::ranges::none_of(m.faces(), onFace)) return Error{""}; // the callers add the shape on its own
     if (const auto* c = outline.curve(mesh::CurveId{1})) {
         // A circle or polygon keeps its true shape beside the segments.
         const Mat3 toLocal = glm::transpose(rotationMatrix(changed.transform)) * rotationMatrix(shape.transform);

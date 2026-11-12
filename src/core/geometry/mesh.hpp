@@ -227,24 +227,57 @@ private:
     std::optional<std::vector<EdgeUse>> traceLeft(const EdgeUse& start, const Vec3& normal, const Vec3& origin,
                                                   const std::vector<EdgeId>& allowed) const;
     Loop makeLoop(const std::vector<VertexId>& vertices) const;
-    std::optional<PushPullResult> extrudeFree(FaceId id, double distance);
+    // ---- Push/pull (see pushPull) ----
+    struct PushBuild; // the state of one push/pull through the general path
     enum class Stretch { Done, TooShort, NotPrism };
+    enum class Landing { None, Done, Failed };
+    [[nodiscard]] bool isFree(FaceId id) const;
+    [[nodiscard]] std::optional<std::string> pushPullProblem(bool free) const;
+    /// New and reshaped faces (compared with `before`) take their outer loop's normal.
+    void renormal(const Mesh& before);
+    std::optional<PushPullResult> extrudeFree(FaceId id, double distance);
+    void extrudeSides(const Face& face, const std::map<std::uint32_t, VertexId>& top, bool up, std::vector<FaceId>& created);
+    /// How the walls at vertex `v` of a prism end (all edges but `own`) take a stretch.
+    [[nodiscard]] Stretch wallAt(VertexId v, const std::vector<EdgeId>& own, const Vec3& n, double distance) const;
+    /// Every other face touching `ring` contains direction `n`.
+    [[nodiscard]] bool sidesContain(FaceId id, const std::vector<VertexId>& ring, const Vec3& n) const;
     Stretch stretchPrism(FaceId id, double distance);
     std::optional<PushPullResult> pushPullGeneral(FaceId id, double distance, bool newFace, std::string& why);
+    bool classifyEdges(PushBuild& b, bool newFace, std::string& why) const;
+    [[nodiscard]] bool passesThrough(const PushBuild& b, double distance) const;
+    std::optional<PushPullResult> landMoved(const PushBuild& b, std::string& why);
+    void link(PushBuild& b, VertexId x, VertexId y);
+    void buildTop(PushBuild& b);
+    bool moveCap(const PushBuild& b, std::string& why);
+    bool stretchWall(PushBuild& b, FaceId wall, std::uint32_t edge);
+    bool stretchWalls(PushBuild& b, std::string& why);
+    bool addSide(PushBuild& b, const EdgeUse& use);
+    bool addSides(PushBuild& b, std::string& why);
+    void cleanUp(PushBuild& b);
     /// Replaces loop `loop` of face `face` by the closed vertex sequence `sequence`,
     /// dropping spurs and splitting it where it visits a vertex twice (extra
     /// faces go to `created`; a sequence that collapses removes the face).
     bool rebuildLoop(FaceId face, std::size_t loop, const std::vector<VertexId>& sequence, std::vector<FaceId>& created);
+    /// Sorts closed pieces into outer loops (CCW about `normal`) and holes, dropping slivers.
+    bool sortPieces(std::vector<std::vector<VertexId>> pieces, const Vec3& normal, std::vector<std::vector<VertexId>>& outers,
+                    std::vector<Loop>& holes) const;
+    /// Puts each hole into the face among `ids` whose outline encloses it.
+    bool placeHoles(const std::vector<FaceId>& ids, const std::vector<Loop>& holes, const Vec3& normal);
     /// Joins the two collinear straight edges at a vertex that has only those two.
     void healVertex(VertexId v);
     /// After a push/pull moved face `id` (normal `n`): a face it landed on
     /// looking the other way gets an opening, one looking the same way whose
     /// hole it fills is mended.
     bool land(FaceId id, const Vec3& n, PushPullResult& result, std::string& why);
+    bool fillHole(FaceId id, FaceId hole, PushPullResult& result);
+    Landing cutThrough(FaceId id, FaceId target, PushPullResult& result, std::string& why);
     /// Copies each curve whose edges all lie on `from` to the matching edges
     /// between the `top` vertices, moved by `offset`; side edges between two
     /// edges of a circle or arc become soft and smooth.
     void copyCurves(const std::vector<EdgeId>& from, const std::map<std::uint32_t, VertexId>& top, const Vec3& offset);
+    [[nodiscard]] std::optional<std::vector<EdgeId>> topEdges(const std::vector<EdgeId>& edges,
+                                                              const std::map<std::uint32_t, VertexId>& top) const;
+    void softenSides(const std::vector<EdgeId>& edges, const std::map<std::uint32_t, VertexId>& top);
 
     std::map<std::uint32_t, Vertex> vertices_;
     std::map<std::uint32_t, Edge> edges_;
