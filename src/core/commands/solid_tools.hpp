@@ -4,6 +4,7 @@
 #include "core/document/document.hpp"
 #include "core/document/result.hpp"
 
+#include <array>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -26,8 +27,8 @@ enum class SolidTool {
     OuterShell, ///< like Union, and any shell left inside another (a void) is removed
 };
 
-inline constexpr SolidTool kSolidTools[] = {SolidTool::Union, SolidTool::Subtract, SolidTool::Intersect,
-                                            SolidTool::Trim,  SolidTool::Split,    SolidTool::OuterShell};
+inline constexpr std::array kSolidTools{SolidTool::Union, SolidTool::Subtract, SolidTool::Intersect,
+                                       SolidTool::Trim,  SolidTool::Split,    SolidTool::OuterShell};
 
 /// Menu name ("Outer Shell") and a one-line explanation for a tooltip.
 std::string_view solidToolName(SolidTool tool);

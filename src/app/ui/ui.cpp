@@ -83,6 +83,19 @@ void solidTool(UiContext& ctx, SolidTool tool) {
     if (auto e = ctx.tools.applySolidTool(tool)) ctx.editor.notify(Message{Message::Kind::Error, *e});
 }
 
+/// Tools > Solid Tools: each tool, greyed out when the selection does not fit it.
+void solidToolsMenu(UiContext& ctx) {
+    if (!ImGui::BeginMenu("Solid Tools")) return;
+    const std::size_t count = ctx.editor.selectedObjects().size();
+    for (const SolidTool tool : kSolidTools) {
+        if (const std::string label(solidToolName(tool)); ImGui::MenuItem(label.c_str(), nullptr, false, solidToolAccepts(tool, count))) {
+            solidTool(ctx, tool);
+        }
+        tooltip(std::string(solidToolHelp(tool)).c_str());
+    }
+    ImGui::EndMenu();
+}
+
 void copyTo(std::array<char, 64>& dst, const std::string& s) {
     std::snprintf(dst.data(), dst.size(), "%s", s.c_str());
 }
@@ -318,34 +331,35 @@ UiRect Ui::draw(UiContext& ctx) {
 
 void Ui::menuBar(UiContext& ctx) {
     if (!ImGui::BeginMainMenuBar()) return;
+    using enum UiAction;
     if (ImGui::BeginMenu("File")) {
-        if (ImGui::MenuItem("New", shortcuts::kNew)) action(UiAction::New);
-        if (ImGui::MenuItem("Open...", shortcuts::kOpen)) action(UiAction::Open);
-        if (ImGui::MenuItem("Save", shortcuts::kSave)) action(UiAction::Save);
-        if (ImGui::MenuItem("Save As...", shortcuts::kSaveAs)) action(UiAction::SaveAs);
+        if (ImGui::MenuItem("New", shortcuts::kNew)) action(New);
+        if (ImGui::MenuItem("Open...", shortcuts::kOpen)) action(Open);
+        if (ImGui::MenuItem("Save", shortcuts::kSave)) action(Save);
+        if (ImGui::MenuItem("Save As...", shortcuts::kSaveAs)) action(SaveAs);
         ImGui::Separator();
-        if (ImGui::MenuItem("Exit", shortcuts::kQuit)) action(UiAction::Quit);
+        if (ImGui::MenuItem("Exit", shortcuts::kQuit)) action(Quit);
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Edit")) {
         const std::string undo = ctx.editor.canUndo() ? "Undo " + ctx.editor.undoLabel() : "Undo";
         const std::string redo = ctx.editor.canRedo() ? "Redo " + ctx.editor.redoLabel() : "Redo";
-        if (ImGui::MenuItem(undo.c_str(), shortcuts::kUndo, false, ctx.editor.canUndo())) action(UiAction::Undo);
-        if (ImGui::MenuItem(redo.c_str(), shortcuts::kRedo, false, ctx.editor.canRedo())) action(UiAction::Redo);
+        if (ImGui::MenuItem(undo.c_str(), shortcuts::kUndo, false, ctx.editor.canUndo())) action(Undo);
+        if (ImGui::MenuItem(redo.c_str(), shortcuts::kRedo, false, ctx.editor.canRedo())) action(Redo);
         ImGui::Separator();
-        if (ImGui::MenuItem("Duplicate", shortcuts::kDuplicate, false, ctx.editor.selection().has_value())) action(UiAction::Duplicate);
-        if (ImGui::MenuItem("Delete", shortcuts::kDelete, false, ctx.editor.selection().has_value())) action(UiAction::Delete);
+        if (ImGui::MenuItem("Duplicate", shortcuts::kDuplicate, false, ctx.editor.selection().has_value())) action(Duplicate);
+        if (ImGui::MenuItem("Delete", shortcuts::kDelete, false, ctx.editor.selection().has_value())) action(Delete);
         if (ImGui::MenuItem("Select all", shortcuts::kSelectAll, false, !ctx.editor.document().objects.empty())) {
-            action(UiAction::SelectAll);
+            action(SelectAll);
         }
         if (ImGui::MenuItem("Clear selection", "Esc", false, ctx.editor.selection().has_value())) ctx.editor.select(std::nullopt);
         ImGui::Separator();
-        if (ImGui::MenuItem("Delete Guides", nullptr, false, !ctx.editor.document().guides.empty())) action(UiAction::DeleteGuides);
+        if (ImGui::MenuItem("Delete Guides", nullptr, false, !ctx.editor.document().guides.empty())) action(DeleteGuides);
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("View")) {
-        if (ImGui::MenuItem("Fit to model", shortcuts::kFit)) action(UiAction::FitView);
-        if (ImGui::MenuItem("Reset view")) action(UiAction::ResetView);
+        if (ImGui::MenuItem("Fit to model", shortcuts::kFit)) action(FitView);
+        if (ImGui::MenuItem("Reset view")) action(ResetView);
         ImGui::Separator();
         ImGui::MenuItem("Guides", nullptr, &ctx.tools.snap().guides); // hidden guides do not snap either
         if (ctx.profileEdges) {
@@ -378,15 +392,7 @@ void Ui::menuBar(UiContext& ctx) {
         if (ImGui::MenuItem("Dimension", shortcuts::kDimension, t == Tool::Dimension)) ctx.tools.setTool(Tool::Dimension);
         if (ImGui::MenuItem("Eraser", shortcuts::kEraser, t == Tool::Eraser)) ctx.tools.setTool(Tool::Eraser);
         if (ImGui::MenuItem("Protractor", nullptr, t == Tool::Protractor)) ctx.tools.setTool(Tool::Protractor);
-        if (ImGui::BeginMenu("Solid Tools")) {
-            const std::size_t count = ctx.editor.selectedObjects().size();
-            for (const SolidTool tool : kSolidTools) {
-                const std::string label(solidToolName(tool));
-                if (ImGui::MenuItem(label.c_str(), nullptr, false, solidToolAccepts(tool, count))) solidTool(ctx, tool);
-                tooltip(std::string(solidToolHelp(tool)).c_str());
-            }
-            ImGui::EndMenu();
-        }
+        solidToolsMenu(ctx);
         ImGui::Separator();
         ImGui::MenuItem("Grid snap", shortcuts::kSnap, &ctx.tools.snap().enabled);
         ImGui::MenuItem("Point snap", nullptr, &ctx.tools.snap().points);
@@ -536,8 +542,10 @@ void Ui::properties(UiContext& ctx, float x, float y, float width, float height)
         for (const SolidTool tool : kSolidTools) {
             if (!solidToolAccepts(tool, ctx.editor.selectedObjects().size())) continue;
             const std::string label(solidToolName(tool));
-            const float w = ImGui::CalcTextSize(label.c_str()).x + 2.0f * ImGui::GetStyle().FramePadding.x;
-            if (!first && ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + w <= right) ImGui::SameLine();
+            if (const float w = ImGui::CalcTextSize(label.c_str()).x + 2.0f * ImGui::GetStyle().FramePadding.x;
+                !first && ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + w <= right) {
+                ImGui::SameLine();
+            }
             first = false;
             if (ImGui::Button(label.c_str())) solidTool(ctx, tool);
             tooltip((std::string(solidToolHelp(tool)) + " Uses the order the objects were selected in.").c_str());
