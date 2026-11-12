@@ -49,10 +49,11 @@ constexpr const char* kLimitsText =
     "- Side and base faces of rectangles and boxes cannot be pushed yet.\n"
     "- A rectangle drawn on a face is its own object: pushing it into a wall overlaps the wall\n"
     "  rather than cutting it. Holes and cutting are not supported yet.\n"
-    "- Touching or overlapping objects stay separate (no merging).\n"
-    "- Move, Rotate and Scale work on whole objects or on selected vertices, edges and faces (the\n"
-    "  connected geometry stretches; faces that would bend fold along soft edges). Rotate turns\n"
-    "  about the X, Y or Z axis, or about a line dragged from the centre (along an edge).\n"
+    "- Touching or overlapping objects stay separate until joined with Tools > Solid Tools.\n"
+    "- Move, Duplicate, Rotate and Scale work on whole objects; Move, Rotate and Scale also on\n"
+    "  selected vertices, edges and faces (the connected geometry stretches; faces that would bend\n"
+    "  fold along soft edges). Rotate turns about the X, Y or Z axis, or about a line dragged from\n"
+    "  the centre (along an edge).\n"
     "- Scale grips: drag a corner, edge or face grip; a negative factor (-1) mirrors.\n"
     "- Dimensions are deleted with their object and listed in this panel for deleting.";
 
@@ -78,6 +79,24 @@ std::string rotationLabel(const Transform& t) {
 
 void tooltip(const char* text) {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", text);
+}
+
+/// Runs a solid tool on the selection; a refusal is shown in the status bar.
+void solidTool(UiContext& ctx, SolidTool tool) {
+    if (auto e = ctx.tools.applySolidTool(tool)) ctx.editor.notify(Message{Message::Kind::Error, *e});
+}
+
+/// Tools > Solid Tools: each tool, greyed out when the selection does not fit it.
+void solidToolsMenu(UiContext& ctx) {
+    if (!ImGui::BeginMenu("Solid Tools")) return;
+    const std::size_t count = ctx.editor.selectedObjects().size();
+    for (const SolidTool tool : kSolidTools) {
+        if (const std::string label(solidToolName(tool)); ImGui::MenuItem(label.c_str(), nullptr, false, solidToolAccepts(tool, count))) {
+            solidTool(ctx, tool);
+        }
+        tooltip(std::string(solidToolHelp(tool)).c_str());
+    }
+    ImGui::EndMenu();
 }
 
 void copyTo(std::array<char, 64>& dst, const std::string& s) {
@@ -255,6 +274,9 @@ std::string Ui::measurementLive(const UiContext& ctx) const {
         return (p->delta >= 0 ? "+" : "") + formatLength(p->delta, u);
     }
     if (const auto* f = std::get_if<FreehandPreview>(&ctx.editor.preview())) return freehandLive(*f, u);
+    if (const auto* o = std::get_if<OffsetPreview>(&ctx.editor.preview())) {
+        return formatLength(std::abs(o->distance), u) + (o->distance < 0.0 ? "   (outward)" : "   (inward)");
+    }
     if (const auto* p = std::get_if<PushPullPreview>(&ctx.editor.preview())) {
         return (p->delta >= 0 ? "+" : "") + formatLength(p->delta, u) + "   (total height " + formatLength(p->height, u) + ")";
     }
@@ -318,34 +340,41 @@ UiRect Ui::draw(UiContext& ctx) {
 
 void Ui::menuBar(UiContext& ctx) {
     if (!ImGui::BeginMainMenuBar()) return;
+    using enum UiAction;
     if (ImGui::BeginMenu("File")) {
-        if (ImGui::MenuItem("New", shortcuts::kNew)) action(UiAction::New);
-        if (ImGui::MenuItem("Open...", shortcuts::kOpen)) action(UiAction::Open);
-        if (ImGui::MenuItem("Save", shortcuts::kSave)) action(UiAction::Save);
-        if (ImGui::MenuItem("Save As...", shortcuts::kSaveAs)) action(UiAction::SaveAs);
+        if (ImGui::MenuItem("New", shortcuts::kNew)) action(New);
+        if (ImGui::MenuItem("Open...", shortcuts::kOpen)) action(Open);
+        if (ImGui::MenuItem("Save", shortcuts::kSave)) action(Save);
+        if (ImGui::MenuItem("Save As...", shortcuts::kSaveAs)) action(SaveAs);
         ImGui::Separator();
-        if (ImGui::MenuItem("Exit", shortcuts::kQuit)) action(UiAction::Quit);
+        if (ImGui::MenuItem("Exit", shortcuts::kQuit)) action(Quit);
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Edit")) {
         const std::string undo = ctx.editor.canUndo() ? "Undo " + ctx.editor.undoLabel() : "Undo";
         const std::string redo = ctx.editor.canRedo() ? "Redo " + ctx.editor.redoLabel() : "Redo";
-        if (ImGui::MenuItem(undo.c_str(), shortcuts::kUndo, false, ctx.editor.canUndo())) action(UiAction::Undo);
-        if (ImGui::MenuItem(redo.c_str(), shortcuts::kRedo, false, ctx.editor.canRedo())) action(UiAction::Redo);
+        if (ImGui::MenuItem(undo.c_str(), shortcuts::kUndo, false, ctx.editor.canUndo())) action(Undo);
+        if (ImGui::MenuItem(redo.c_str(), shortcuts::kRedo, false, ctx.editor.canRedo())) action(Redo);
         ImGui::Separator();
-        if (ImGui::MenuItem("Duplicate", shortcuts::kDuplicate, false, ctx.editor.selection().has_value())) action(UiAction::Duplicate);
-        if (ImGui::MenuItem("Delete", shortcuts::kDelete, false, ctx.editor.selection().has_value())) action(UiAction::Delete);
+        if (ImGui::MenuItem("Duplicate", shortcuts::kDuplicate, false, ctx.editor.selection().has_value())) action(Duplicate);
+        if (ImGui::MenuItem("Delete", shortcuts::kDelete, false, ctx.editor.selection().has_value())) action(Delete);
         if (ImGui::MenuItem("Select all", shortcuts::kSelectAll, false, !ctx.editor.document().objects.empty())) {
-            action(UiAction::SelectAll);
+            action(SelectAll);
         }
         if (ImGui::MenuItem("Clear selection", "Esc", false, ctx.editor.selection().has_value())) ctx.editor.select(std::nullopt);
         ImGui::Separator();
-        if (ImGui::MenuItem("Delete Guides", nullptr, false, !ctx.editor.document().guides.empty())) action(UiAction::DeleteGuides);
+        if (ImGui::BeginMenu("Intersect Faces", ctx.editor.selection().has_value())) {
+            if (ImGui::MenuItem("With Model")) action(IntersectModel);
+            if (ImGui::MenuItem("With Selection")) action(IntersectSelection);
+            if (ImGui::MenuItem("With Context")) action(IntersectContext);
+            ImGui::EndMenu();
+        }
+        if (ImGui::MenuItem("Delete Guides", nullptr, false, !ctx.editor.document().guides.empty())) action(DeleteGuides);
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("View")) {
-        if (ImGui::MenuItem("Fit to model", shortcuts::kFit)) action(UiAction::FitView);
-        if (ImGui::MenuItem("Reset view")) action(UiAction::ResetView);
+        if (ImGui::MenuItem("Fit to model", shortcuts::kFit)) action(FitView);
+        if (ImGui::MenuItem("Reset view")) action(ResetView);
         ImGui::Separator();
         ImGui::MenuItem("Guides", nullptr, &ctx.tools.snap().guides); // hidden guides do not snap either
         if (ctx.profileEdges) {
@@ -370,6 +399,7 @@ void Ui::menuBar(UiContext& ctx) {
             ImGui::EndMenu();
         }
         if (ImGui::MenuItem("Push/Pull", shortcuts::kPushPull, t == Tool::PushPull)) ctx.tools.setTool(Tool::PushPull);
+        if (ImGui::MenuItem("Offset", shortcuts::kOffset, t == Tool::Offset)) ctx.tools.setTool(Tool::Offset);
         if (ImGui::MenuItem("Move", shortcuts::kMove, t == Tool::Move)) ctx.tools.setTool(Tool::Move);
         if (ImGui::MenuItem("Rotate", shortcuts::kRotate, t == Tool::Rotate)) ctx.tools.setTool(Tool::Rotate);
         if (ImGui::MenuItem("Scale", shortcuts::kScale, t == Tool::Scale)) ctx.tools.setTool(Tool::Scale);
@@ -378,6 +408,7 @@ void Ui::menuBar(UiContext& ctx) {
         if (ImGui::MenuItem("Dimension", shortcuts::kDimension, t == Tool::Dimension)) ctx.tools.setTool(Tool::Dimension);
         if (ImGui::MenuItem("Eraser", shortcuts::kEraser, t == Tool::Eraser)) ctx.tools.setTool(Tool::Eraser);
         if (ImGui::MenuItem("Protractor", nullptr, t == Tool::Protractor)) ctx.tools.setTool(Tool::Protractor);
+        solidToolsMenu(ctx);
         ImGui::Separator();
         ImGui::MenuItem("Grid snap", shortcuts::kSnap, &ctx.tools.snap().enabled);
         ImGui::MenuItem("Point snap", nullptr, &ctx.tools.snap().points);
@@ -420,6 +451,8 @@ void Ui::toolbar(UiContext& ctx, float y, float height, float width) {
     ImGui::SameLine();
     if (toolButton("Push/Pull", t == Tool::PushPull, "Push/Pull (P)\nClick a rectangle, circle, polygon, a top cap or a drawn face and move, or type a distance.")) ctx.tools.setTool(Tool::PushPull);
     ImGui::SameLine();
+    if (toolButton("Offset", t == Tool::Offset, "Offset (F)\nClick a face and move into or out of it, or type a distance.\nThe face's edges are copied that far in or out. Double-click repeats the last offset.")) ctx.tools.setTool(Tool::Offset);
+    ImGui::SameLine();
     if (toolButton("Move", t == Tool::Move, "Move (M)\nClick an object and move it, or type a distance.\nX, Y, Z or the arrow keys lock an axis.\n" PF_COPY_KEY " (tap) places a copy instead.")) ctx.tools.setTool(Tool::Move);
     ImGui::SameLine();
     if (toolButton("Rotate", t == Tool::Rotate, "Rotate (Q)\nClick the object, then the centre, a reference direction and the angle.\nOr type degrees. Arrow keys pick the axis.")) ctx.tools.setTool(Tool::Rotate);
@@ -436,7 +469,7 @@ void Ui::toolbar(UiContext& ctx, float y, float height, float width) {
     if (toolButton("Protractor", t == Tool::Protractor, "Protractor\nClick the centre, then the baseline, then the angle (or type degrees)\nto add an angled guide line. Arrow keys lock the plane.")) ctx.tools.setTool(Tool::Protractor);
     ImGui::SameLine(0, 18);
     if (ImGui::Button("Fit")) action(UiAction::FitView);
-    tooltip("Fit view to model (F)");
+    tooltip("Fit view to model (Shift+Z)");
     ImGui::SameLine(0, 18);
     ImGui::BeginDisabled(!ctx.editor.canUndo());
     if (ImGui::Button("Undo")) action(UiAction::Undo);
@@ -520,6 +553,21 @@ void Ui::properties(UiContext& ctx, float x, float y, float width, float height)
         ImGui::SameLine();
         if (ImGui::Button("Delete objects")) action(UiAction::Delete);
         tooltip("Deletes every selected object (Delete).");
+        ImGui::Spacing();
+        ImGui::TextColored(kMutedColor, "Solid tools");
+        bool first = true;
+        const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+        for (const SolidTool tool : kSolidTools) {
+            if (!solidToolAccepts(tool, ctx.editor.selectedObjects().size())) continue;
+            const std::string label(solidToolName(tool));
+            if (const float w = ImGui::CalcTextSize(label.c_str()).x + 2.0f * ImGui::GetStyle().FramePadding.x;
+                !first && ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + w <= right) {
+                ImGui::SameLine();
+            }
+            first = false;
+            if (ImGui::Button(label.c_str())) solidTool(ctx, tool);
+            tooltip((std::string(solidToolHelp(tool)) + " Uses the order the objects were selected in.").c_str());
+        }
     } else if (!o) {
         ImGui::TextColored(kMutedColor, "Nothing selected");
         ImGui::TextWrapped("Pick the Select tool (Space) and click an object, or drag a box around several, or draw a "

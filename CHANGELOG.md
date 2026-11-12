@@ -29,6 +29,35 @@ include breaking changes, but project files will keep a migration path.
   the opposite side, or typing a negative factor, mirrors: `-1` on a grip mirrors across
   that grip's axis, and the faces stay facing outwards. Typed factors no longer have to be
   positive, only non-zero.
+- **Solid tools** (Tools > Solid Tools, or the buttons under a multi-selection): Union,
+  Subtract, Intersect, Trim, Split and Outer Shell on closed solids (boxes, cylinders,
+  prisms and closed mesh groups), at any position and rotation. The order of selection
+  matters: for Subtract, Trim and Split the first object selected cuts the second. The
+  result is a mesh group that keeps the object's id, name and placement, with coplanar
+  faces merged and a cylinder's soft edges kept, and passes `checkSolid`; it is one undo
+  entry. Dimensions on changed objects are removed. The booleans are our own code on the
+  edge/face mesh (`core/geometry/solid_boolean.*`); no geometry kernel was added.
+- **Intersect Faces** (Edit > Intersect Faces > With Model, With Selection, With
+  Context). Adds edges where faces cross, so the pieces can be erased or pushed on their
+  own: select faces, or whole objects for all their faces, and pick what to cut them
+  against: every face in the model, only the rest of the selection, or the other faces of
+  their own object (the editing context, until groups can be opened). Both of two crossing
+  objects are cut, and each new edge splits the face it runs across as a drawn edge would.
+  Intersecting two overlapping boxes and erasing the parts inside each other leaves the
+  outline of their union. Rectangles and boxes that get cut become mesh groups. Parallel
+  and coplanar faces are not cut. One undo entry; nothing changes when no face crosses
+  another. The core gains `intersectFaces`, `selectedFaces` and `mesh::faceIntersection`,
+  and an edge lying in two crossing faces of one mesh now splits both.
+- **Offset tool (F).** Click a face and move the pointer into or out of it, then click (or
+  press, drag and release), or type a distance. Every loop of the face is copied that far
+  in its own plane, with mitred corners: inward the face becomes a ring around a smaller
+  copy of itself (each hole grows and gets a ring of its own), outward a ring forms around
+  it (and inside each hole, which shrinks, or is filled once it closes up). Concave shapes work, and short edges that would
+  turn inside out (a small chamfer) are dropped; a distance too large for the shape is
+  refused with a message and the preview turns red. Arcs, circles and polygons stay true
+  curves at the offset radius. Rectangles and boxes become mesh groups, keeping their face
+  ids, and the ring is selected afterwards. Double-click a face to repeat the last offset.
+  The core gains `offsetFace`, `mesh::offsetLoops` and `mesh::signedBoundaryDistance`.
 - **Push/pull any planar face.** Side and base faces of a box, faces drawn on a wall, and
   faces of any shape now push and pull. Each edge of the face either stretches the face
   beside it, when that face runs along the push (a box's wall grows or shrinks), or gets a
@@ -158,6 +187,7 @@ include breaking changes, but project files will keep a migration path.
 
 ### Changed
 
+- **Fit view moved from F to Shift+Z**, so F can be the Offset tool as in other modelers.
 - Internal: each tool is now its own class behind a small interface (`app/tools/tool.hpp`),
   with snapping, axis locks and numeric entry in shared helpers. No behavior change.
 

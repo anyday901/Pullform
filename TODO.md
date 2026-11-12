@@ -157,10 +157,12 @@ with selection, not item 14).
 - [ ] **19. Intersect Faces.** With Model, With Selection, With Context: add edges where
       faces cross so they can be split and erased. *Depends on:* 4. *Accept:* intersecting
       two overlapping boxes adds the shared edges and erasing gives the union outline.
-- [ ] **20. Solid tools.** Union, Subtract, Intersect, Trim, Split and Outer Shell on
+- [x] **20. Solid tools.** Union, Subtract, Intersect, Trim, Split and Outer Shell on
       closed solids (groups or components), probably through Manifold if item 3 picks it.
       *Depends on:* 3, 22. *Accept:* subtracting a cylinder from a box gives a closed solid
-      with a round hole that passes `checkSolid`.
+      with a round hole that passes `checkSolid`. *Done:* written on our own edge/face mesh
+      (no kernel), working on today's closed objects, which groups and components can use
+      once item 22 lands.
 - [ ] **21. Edge and face cleanup.** Soften/smooth edges with an angle slider, Reverse
       Faces and Orient Faces, Hide/Unhide geometry, Flip Along an axis. *Depends on:* 5.
       *Accept:* a 48-sided cylinder can be shown smooth with no visible segment edges.

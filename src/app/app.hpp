@@ -53,6 +53,7 @@ private:
     void handleShortcuts();
     void handleActions();
     void finishPending(Pending pending);
+    void intersect(IntersectMode mode);
     void requestPending(Pending pending);
     void doNew();
     void doOpen();

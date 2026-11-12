@@ -206,10 +206,21 @@ struct ErasePreview {
     std::vector<ElementRef> edges;
 };
 
+/// Live Offset: the offset loops of a face (world space) at `distance`
+/// (positive goes into the face), drawn as closed outlines.
+struct OffsetPreview {
+    ObjectId objectId;
+    std::uint32_t face = 0; ///< mesh face id (mesh::faceIdFor for a rectangle or box)
+    double distance = 0.0;
+    std::vector<std::vector<Vec3>> loops;
+    std::optional<std::string> error; ///< why this distance cannot be committed
+};
+
 /// Transient feedback drawn by the viewport. Never part of the document or history.
 using Preview =
     std::variant<std::monostate, RectanglePreview, CirclePreview, LinePreview, PushPullPreview, MovePreview, RotatePreview, ScalePreview,
-                 MeasurePreview, SelectBoxPreview, ArcPreview, ProtractorPreview, ErasePreview, FreehandPreview>;
+                 MeasurePreview, SelectBoxPreview, ArcPreview, ProtractorPreview, ErasePreview, FreehandPreview,
+                 OffsetPreview>;
 
 /// The object a preview draws in place of the document's version (push/pull,
 /// rotate and scale), if any. The viewport hides the original while it is set.
